@@ -117,6 +117,7 @@ dependencies {
     implementation(libs.commons.compress)
     implementation(libs.xz)
     implementation(libs.junrar)
+    implementation(libs.smbj)
     // Carries bundletool and ARSCLib, both relocated under app.local1st.files.vendor.
     implementation(project(path = ":vendor:bundletool-shaded", configuration = "shadedRuntimeElements"))
 
