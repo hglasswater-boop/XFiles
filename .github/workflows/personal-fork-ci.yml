@@ -77,12 +77,17 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Commit validated changes
+      - name: Commit validated source changes
         run: |
           set -eu
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add \
+            app/src/main/java/app/local1st/files/core/prefs/ContextMenuOrderSettings.kt \
+            app/src/main/java/app/local1st/files/core/prefs/SettingsBackup.kt \
+            app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt \
+            app/src/main/java/app/local1st/files/ui/settings/SettingsScreen.kt
+          git rm .github/scripts/apply_context_menu_customizations.py
           git commit -m "Add configurable context menu ordering"
           git push
 
