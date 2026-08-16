@@ -69,6 +69,14 @@ use:
 - Browser rows were made denser so more files fit on screen while keeping thumbnails
   usable.
 
+### Copy / move destination confirmation
+
+- Copy and move from a selection no longer start immediately when the toolbar action is tapped.
+- The destination picker can jump to either the **source pane's current folder** or the
+  **other pane's current folder**, then browse deeper before committing the operation.
+- The transfer starts only after tapping **Copy here** / **Move here**, which prevents accidental
+  transfers to the wrong pane or folder.
+
 ### Video player improvements
 
 - Double-tap the left/right half of the video to seek **-10 / +10 seconds**.

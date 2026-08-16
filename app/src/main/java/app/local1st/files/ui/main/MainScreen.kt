@@ -285,14 +285,14 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                 icon = Icons.Outlined.ContentCopy,
                                 enabled = canUseOtherPane,
                             ) {
-                                vm.copySelection(move = false)
+                                vm.chooseTransferDestination(move = false)
                             }
                             TooltipIconButton(
                                 label = moveTargetLabel,
                                 icon = Icons.AutoMirrored.Outlined.DriveFileMove,
                                 enabled = canUseOtherPane,
                             ) {
-                                vm.copySelection(move = true)
+                                vm.chooseTransferDestination(move = true)
                             }
                             TooltipIconButton(stringResource(R.string.delete), Icons.Outlined.Delete) { vm.requestDelete() }
                             TooltipIconButton(

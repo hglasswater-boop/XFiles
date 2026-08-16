@@ -57,8 +57,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Optional full-screen folder chooser reached from an entry's long-press menu. The primary
- * copy/move actions use the other pane directly; this screen is the explicit-location escape hatch.
+ * Full-screen destination chooser used by copy/move actions. The user can jump to either
+ * pane's current folder, browse to any writable directory, and explicitly confirm the transfer.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -77,6 +77,21 @@ fun DestinationPickerScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var reloadTick by remember { mutableStateOf(0) }
     var nameDialog by remember { mutableStateOf(false) }
+
+    // Snapshot both pane locations when the picker opens. This keeps the source/target shortcuts
+    // stable while the user browses around inside the picker.
+    val sourcePaneDirId = remember(t, vm) { vm.activeCtrl.state.value.focusedDirId }
+    val otherPaneDirId = remember(t, vm) { vm.inactiveCtrl.state.value.focusedDirId }
+
+    fun jumpTo(dirId: String?) {
+        scope.launch {
+            current = dirId?.let { id ->
+                withContext(Dispatchers.IO) {
+                    runCatching { Graph.fsRegistry.forId(id).stat(id) }.getOrNull()
+                }
+            }
+        }
+    }
 
     fun goUp(from: XEntry) {
         scope.launch { current = withContext(Dispatchers.IO) { parentOf(from) } }
@@ -145,6 +160,20 @@ fun DestinationPickerScreen(
                     )
                 },
             )
+
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { jumpTo(sourcePaneDirId) },
+                    enabled = sourcePaneDirId != null,
+                ) { Text("元ペイン") }
+                OutlinedButton(
+                    onClick = { jumpTo(otherPaneDirId) },
+                    enabled = otherPaneDirId != null,
+                ) { Text("別ペイン") }
+            }
 
             Text(
                 current?.let { pathLabel(it) } ?: stringResource(R.string.this_device),
