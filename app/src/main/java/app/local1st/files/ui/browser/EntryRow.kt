@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,11 +61,13 @@ import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
+import app.local1st.files.core.prefs.ThumbnailSize
 import app.local1st.files.core.prefs.FilenameDisplayMode
 import app.local1st.files.core.thumb.AppIcon
 import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
 import app.local1st.files.core.thumb.RemoteVideoThumb
+import app.local1st.files.core.thumb.VideoDurationResolver
 import app.local1st.files.core.thumb.VideoThumb
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
@@ -73,6 +76,7 @@ import app.local1st.files.di.Graph
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import java.io.File
+import java.util.Locale
 
 // One visible tree level. Deeper paths are visually compressed according to the display setting;
 // the breadcrumb still carries the full path, so the list does not need unlimited indentation.
@@ -488,6 +492,20 @@ private fun StartupEntryRow(
 private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    val showDuration = isVideo && (
+        display.thumbnailSize == ThumbnailSize.LARGE ||
+            display.thumbnailSize == ThumbnailSize.EXTRA_LARGE
+        )
+    val durationMs by produceState<Long?>(
+        initialValue = null,
+        entry.id,
+        entry.mtime,
+        entry.size,
+        showDuration,
+        loaded,
+    ) {
+        value = if (showDuration && loaded) VideoDurationResolver.durationMs(entry) else null
+    }
     val width = display.thumbnailSize.widthDp.dp
     val height = display.thumbnailSize.heightDp.dp
     val playBadge = if (display.thumbnailSize.widthDp >= 80) 20.dp else 16.dp
@@ -543,6 +561,34 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
                 )
             }
         }
+    if (showDuration && loaded) {
+        durationMs?.let { duration ->
+            Text(
+                text = formatVideoDuration(duration),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+            )
+        }
+    }
+
+    }
+}
+
+private fun formatVideoDuration(durationMs: Long): String {
+    val totalSeconds = (durationMs / 1000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%d:%02d", minutes, seconds)
     }
 }
 
