@@ -5,6 +5,7 @@ import app.local1st.files.core.fs.ArchiveFileSystem
 import app.local1st.files.core.fs.DefaultRootsRepository
 import app.local1st.files.core.fs.LocalFileSystem
 import app.local1st.files.core.fs.RootFileSystem
+import app.local1st.files.core.fs.SmbFileSystem
 import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.fs.priv.ShizukuGate
 import app.local1st.files.core.ops.DefaultOperationEngine
@@ -21,6 +22,7 @@ fun initGraph(graph: Graph) {
     graph.fsRegistry.register(LocalFileSystem(graph.legacySaf, privilegedFallback = rootFs))
     graph.fsRegistry.register(ArchiveFileSystem())
     graph.fsRegistry.register(AppsFileSystem(Graph.appContext))
+    graph.fsRegistry.register(SmbFileSystem(graph.smbConnections))
     graph.fsRegistry.register(rootFs)
 
     graph.roots = DefaultRootsRepository(
