@@ -95,6 +95,7 @@ private val CompactIosChevronSize = 12.dp
 fun MainScreen(vm: MainViewModel = viewModel()) {
     val sessionReady by vm.sessionReady.collectAsStateWithLifecycle()
     val activePane by vm.activePane.collectAsStateWithLifecycle()
+    val pendingTransfer by vm.pendingTransfer.collectAsStateWithLifecycle()
     val activeState by vm.panes[activePane].state.collectAsStateWithLifecycle()
     val otherPaneController = vm.panes[1 - activePane]
     val otherPaneState by otherPaneController.state.collectAsStateWithLifecycle()
@@ -102,6 +103,9 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val otherPaneName = paneLocationName(otherPaneDestination, otherPaneState.focusedDirId)
     val otherPanePath = paneLocationPath(otherPaneDestination, otherPaneState.focusedDirId)
     val canUseOtherPane = isFileOperationDestination(otherPaneDestination)
+    val transferDestination = vm.activeCtrl.focusedDirEntry()
+    val transferDestinationName = paneLocationName(transferDestination, activeState.focusedDirId)
+    val canConfirmTransfer = isFileOperationDestination(transferDestination)
     var initiallyLaidOutPanes by remember(vm) { mutableStateOf<Set<Int>>(emptySet()) }
     var startupContentReady by rememberSaveable(vm) {
         mutableStateOf(sessionReady && activeState.snapshotOnly)
@@ -116,23 +120,18 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     }
     val canShareSelection = selectedFiles.isNotEmpty() && selectedFiles.all { it.localPath != null }
     val unavailableDestinationLabel = stringResource(R.string.cannot_write, otherPaneName)
-    val copyTargetLabel = if (canUseOtherPane) {
-        "${stringResource(R.string.copy_to_title)} $otherPaneName"
-    } else {
-        unavailableDestinationLabel
-    }
-    val moveTargetLabel = if (canUseOtherPane) {
-        "${stringResource(R.string.move_to_title)} $otherPaneName"
-    } else {
-        unavailableDestinationLabel
-    }
+    val copyTargetLabel = stringResource(R.string.copy_to)
+    val moveTargetLabel = stringResource(R.string.move_to)
     val compressTargetLabel = if (canUseOtherPane) {
         "${stringResource(R.string.compress_to)} $otherPaneName"
     } else {
         unavailableDestinationLabel
     }
 
-    BackHandler(enabled = selectionCount > 0) {
+    BackHandler(enabled = pendingTransfer != null) {
+        vm.cancelTransferDestination()
+    }
+    BackHandler(enabled = pendingTransfer == null && selectionCount > 0) {
         vm.activeCtrl.clearSelection()
     }
 
@@ -153,8 +152,18 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             controller = pane,
                             active = activePane == index,
                             onActivate = { vm.setActivePane(index) },
-                            onOpenEntry = { vm.openEntry(pane, it) },
-                            onEntryMenu = { vm.dialog.value = DialogRequest.EntryMenu(it) },
+                            onOpenEntry = { entry ->
+                        if (pendingTransfer != null && entry.isContainer) {
+                            pane.expand(entry)
+                        } else if (pendingTransfer == null) {
+                            vm.openEntry(pane, entry)
+                        }
+                    },
+                            onEntryMenu = { entry ->
+                        if (pendingTransfer == null) {
+                            vm.dialog.value = DialogRequest.EntryMenu(entry)
+                        }
+                    },
                             onInitialLayoutReady = { version ->
                                 initiallyLaidOutPanes = initiallyLaidOutPanes + index
                                 vm.onPaneInitialLayoutReady(index, version)
@@ -193,8 +202,18 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         controller = pane,
                         active = activePane == page,
                         onActivate = { vm.setActivePane(page) },
-                        onOpenEntry = { vm.openEntry(pane, it) },
-                        onEntryMenu = { vm.dialog.value = DialogRequest.EntryMenu(it) },
+                        onOpenEntry = { entry ->
+                        if (pendingTransfer != null && entry.isContainer) {
+                            pane.expand(entry)
+                        } else if (pendingTransfer == null) {
+                            vm.openEntry(pane, entry)
+                        }
+                    },
+                        onEntryMenu = { entry ->
+                        if (pendingTransfer == null) {
+                            vm.dialog.value = DialogRequest.EntryMenu(entry)
+                        }
+                    },
                         onInitialLayoutReady = { version ->
                             initiallyLaidOutPanes = initiallyLaidOutPanes + page
                             vm.onPaneInitialLayoutReady(page, version)
@@ -259,6 +278,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
         )
 
         // Signature X-plore action bar, reimagined as an Expressive floating toolbar.
+        if (pendingTransfer == null) {
         HorizontalFloatingToolbar(
             expanded = true,
             modifier = Modifier
@@ -337,6 +357,52 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 }
             },
         )
+    } else {
+        val transfer = pendingTransfer
+        if (transfer != null) {
+            HorizontalFloatingToolbar(
+                expanded = true,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                    .offset(y = (-24).dp),
+                content = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TooltipIconButton(
+                            label = stringResource(R.string.cancel),
+                            icon = Icons.Outlined.Close,
+                        ) { vm.cancelTransferDestination() }
+                        Text(
+                            "${transfer.sources.size}",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            transferDestinationName,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .padding(horizontal = 6.dp)
+                                .widthIn(max = 140.dp),
+                        )
+                        TooltipIconButton(
+                            label = if (transfer.move) {
+                                "ここへ移動: $transferDestinationName"
+                            } else {
+                                "ここへコピー: $transferDestinationName"
+                            },
+                            icon = if (transfer.move) {
+                                Icons.AutoMirrored.Outlined.DriveFileMove
+                            } else {
+                                Icons.Outlined.ContentCopy
+                            },
+                            enabled = canConfirmTransfer,
+                        ) { vm.confirmTransferCurrentDestination() }
+                    }
+                },
+            )
+        }
+    }
 
         val requiredPanes = if (wideLayout) vm.panes.indices else listOf(activePane)
         val currentLayoutReady = requiredPanes.all { index ->
