@@ -22,21 +22,17 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -54,7 +50,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.local1st.files.BuildConfig
 import app.local1st.files.R
@@ -138,7 +133,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                 LargeFlexibleTopAppBar(
                     title = { Text(stringResource(R.string.settings)) },
                     navigationIcon = {
-                        TooltipIconButton(stringResource(R.string.back), Icons.AutoMirrored.Outlined.ArrowBack, onClick = close)
+                        TooltipIconButton(
+                            stringResource(R.string.back),
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            onClick = close,
+                        )
                     },
                     scrollBehavior = scrollBehavior,
                 )
@@ -207,9 +206,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                     checked = sortDescending,
                     onCheckedChange = { scope.launch { settings.setSortDescending(it) } },
                 )
-
-                SectionHeader("SMB")
-                SmbConnectionsSection()
 
                 SectionHeader(stringResource(R.string.file_associations))
                 SwitchRow(
@@ -356,162 +352,6 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
         }
     }
-}
-
-@Composable
-private fun SmbConnectionsSection() {
-    val context = LocalContext.current
-    val connections by Graph.smbConnections.connections.collectAsState()
-    var showAdd by rememberSaveable { mutableStateOf(false) }
-
-    if (connections.isEmpty()) {
-        Text(
-            "登録されたSMB共有はありません。SMB2/SMB3のNASやWindows共有を追加できます。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-        )
-    } else {
-        connections.forEach { config ->
-            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(config.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "\\\\${config.host}\\${config.share}",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (config.username.isNotBlank()) {
-                        Text(
-                            buildString {
-                                append(config.username)
-                                if (config.domain.isNotBlank()) append(" @ ").append(config.domain)
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { Graph.smbConnections.remove(config.id) }) {
-                        Text("削除")
-                    }
-                }
-            }
-        }
-    }
-
-    Spacer(Modifier.height(8.dp))
-    OutlinedButton(onClick = { showAdd = true }) {
-        Text("SMB接続を追加")
-    }
-
-    if (showAdd) {
-        AddSmbConnectionDialog(
-            onDismiss = { showAdd = false },
-            onAdd = { name, host, share, username, password, domain ->
-                runCatching {
-                    Graph.smbConnections.add(
-                        name = name,
-                        host = host,
-                        share = share,
-                        username = username,
-                        password = password,
-                        domain = domain,
-                    )
-                }.onSuccess {
-                    showAdd = false
-                }.onFailure { error ->
-                    Toast.makeText(
-                        context,
-                        error.message ?: "SMB接続を保存できませんでした",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun AddSmbConnectionDialog(
-    onDismiss: () -> Unit,
-    onAdd: (
-        name: String,
-        host: String,
-        share: String,
-        username: String,
-        password: String,
-        domain: String,
-    ) -> Unit,
-) {
-    var name by rememberSaveable { mutableStateOf("") }
-    var host by rememberSaveable { mutableStateOf("") }
-    var share by rememberSaveable { mutableStateOf("") }
-    var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var domain by rememberSaveable { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("SMB接続を追加") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("表示名（省略可）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = host,
-                    onValueChange = { host = it },
-                    label = { Text("ホスト / IPアドレス") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = share,
-                    onValueChange = { share = it },
-                    label = { Text("共有名") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("ユーザー名（匿名なら空欄）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("パスワード") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = domain,
-                    onValueChange = { domain = it },
-                    label = { Text("ドメイン（省略可）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = host.isNotBlank() && share.isNotBlank(),
-                onClick = {
-                    onAdd(name, host, share, username, password, domain)
-                },
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
 }
 
 @StringRes
