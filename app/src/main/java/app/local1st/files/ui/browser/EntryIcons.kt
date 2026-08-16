@@ -121,6 +121,7 @@ object EntryIcons {
         // size < 0 = stat failed mid-listing: nothing decodable behind the entry, and a
         // video's (path, mtime, size) thumb-cache key would be degenerate.
         val readableModel = entry.localPath != null ||
+            entry.scheme == XId.SCHEME_SMB ||
             (entry.scheme == XId.SCHEME_ROOT && PrivilegedAccess.canOpenFd())
         if (!readableModel || entry.isDir || entry.size < 0) return false
         return when (FileTypes.categoryOf(entry.name, entry.mime)) {
