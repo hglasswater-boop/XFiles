@@ -32,6 +32,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
+import app.local1st.files.core.prefs.FolderSortSpec
+import app.local1st.files.core.prefs.SortBy
 import app.local1st.files.core.util.AppComponents
 import app.local1st.files.core.util.ComponentType
 import app.local1st.files.core.util.FileTypes
@@ -117,10 +119,91 @@ fun MainDialogs(vm: MainViewModel) {
             confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) } },
         )
 
+        is DialogRequest.FolderSort -> FolderSortDialog(req.folder, dismiss)
+
         is DialogRequest.EntryMenu -> ModalBottomSheet(onDismissRequest = dismiss) {
             EntryMenuContent(vm, req, dismiss)
         }
     }
+}
+
+@Composable
+private fun FolderSortDialog(
+    folder: app.local1st.files.core.fs.XEntry,
+    onDismiss: () -> Unit,
+) {
+    val overrides by Graph.folderSorts.sorts.collectAsState()
+    val globalBy by Graph.settings.sortBy.collectAsState(initial = SortBy.NAME)
+    val globalDescending by Graph.settings.sortDescending.collectAsState(initial = false)
+    val globalDirsFirst by Graph.settings.dirsFirst.collectAsState(initial = true)
+    val current = overrides[folder.id]
+    var by by remember(folder.id, current, globalBy) { mutableStateOf(current?.by ?: globalBy) }
+    var descending by remember(folder.id, current, globalDescending) {
+        mutableStateOf(current?.descending ?: globalDescending)
+    }
+    var dirsFirst by remember(folder.id, current, globalDirsFirst) {
+        mutableStateOf(current?.dirsFirst ?: globalDirsFirst)
+    }
+
+    fun sortLabel(value: SortBy): String = when (value) {
+        SortBy.NAME -> "名前"
+        SortBy.SIZE -> "サイズ"
+        SortBy.DATE -> "更新日時"
+        SortBy.TYPE -> "種類"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("このフォルダの並び順") },
+        text = {
+            Column {
+                Text(folder.name)
+                SortBy.entries.forEach { option ->
+                    TextButton(
+                        onClick = { by = option },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (option == by) "● ${sortLabel(option)}" else "○ ${sortLabel(option)}")
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                TextButton(
+                    onClick = { descending = !descending },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (descending) "順序: 降順" else "順序: 昇順")
+                }
+                TextButton(
+                    onClick = { dirsFirst = !dirsFirst },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (dirsFirst) "フォルダを先頭: ON" else "フォルダを先頭: OFF")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    Graph.folderSorts.set(
+                        folder.id,
+                        FolderSortSpec(by, descending, dirsFirst),
+                    )
+                    onDismiss()
+                },
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            Column {
+                TextButton(
+                    onClick = {
+                        Graph.folderSorts.set(folder.id, null)
+                        onDismiss()
+                    },
+                ) { Text("全体設定を使用") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            }
+        },
+    )
 }
 
 @Composable
@@ -249,6 +332,11 @@ private fun EntryMenuContent(
             MenuItem(stringResource(R.string.uninstall)) { IntentUtils.uninstall(context, entry.path); dismiss() }
         } else if (entry != null) {
             MenuItem(stringResource(R.string.details)) { vm.dialog.value = DialogRequest.Details(entry) }
+            if (entry.isDir) {
+                MenuItem("このフォルダの並び順") {
+                    vm.dialog.value = DialogRequest.FolderSort(entry)
+                }
+            }
             if (entry.isDir && vm.canCreateFileIn(entry)) {
                 // Replaces the bottom-sheet request with the naming dialog. Calling dismiss after it
                 // would immediately clear that new request again.
