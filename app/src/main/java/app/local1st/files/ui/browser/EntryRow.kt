@@ -57,8 +57,11 @@ import coil3.compose.AsyncImagePainter
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
+import app.local1st.files.core.fs.XId
 import app.local1st.files.core.thumb.AppIcon
 import app.local1st.files.core.thumb.PrivFile
+import app.local1st.files.core.thumb.RemoteFile
+import app.local1st.files.core.thumb.RemoteVideoThumb
 import app.local1st.files.core.thumb.VideoThumb
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
@@ -69,7 +72,7 @@ import java.io.File
 // padding), centered a hairline (its 1px lead) right of the children's vertical spine —
 // the lead keeps a visible gap between a branch line's round cap and the chevron.
 private val IndentWidth = 12.dp
-private val RowHeight = 56.dp
+private val RowHeight = 48.dp
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -119,7 +122,7 @@ fun EntryRow(
         modifier = modifier
             .fillMaxWidth()
             .height(RowHeight)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(background)
             .combinedClickable(
                 enabled = enabled,
@@ -190,7 +193,7 @@ fun EntryRow(
         }
 
         // Icon or thumbnail (selection is the trailing control, to avoid mis-taps here).
-        Box(Modifier.padding(end = 8.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.padding(end = 6.dp), contentAlignment = Alignment.Center) {
             val wantsThumbnail = EntryIcons.wantsThumbnail(entry)
             if (entry.kind == EntryKind.APP) {
                 AsyncImage(
@@ -245,14 +248,14 @@ fun EntryRow(
                     strokeCap = StrokeCap.Round,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 3.dp, end = 8.dp)
-                        .height(4.dp),
+                        .padding(top = 2.dp, end = 8.dp)
+                        .height(3.dp),
                 )
             }
         }
 
         if (node.loading) {
-            LoadingIndicator(modifier = Modifier.size(28.dp))
+            LoadingIndicator(modifier = Modifier.size(26.dp))
         }
 
         if (selectable) {
@@ -265,7 +268,7 @@ fun EntryRow(
                     icon,
                     contentDescription = description,
                     tint = tint,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -353,7 +356,7 @@ private fun StartupEntryRow(
         modifier = modifier
             .fillMaxWidth()
             .height(RowHeight)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(background)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
@@ -368,7 +371,7 @@ private fun StartupEntryRow(
             Spacer(Modifier.width(expandSlotWidth()))
         }
         Box(
-            Modifier.padding(end = 8.dp),
+            Modifier.padding(end = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -393,7 +396,7 @@ private fun StartupEntryRow(
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            val details = entryDetails(node)
+            val details = entryDetails(node, loadFolderCount = false)
             if (details.isNotEmpty()) {
                 Text(
                     details,
@@ -411,7 +414,7 @@ private fun StartupEntryRow(
                     contentDescription = null,
                     tint = if (selected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -426,7 +429,7 @@ private fun StartupEntryRow(
 @Composable
 private fun EntryThumbnail(entry: XEntry) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
-    var loaded by remember(entry.id) { mutableStateOf(false) }
+    var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
     Box(contentAlignment = Alignment.Center) {
         if (!loaded) {
             Icon(
@@ -438,6 +441,8 @@ private fun EntryThumbnail(entry: XEntry) {
         }
         AsyncImage(
             model = when {
+                entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(entry)
+                entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
                 isVideo -> VideoThumb(
                     path = entry.localPath ?: entry.path,
                     mtime = entry.mtime,
@@ -452,7 +457,7 @@ private fun EntryThumbnail(entry: XEntry) {
             onState = { loaded = it is AsyncImagePainter.State.Success },
             modifier = Modifier
                 .size(36.dp)
-                .clip(RoundedCornerShape(10.dp)),
+                .clip(RoundedCornerShape(8.dp)),
         )
         if (isVideo && loaded) {
             Box(
@@ -473,7 +478,7 @@ private fun EntryThumbnail(entry: XEntry) {
 }
 
 @Composable
-private fun entryDetails(node: TreeNode): String {
+private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {
     val entry = node.entry
     return when {
         entry.badge != null -> entry.badge
@@ -481,10 +486,20 @@ private fun entryDetails(node: TreeNode): String {
             val date = Format.dateTime(entry.mtime)
             if (date.isEmpty()) Format.bytes(entry.size) else "${Format.bytes(entry.size)} · $date"
         }
+        entry.isDir && loadFolderCount -> {
+            rememberFolderFileCount(entry)?.let { "$it ファイル" }
+                ?: if (entry.childCountHint >= 0) {
+                    pluralStringResource(
+                        R.plurals.item_count_plural,
+                        entry.childCountHint,
+                        entry.childCountHint,
+                    )
+                } else ""
+        }
         entry.isDir && entry.childCountHint >= 0 -> pluralStringResource(
             R.plurals.item_count_plural, entry.childCountHint, entry.childCountHint,
         )
-        // Folders otherwise show just their name — dropping the bare timestamp declutters the tree.
+        // Folders otherwise show just their name until their lazy direct-file count arrives.
         else -> ""
     }
 }
