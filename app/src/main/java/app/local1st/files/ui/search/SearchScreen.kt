@@ -263,6 +263,20 @@ private fun SearchHitRow(
                 entry.name,
                 style = MaterialTheme.typography.bodyLarge,
             )
+
+            val size = Format.bytes(entry.size)
+            val date = Format.dateTime(entry.mtime)
+            val metadata = listOf(size, date).filter { it.isNotEmpty() }.joinToString(" · ")
+            if (metadata.isNotEmpty()) {
+                Text(
+                    metadata,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
             Text(
                 displayParentPath(hit.parentId),
                 style = MaterialTheme.typography.bodySmall,
@@ -270,21 +284,6 @@ private fun SearchHitRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            val size = Format.bytes(entry.size)
-            if (size.isNotEmpty()) {
-                Text(size, style = MaterialTheme.typography.labelSmall)
-            }
-            val date = Format.dateTime(entry.mtime)
-            if (date.isNotEmpty()) {
-                Text(
-                    date,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
