@@ -174,7 +174,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                 SectionHeader(stringResource(R.string.browsing))
                 BrowserDisplaySettingsSection()
-                ContextMenuOrderSection()
+                ReorderableContextMenuOrderSection()
                 SwitchRow(
                     title = stringResource(R.string.show_hidden),
                     subtitle = stringResource(R.string.show_hidden_summary),
