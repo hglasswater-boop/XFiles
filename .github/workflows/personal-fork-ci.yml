@@ -37,7 +37,7 @@ jobs:
           import kotlinx.coroutines.sync.withPermit
           import kotlinx.coroutines.withContext
 
-          /** Lazily resolves video duration only when the UI actually needs to display it. */
+          /** Resolves video duration only for thumbnails that actually display it. */
           object VideoDurationResolver {
               private data class CacheKey(val id: String, val mtime: Long, val size: Long)
 
@@ -47,13 +47,6 @@ jobs:
               private val cache = object : LinkedHashMap<CacheKey, Long>(MAX_CACHE_ENTRIES, 0.75f, true) {
                   override fun removeEldestEntry(eldest: MutableMap.MutableEntry<CacheKey, Long>?): Boolean =
                       size > MAX_CACHE_ENTRIES
-              }
-
-              fun remember(entry: XEntry, durationMs: Long?) {
-                  if (durationMs == null || durationMs <= 0L) return
-                  synchronized(cache) {
-                      cache[CacheKey(entry.id, entry.mtime, entry.size)] = durationMs
-                  }
               }
 
               suspend fun durationMs(entry: XEntry): Long? {
@@ -79,14 +72,16 @@ jobs:
                       when {
                           entry.scheme == XId.SCHEME_SMB -> {
                               if (entry.size <= 0L) return null
-                              smbSource = DurationSmbMediaDataSource(entry)
-                              retriever.setDataSource(smbSource)
+                              val source = DurationSmbMediaDataSource(entry)
+                              smbSource = source
+                              retriever.setDataSource(source)
                           }
                           entry.localPath != null -> retriever.setDataSource(entry.localPath)
                           entry.scheme == XId.SCHEME_ROOT -> {
                               val transport = PrivilegedAccess.fdTransport() ?: return null
-                              descriptor = transport.openFd(entry.path, write = false) ?: return null
-                              retriever.setDataSource(descriptor.fileDescriptor)
+                              val fd = transport.openFd(entry.path, write = false) ?: return null
+                              descriptor = fd
+                              retriever.setDataSource(fd.fileDescriptor)
                           }
                           else -> return null
                       }
@@ -103,7 +98,7 @@ jobs:
               }
           }
 
-          /** Small random-access SMB bridge used only for metadata duration lookup. */
+          /** Random-access SMB bridge with small read-ahead for MP4 metadata parsing. */
           private class DurationSmbMediaDataSource(private val entry: XEntry) : MediaDataSource() {
               private var file: SmbRandomAccessFile? = null
               private val blocks = object : LinkedHashMap<Long, ByteArray>(MAX_CACHED_BLOCKS, 0.75f, true) {
@@ -116,7 +111,6 @@ jobs:
                   if (position < 0L || position >= entry.size || size <= 0) return -1
                   val wanted = minOf(size.toLong(), entry.size - position).toInt()
                   if (wanted <= 0) return -1
-
                   var remotePosition = position
                   var destOffset = offset
                   var remaining = wanted
@@ -173,25 +167,25 @@ jobs:
 
           path = Path('app/src/main/java/app/local1st/files/ui/browser/EntryRow.kt')
           text = path.read_text()
-          replacements = [
+          imports = [
               ('import androidx.compose.runtime.mutableStateOf\n', 'import androidx.compose.runtime.mutableStateOf\nimport androidx.compose.runtime.produceState\n'),
               ('import app.local1st.files.core.prefs.BrowserDisplaySettings\n', 'import app.local1st.files.core.prefs.BrowserDisplaySettings\nimport app.local1st.files.core.prefs.ThumbnailSize\n'),
               ('import app.local1st.files.core.thumb.VideoThumb\n', 'import app.local1st.files.core.thumb.VideoDurationResolver\nimport app.local1st.files.core.thumb.VideoThumb\n'),
               ('import java.io.File\n', 'import java.io.File\nimport java.util.Locale\n'),
           ]
-          for old, new in replacements:
+          for old, new in imports:
               if old not in text:
                   raise SystemExit(f'import marker not found: {old!r}')
               text = text.replace(old, new, 1)
 
-          old = '''    val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
+          header_old = '''    val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
               var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
               val width = display.thumbnailSize.widthDp.dp
               val height = display.thumbnailSize.heightDp.dp
               val playBadge = if (display.thumbnailSize.widthDp >= 80) 20.dp else 16.dp
               val playIcon = if (display.thumbnailSize.widthDp >= 80) 15.dp else 12.dp
           '''
-          new = '''    val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
+          header_new = '''    val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
               var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
               val showDuration = isVideo && (
                   display.thumbnailSize == ThumbnailSize.LARGE ||
@@ -212,41 +206,17 @@ jobs:
               val playBadge = if (display.thumbnailSize.widthDp >= 80) 20.dp else 16.dp
               val playIcon = if (display.thumbnailSize.widthDp >= 80) 15.dp else 12.dp
           '''
-          if old not in text:
+          if header_old not in text:
               raise SystemExit('EntryThumbnail header not found')
-          text = text.replace(old, new, 1)
+          text = text.replace(header_old, header_new, 1)
 
-          old = '''        if (isVideo && loaded) {
-                  Box(
-                      Modifier
-                          .size(playBadge)
-                          .background(Color.Black.copy(alpha = 0.45f), CircleShape),
-                      contentAlignment = Alignment.Center,
-                  ) {
-                      Icon(
-                          Icons.Filled.PlayArrow,
-                          contentDescription = null,
-                          tint = Color.White,
-                          modifier = Modifier.size(playIcon),
-                      )
-                  }
-              }
-          '''
-          new = '''        if (isVideo && loaded) {
-                  Box(
-                      Modifier
-                          .size(playBadge)
-                          .background(Color.Black.copy(alpha = 0.45f), CircleShape),
-                      contentAlignment = Alignment.Center,
-                  ) {
-                      Icon(
-                          Icons.Filled.PlayArrow,
-                          contentDescription = null,
-                          tint = Color.White,
-                          modifier = Modifier.size(playIcon),
-                      )
-                  }
-              }
+          start = text.index('private fun EntryThumbnail(')
+          end = text.index('\n@Composable\nprivate fun entryDetails', start)
+          segment = text[start:end]
+          insert_at = segment.rfind('\n    }\n}')
+          if insert_at < 0:
+              raise SystemExit('EntryThumbnail tail not found')
+          overlay = '''
               if (showDuration && loaded) {
                   durationMs?.let { duration ->
                       Text(
@@ -257,23 +227,18 @@ jobs:
                           modifier = Modifier
                               .align(Alignment.BottomEnd)
                               .padding(4.dp)
-                              .background(
-                                  Color.Black.copy(alpha = 0.72f),
-                                  RoundedCornerShape(4.dp),
-                              )
+                              .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
                               .padding(horizontal = 4.dp, vertical = 1.dp),
                       )
                   }
               }
           '''
-          if old not in text:
-              raise SystemExit('video badge block not found')
-          text = text.replace(old, new, 1)
+          segment = segment[:insert_at] + overlay + segment[insert_at:]
+          text = text[:start] + segment + text[end:]
 
-          marker = '''@Composable
-          private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {
-          '''
-          helper = '''private fun formatVideoDuration(durationMs: Long): String {
+          details = '\n@Composable\nprivate fun entryDetails'
+          helper = '''
+          private fun formatVideoDuration(durationMs: Long): String {
               val totalSeconds = (durationMs / 1000L).coerceAtLeast(0L)
               val hours = totalSeconds / 3600L
               val minutes = (totalSeconds % 3600L) / 60L
@@ -284,49 +249,11 @@ jobs:
                   String.format(Locale.US, "%d:%02d", minutes, seconds)
               }
           }
-
-          @Composable
-          private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {
           '''
-          if marker not in text:
+          if details not in text:
               raise SystemExit('entryDetails marker not found')
-          text = text.replace(marker, helper, 1)
+          text = text.replace(details, helper + details, 1)
           path.write_text(text)
-
-          remote = Path('app/src/main/java/app/local1st/files/core/thumb/RemoteVideoThumbFetcher.kt')
-          rtext = remote.read_text()
-          old = '''            retriever.setDataSource(source)
-
-              // Prefer intentional artwork stored in the media container. Besides giving a much
-              // better jacket view, this usually avoids spinning up video decoding at all.
-              retriever.embeddedPicture
-                  ?.let(::decodeEmbeddedPicture)
-                  ?.let { return it }
-
-              val durationMs = retriever
-                  .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                  ?.toLongOrNull()
-                  ?.takeIf { it > 0L }
-          '''
-          new = '''            retriever.setDataSource(source)
-
-              // Duration is already available while parsing the same container for the poster.
-              // Cache it so large-thumbnail overlays do not issue a second set of SMB reads.
-              val durationMs = retriever
-                  .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                  ?.toLongOrNull()
-                  ?.takeIf { it > 0L }
-              VideoDurationResolver.remember(entry, durationMs)
-
-              // Prefer intentional artwork stored in the media container. Besides giving a much
-              // better jacket view, this usually avoids spinning up video decoding at all.
-              retriever.embeddedPicture
-                  ?.let(::decodeEmbeddedPicture)
-                  ?.let { return it }
-          '''
-          if old not in rtext:
-              raise SystemExit('remote duration block not found')
-          remote.write_text(rtext.replace(old, new, 1))
           PY
 
           git diff --check
@@ -387,7 +314,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             app/src/main/java/app/local1st/files/ui/browser/EntryRow.kt \
-            app/src/main/java/app/local1st/files/core/thumb/RemoteVideoThumbFetcher.kt \
             app/src/main/java/app/local1st/files/core/thumb/VideoDurationResolver.kt
           git commit -m "Show video duration on large thumbnails"
           git push
