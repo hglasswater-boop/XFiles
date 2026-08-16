@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -141,20 +142,8 @@ fun EntryRow(
             .heightIn(min = rowMinHeight)
             .clip(RoundedCornerShape(8.dp))
             .background(background)
-            .combinedClickable(
-                enabled = enabled,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            ),
-    ) {
-        // Keep only the most recent N levels. This prevents an 8- or 10-level path from consuming
-        // most of a phone screen while still preserving local parent/child structure.
-        if (displayDepth > 0) {
-            Canvas(
-                Modifier
-                    .width(IndentWidth * displayDepth)
-                    .fillMaxHeight(),
-            ) {
+            .drawBehind {
+                if (displayDepth <= 0) return@drawBehind
                 val unit = IndentWidth.toPx()
                 val stroke = 1.dp.toPx()
 
@@ -189,7 +178,13 @@ fun EntryRow(
                     drawLine(guideColor, Offset(x, midY), Offset(endX, midY), stroke, cap = StrokeCap.Round)
                 }
             }
-        }
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+    ) {
+        if (displayDepth > 0) Spacer(Modifier.width(IndentWidth * displayDepth))
 
         // Expand chevron for containers, aligned space for leaves.
         if (entry.isContainer) {
@@ -293,7 +288,7 @@ fun EntryRow(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .width(SelectionWidth)
-                    .fillMaxHeight()
+                    .heightIn(min = rowMinHeight)
                     .clickable(enabled = enabled, onClick = onToggleSelect),
             ) {
                 Icon(
@@ -467,7 +462,7 @@ private fun StartupEntryRow(
             Box(
                 Modifier
                     .width(SelectionWidth)
-                    .fillMaxHeight(),
+                    .heightIn(min = rowMinHeight),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
