@@ -1,6 +1,6 @@
 package app.local1st.files.ui.browser
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -34,15 +34,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -82,6 +83,10 @@ fun PaneView(
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
     val initialScrollIndex = state.initialScrollIndex
+    var breadcrumbSortTarget by remember(controller) {
+        mutableStateOf<Pair<String, String>?>(null)
+    }
+
     if (initialScrollIndex == null) {
         Surface(
             modifier = modifier.fillMaxSize(),
@@ -102,8 +107,19 @@ fun PaneView(
                         onActivate()
                         controller.revealPath(id)
                     },
+                    onCrumbLongClick = { id, name ->
+                        onActivate()
+                        breadcrumbSortTarget = id to name
+                    },
                 )
             }
+        }
+        breadcrumbSortTarget?.let { (id, name) ->
+            BreadcrumbSortDialog(
+                folderId = id,
+                folderName = name,
+                onDismiss = { breadcrumbSortTarget = null },
+            )
         }
         return
     }
@@ -224,12 +240,23 @@ fun PaneView(
                     onActivate()
                     controller.revealPath(id)
                 },
+                onCrumbLongClick = { id, name ->
+                    onActivate()
+                    breadcrumbSortTarget = id to name
+                },
             )
         }
     }
 
     if (showAddSmbServer) {
         AddSmbConnectionDialog(onDismiss = { showAddSmbServer = false })
+    }
+    breadcrumbSortTarget?.let { (id, name) ->
+        BreadcrumbSortDialog(
+            folderId = id,
+            folderName = name,
+            onDismiss = { breadcrumbSortTarget = null },
+        )
     }
 }
 
@@ -243,6 +270,7 @@ private fun BoxScope.PaneHeader(
     headerEndPadding: Dp,
     headerOverlay: (@Composable () -> Unit)?,
     onCrumbClick: (String) -> Unit,
+    onCrumbLongClick: (String, String) -> Unit,
 ) {
     // One row so the compact target chip only takes the width it needs. Overlaying two
     // independently aligned pills forced a worst-case hole on the opposite side.
@@ -272,6 +300,7 @@ private fun BoxScope.PaneHeader(
                 focusedDirId = focusedDirId,
                 active = active,
                 onCrumbClick = onCrumbClick,
+                onCrumbLongClick = onCrumbLongClick,
                 modifier = Modifier.wrapContentWidth(
                     align = if (chipOnStart) Alignment.End else Alignment.Start,
                     unbounded = false,
@@ -297,6 +326,7 @@ private fun BreadcrumbBar(
     focusedDirId: String?,
     active: Boolean,
     onCrumbClick: (String) -> Unit,
+    onCrumbLongClick: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val crumbs = crumbsFor(focusedDirId)
@@ -351,7 +381,10 @@ private fun BreadcrumbBar(
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     modifier = Modifier
-                        .clickable { onCrumbClick(id) }
+                        .combinedClickable(
+                            onClick = { onCrumbClick(id) },
+                            onLongClick = { onCrumbLongClick(id, name) },
+                        )
                         .padding(vertical = 4.dp, horizontal = 1.dp),
                 )
             }
