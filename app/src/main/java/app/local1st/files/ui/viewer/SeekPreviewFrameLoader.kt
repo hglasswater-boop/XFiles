@@ -119,11 +119,15 @@ internal object SeekPreviewFrameLoader {
                         entry.localPath != null -> retriever.setDataSource(entry.localPath)
                         entry.scheme == XId.SCHEME_ROOT -> {
                             // Preview decoration must never trigger a new root prompt/probe.
-                            val transport = PrivilegedAccess.fdTransport() ?: return null.also {
+                            val transport = PrivilegedAccess.fdTransport()
+                            if (transport == null) {
                                 runCatching { retriever.release() }
+                                return null
                             }
-                            descriptor = transport.openFd(entry.path, write = false) ?: return null.also {
+                            descriptor = transport.openFd(entry.path, write = false)
+                            if (descriptor == null) {
                                 runCatching { retriever.release() }
+                                return null
                             }
                             retriever.setDataSource(descriptor.fileDescriptor)
                         }
