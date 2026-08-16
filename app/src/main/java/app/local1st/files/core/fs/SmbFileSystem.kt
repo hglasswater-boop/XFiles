@@ -2,6 +2,7 @@ package app.local1st.files.core.fs
 
 import app.local1st.files.core.prefs.SmbConnectionConfig
 import app.local1st.files.core.prefs.SmbConnectionRepo
+import app.local1st.files.core.util.FileTypes
 import com.hierynomus.msdtyp.AccessMask
 import com.hierynomus.msfscc.FileAttributes
 import com.hierynomus.mssmb2.SMB2CreateDisposition
@@ -47,6 +48,7 @@ class SmbFileSystem(
                         isDir = isDir,
                         size = if (isDir) -1L else info.endOfFile,
                         mtime = info.lastWriteTime.toEpochMillis(),
+                        mime = if (isDir) null else FileTypes.mimeOf(info.fileName),
                         hidden = hidden || info.fileName.startsWith('.'),
                         canRead = true,
                         canWrite = true,
@@ -141,6 +143,7 @@ class SmbFileSystem(
             id = childId,
             name = name,
             isDir = false,
+            mime = FileTypes.mimeOf(name),
             kind = EntryKind.FILE,
         )
     }
@@ -189,7 +192,11 @@ class SmbFileSystem(
         }
         val parentId = XId.parent(entry.id) ?: return entry
         val newId = "$parentId/$newName"
-        return stat(newId) ?: entry.copy(id = newId, name = newName)
+        return stat(newId) ?: entry.copy(
+            id = newId,
+            name = newName,
+            mime = if (entry.isDir) null else FileTypes.mimeOf(newName),
+        )
     }
 
     override fun canWrite(entry: XEntry): Boolean = entry.id != ROOT_ID
