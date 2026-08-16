@@ -131,9 +131,6 @@ fun VideoPlayerScreen(
     hasNext: Boolean,
     onClose: () -> Unit,
 ) {
-    // All of these are UNKEYED remembers on purpose: long-lived gesture closures
-    // (pointerInput below) capture the state objects once, and only an unkeyed
-    // remember keeps the same object alive across playlist item transitions.
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var fps by remember { mutableFloatStateOf(0f) }
@@ -152,10 +149,6 @@ fun VideoPlayerScreen(
     var seekPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var seekPreviewTrackWidthPx by remember { mutableIntStateOf(0) }
 
-    // The system bars belong to the same chrome as the close row and the control card: they go
-    // when it goes and come back with it, rather than being suppressed for the whole session.
-    // Scrubbing stays safe either way — the scrub layer below keeps clear of the back-gesture edge
-    // zones on its own, instead of relying on hidden bars to swallow the first edge swipe.
     SystemBarsHidden(hidden = !controlsVisible)
     val view = LocalView.current
     val density = LocalDensity.current
@@ -180,17 +173,11 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Keep the panel lit while playing, and also while inspecting frames: frame work is
-    // long stretches of staring at a paused picture.
     DisposableEffect(view, playing, frameMode) {
         view.keepScreenOn = playing || frameMode
         onDispose { view.keepScreenOn = false }
     }
 
-    // Exact seeks can decode forward from an earlier keyframe. The gate limits seek command
-    // frequency while guaranteeing that the newest request is eventually issued. A render event
-    // may accelerate the queue, but correctness never depends on onRenderedFirstFrame(), which is
-    // not an every-seek completion callback.
     val seekGate = remember(player) { SeekGate(player) }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -207,8 +194,6 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(player, entry.id) {
         while (isActive) {
-            // Prefer the gate's newest target so the readout follows rapid seek input even
-            // while decoding is catching up.
             positionMs = (seekGate.targetMs.takeIf { it >= 0 } ?: player.currentPosition)
                 .coerceAtLeast(0L)
             durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
@@ -219,8 +204,6 @@ fun VideoPlayerScreen(
     LaunchedEffect(entry.id) {
         seekPreviewTargetMs = -1L
         seekPreviewBitmap = null
-        // New item: forget the previous stream's rate (the poll above refills it), then
-        // give the declared format a moment to surface before paying for a probe.
         fps = 0f
         delay(1000L)
         if (fps > 0f) return@LaunchedEffect
@@ -228,21 +211,20 @@ fun VideoPlayerScreen(
         if (fps <= 0f && probed != null) fps = probed
     }
 
-    // Preview extraction is lightly debounced so fast thumb motion does not queue obsolete native
-    // decodes. The last successful bitmap stays visible while the next one is being fetched.
+    // Never show a frame from the previous target under a new timestamp. Clear immediately and
+    // make the loading state explicit until the exact target preview arrives.
     LaunchedEffect(entry.id, seekPreviewTargetMs) {
         val target = seekPreviewTargetMs
         if (target < 0L) {
             seekPreviewBitmap = null
             return@LaunchedEffect
         }
+        seekPreviewBitmap = null
         delay(SEEK_PREVIEW_DEBOUNCE_MS)
         val bitmap = SeekPreviewFrameLoader.load(entry, target)
-        if (seekPreviewTargetMs == target && bitmap != null) seekPreviewBitmap = bitmap
+        if (seekPreviewTargetMs == target) seekPreviewBitmap = bitmap
     }
 
-    // NAS seeks are far faster when normal time scrubbing can land on the nearest sync frame.
-    // Frame inspection still needs exact positioning, and local media keeps the original behavior.
     LaunchedEffect(player, entry.scheme, frameMode) {
         player.setSeekParameters(
             if (entry.scheme == XId.SCHEME_SMB && !frameMode) {
@@ -253,20 +235,14 @@ fun VideoPlayerScreen(
         )
     }
 
-    // Helper *functions*, not vals: gesture closures outlive many recompositions, and a
-    // function reading the state vars sees live values where a captured val would not.
     fun effFpsNow(): Float = if (fps > 0f) fps else FALLBACK_FPS
     fun totalFramesNow(): Long =
         if (durationMs > 0) floor(durationMs.toDouble() * effFpsNow() / 1000.0).toLong() else 0L
     fun clampMs(ms: Long) = if (durationMs > 0) ms.coerceIn(0L, durationMs) else ms.coerceAtLeast(0L)
     fun frameOf(ms: Long): Long = floor(ms.toDouble() * effFpsNow() / 1000.0).toLong()
-    // Rapid steps must chain off the queued target, not currentPosition, or taps that
-    // arrive while a seek is still decoding would all compute the same base.
     fun anchorMs(): Long = seekGate.targetMs.takeIf { it >= 0 } ?: player.currentPosition
     fun seekToFrame(frame: Long): Long {
         val target = frame.coerceIn(0L, (totalFramesNow() - 1).coerceAtLeast(0L))
-        // Aim mid-frame: a boundary timestamp rounded down to ms would resolve to the
-        // previous frame.
         seekGate.request(clampMs(((target + 0.5) * 1000.0 / effFpsNow()).toLong()))
         return target
     }
@@ -280,13 +256,9 @@ fun VideoPlayerScreen(
         interactionTick++
     }
 
-    // Pausing is when the controls matter, so surface them — except mid-swipe, where the
-    // pause is our own bookkeeping and chrome would defeat the gesture's purpose.
     LaunchedEffect(playing) {
         if (!playing && !scrubbing && sliderPos == null) controlsVisible = true
     }
-    // Auto-hide only while playing hands-free: a finger on the slider/card/volume gesture must
-    // never have the control it's holding vanish beneath it.
     val interacting = scrubbing || volumeAdjusting || cardDragging || sliderPos != null
     LaunchedEffect(controlsVisible, playing, interacting, interactionTick) {
         if (controlsVisible && playing && !interacting) {
@@ -295,9 +267,6 @@ fun VideoPlayerScreen(
         }
     }
 
-    // IgnoringVisibility: the bars come and go with this chrome, and chrome anchored to the
-    // live insets would collapse into the top/bottom edges as they leave (and jump when they
-    // or transient bars return). The close row keeps one status-bar height of clearance regardless.
     val statusBarsIns = WindowInsets.statusBarsIgnoringVisibility
     val navBarsIns = WindowInsets.navigationBarsIgnoringVisibility
     val cutout = WindowInsets.displayCutout
@@ -325,10 +294,6 @@ fun VideoPlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Single tap toggles chrome; double-tap seek is limited to the outer 30% on each side.
-        // Drag direction is resolved after touch slop: horizontal means seek, vertical on the
-        // right half means media volume. Keeping these on the same full-screen layer preserves
-        // all gestures without carving the video into mutually exclusive touch zones.
         Box(
             Modifier
                 .fillMaxSize()
@@ -356,10 +321,6 @@ fun VideoPlayerScreen(
                     )
                 },
         ) {
-            // The gesture layer stays clear of the system back-gesture edge zones
-            // (with a floor for devices that report none), so an edge swipe is never
-            // both a seek and a back navigation. Taps still work full-bleed via the
-            // parent layer above.
             Box(
                 Modifier
                     .fillMaxSize()
@@ -383,8 +344,6 @@ fun VideoPlayerScreen(
                                 VideoGestureMode.HORIZONTAL_SEEK -> {
                                     scrubbing = false
                                     scrubLabel = null
-                                    // Frame mode exists to inspect a chosen frame — stay on it
-                                    // instead of resuming playback over it.
                                     if (resumeAfterSeek && !frameMode) player.play()
                                 }
                                 VideoGestureMode.VOLUME -> volumeAdjusting = false
@@ -491,8 +450,6 @@ fun VideoPlayerScreen(
                             listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
                         ),
                     )
-                    // Status-bar height (visible or not) ∪ cutout: the close row keeps
-                    // its safe-area clearance in fullscreen and clears a landscape notch.
                     .windowInsetsPadding(
                         statusBarsIns.union(
                             cutout.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
@@ -545,8 +502,6 @@ fun VideoPlayerScreen(
                 )
                 .padding(horizontal = 12.dp)
                 .padding(bottom = 10.dp)
-                // Clamp at placement, not only at drag: rotation or an inset change can
-                // shrink the room, and this lambda re-runs on those size changes.
                 .offset {
                     val travel = (
                         parentHeightPx - cardHeightPx - statusBarsIns.getTop(this) -
@@ -592,8 +547,6 @@ fun VideoPlayerScreen(
                                 CircleShape,
                             ),
                     )
-                    // Keep the readouts above the scrubber so the timeline can use the
-                    // full width of the control card instead of being squeezed between labels.
                     val approx = if (fps > 0f && isStandardFps(fps)) "" else "≈"
                     val total = totalFramesNow()
                     val modeColor = if (frameMode) MaterialTheme.colorScheme.primary
@@ -660,12 +613,20 @@ fun VideoPlayerScreen(
                                     },
                             ) {
                                 Box(Modifier.fillMaxSize()) {
-                                    seekPreviewBitmap?.let { bitmap ->
+                                    val bitmap = seekPreviewBitmap
+                                    if (bitmap != null) {
                                         Image(
                                             bitmap = bitmap.asImageBitmap(),
                                             contentDescription = null,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize(),
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "読み込み中…",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.8f),
+                                            modifier = Modifier.align(Alignment.Center),
                                         )
                                     }
                                     Text(
@@ -709,6 +670,7 @@ fun VideoPlayerScreen(
                                 val previewTarget = (target / bucketMs) * bucketMs
                                 if (previewTarget != seekPreviewTargetMs) {
                                     seekPreviewTargetMs = previewTarget
+                                    seekPreviewBitmap = null
                                 }
                             }
                         },
@@ -759,8 +721,6 @@ fun VideoPlayerScreen(
                                 onClick = {
                                     when {
                                         playing -> player.pause()
-                                        // play() alone is a no-op at ENDED/IDLE — the
-                                        // stock controller restarts/re-prepares, so do we.
                                         player.playbackState == Player.STATE_ENDED -> {
                                             player.seekToDefaultPosition()
                                             player.play()
@@ -808,10 +768,6 @@ fun VideoPlayerScreen(
     }
 }
 
-/**
- * Time/frame readout that toggles the display mode. Tooltip + padded hit target: a bare
- * clickable label would be an undiscoverable, sub-minimum touch target.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModeToggleText(
@@ -839,19 +795,7 @@ private fun ModeToggleText(
     }
 }
 
-/**
- * Throttles high-frequency seek input while keeping latest-wins semantics. The previous
- * implementation waited for Player.Listener.onRenderedFirstFrame() before issuing a queued seek,
- * but Media3 only guarantees that callback for the first frame after a surface/renderer/stream
- * reset, not after every seek. A queued second seek could therefore remain stuck indefinitely.
- *
- * A timer now guarantees the latest queued target is issued within [SEEK_THROTTLE_MS]. A render
- * callback can still flush it sooner, and [SEEK_TARGET_HOLD_MS] keeps the UI anchored to the
- * requested position while decoding catches up without allowing the readout to freeze forever.
- * All calls originate on the main thread.
- */
 private class SeekGate(private val player: ExoPlayer) {
-    /** Most recently requested seek target; -1 when the UI can follow currentPosition again. */
     var targetMs = -1L
         private set
 
@@ -903,7 +847,6 @@ private class SeekGate(private val player: ExoPlayer) {
         handler.postDelayed(clearTargetRunnable, SEEK_TARGET_HOLD_MS)
     }
 
-    /** A frame became available; use it as an opportunity to send the newest queued target. */
     fun onFrameRendered() {
         if (queuedMs >= 0) {
             handler.removeCallbacks(flushQueuedRunnable)
@@ -914,7 +857,6 @@ private class SeekGate(private val player: ExoPlayer) {
         }
     }
 
-    /** A queued seek targets the old item's timeline; drop it on item transitions. */
     fun reset() {
         handler.removeCallbacks(flushQueuedRunnable)
         handler.removeCallbacks(clearTargetRunnable)
@@ -926,10 +868,6 @@ private class SeekGate(private val player: ExoPlayer) {
     fun release() = reset()
 }
 
-/**
- * Fallback frame rate for containers that don't declare one, derived from the stream's
- * total frame count. Null when that metadata is missing too.
- */
 private fun probeFrameRate(path: String?): Float? {
     if (path == null || Build.VERSION.SDK_INT < 28) return null
     val retriever = MediaMetadataRetriever()
@@ -953,7 +891,6 @@ private fun probeFrameRate(path: String?): Float? {
     }
 }
 
-/** Within 1% of a standard capture/broadcast rate; anything else smells of a VFR average. */
 private fun isStandardFps(f: Float): Boolean = STANDARD_FPS.any { abs(f - it) / it < 0.01f }
 
 private enum class VideoGestureMode {
@@ -972,14 +909,14 @@ private const val SEEK_TARGET_HOLD_MS = 800L
 private const val SEEK_PREVIEW_BUCKET_MS = 500L
 private const val SMB_SEEK_PREVIEW_BUCKET_MS = 1_000L
 private const val SEEK_PREVIEW_DEBOUNCE_MS = 60L
-private const val FRAME_SWIPE_DP = 8f // one frame per this much horizontal travel
-private const val EDGE_GUARD_DP = 24 // scrub dead zone at screen edges (back gesture)
-private const val TIME_SWIPE_MS_PER_DP = 100L // a full-width swipe covers roughly 40 s
+private const val FRAME_SWIPE_DP = 8f
+private const val EDGE_GUARD_DP = 24
+private const val TIME_SWIPE_MS_PER_DP = 100L
 private const val DOUBLE_TAP_SEEK_SECONDS = 10
 private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f
 private const val DOUBLE_TAP_LABEL_MS = 700L
-private const val VOLUME_REGION_START_FRACTION = 0.5f // right half of the video
-private const val VOLUME_FULL_SCALE_FRACTION = 0.7f // 70% screen-height drag spans 0..max
+private const val VOLUME_REGION_START_FRACTION = 0.5f
+private const val VOLUME_FULL_SCALE_FRACTION = 0.7f
 private const val VOLUME_LABEL_MS = 900L
 private const val AUTO_HIDE_MS = 4000L
 private const val STEP_SECONDS = 5
