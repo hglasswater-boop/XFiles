@@ -2,6 +2,7 @@ package app.local1st.files.core.thumb
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
@@ -54,7 +55,7 @@ class RemoteVideoThumbFetcher(
                     dataSource = DataSource.DISK,
                 )
             }
-            val bitmap = withContext(Dispatchers.IO) { extractFrame(data.entry) }
+            val bitmap = withContext(Dispatchers.IO) { extractThumbnail(data.entry) }
                 ?: return@withPermit null
             runCatching {
                 cached.parentFile?.mkdirs()
@@ -79,20 +80,27 @@ class RemoteVideoThumbFetcher(
         }
     }
 
-    private fun extractFrame(entry: XEntry): Bitmap? {
+    private fun extractThumbnail(entry: XEntry): Bitmap? {
         if (entry.size <= 0L) return null
         val retriever = MediaMetadataRetriever()
         val source = SmbMediaDataSource(entry)
         return try {
             retriever.setDataSource(source)
+
+            // Prefer intentional artwork stored in the media container. Besides giving a much
+            // better jacket view, this usually avoids spinning up video decoding at all.
+            retriever.embeddedPicture
+                ?.let(::decodeEmbeddedPicture)
+                ?.let { return it }
+
             val durationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?.takeIf { it > 0L }
             val candidatesUs = if (durationMs != null) {
-                // Do not use the opening frame: many files start with black/fade-in/title cards.
-                // Usually the first 25% frame is enough; later positions are only read when the
-                // selected frame is nearly black, so the common case stays fast.
+                // No embedded jacket: do not use the opening frame because many files start with
+                // black/fade-in/title cards. Usually 25% is enough; later positions are read only
+                // when the selected frame is nearly black, so the common case stays fast.
                 longArrayOf(
                     durationMs * 250L,
                     durationMs * 500L,
@@ -124,6 +132,23 @@ class RemoteVideoThumbFetcher(
             runCatching { retriever.release() }
             runCatching { source.close() }
         }
+    }
+
+    private fun decodeEmbeddedPicture(bytes: ByteArray): Bitmap? {
+        if (bytes.isEmpty()) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sample = 1
+        while (
+            bounds.outWidth / sample > THUMB_SIZE * 2 ||
+            bounds.outHeight / sample > THUMB_SIZE * 2
+        ) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let(::scaleDown)
     }
 
     private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? =
@@ -212,7 +237,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v4:$id:$mtime:$size"
+            "remote-video-thumb-v5:$id:$mtime:$size"
         }
     }
 
@@ -227,7 +252,7 @@ class RemoteVideoThumbFetcher(
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v4|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v5|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
