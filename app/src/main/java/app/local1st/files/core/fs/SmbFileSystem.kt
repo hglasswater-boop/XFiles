@@ -206,13 +206,14 @@ class SmbFileSystem(
         name = config.name,
         isDir = true,
         kind = EntryKind.DIR,
-        badge = "\\\\${config.host}\\${config.share}",
+        badge = config.uncPath,
         canRead = true,
         canWrite = true,
     )
 
     private data class Target(
         val connection: SmbConnectionConfig,
+        /** Path inside the actual SMB share, including the configured starting directory. */
         val path: String,
     )
 
@@ -222,7 +223,12 @@ class SmbFileSystem(
         val connectionId = raw.substringBefore('/')
         val connection = connections.find(connectionId)
             ?: throw IOException("SMB connection is no longer configured")
-        val path = raw.substringAfter('/', "")
+        val relativePath = raw.substringAfter('/', "")
+        val path = when {
+            connection.basePath.isBlank() -> relativePath
+            relativePath.isBlank() -> connection.basePath
+            else -> "${connection.basePath}/$relativePath"
+        }
         return Target(connection, path)
     }
 
@@ -317,6 +323,42 @@ class SmbFileSystem(
             SMB2ShareAccess.FILE_SHARE_WRITE,
             SMB2ShareAccess.FILE_SHARE_DELETE,
         )
+
+        /**
+         * Verifies host reachability, authentication, share access, and the configured start path.
+         * Nothing is saved and no remote content is modified.
+         */
+        fun testConnection(config: SmbConnectionConfig, password: String) {
+            val client = SMBClient()
+            try {
+                val connection = client.connect(config.host, config.port)
+                val auth = if (config.username.isBlank()) {
+                    AuthenticationContext.anonymous()
+                } else {
+                    AuthenticationContext(
+                        config.username,
+                        password.toCharArray(),
+                        config.domain.takeIf { it.isNotBlank() },
+                    )
+                }
+                val session = connection.authenticate(auth)
+                val connected = session.connectShare(config.share)
+                if (connected !is DiskShare) {
+                    runCatching { connected.close() }
+                    throw IOException("SMB share '${config.share}' is not a disk share")
+                }
+                connected.use { share ->
+                    // Listing is intentional: it proves the optional basePath exists and is readable.
+                    share.list(toSmbPath(config.basePath))
+                }
+            } catch (error: IOException) {
+                throw error
+            } catch (error: Throwable) {
+                throw IOException(error.message ?: "SMB connection test failed", error)
+            } finally {
+                runCatching { client.close() }
+            }
+        }
 
         fun rootEntry(): XEntry = XEntry(
             id = ROOT_ID,
