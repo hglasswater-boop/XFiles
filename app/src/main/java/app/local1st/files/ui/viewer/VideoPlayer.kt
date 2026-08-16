@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
@@ -174,8 +176,10 @@ fun VideoPlayerScreen(
         onDispose { view.keepScreenOn = false }
     }
 
-    // Exact seeks can decode forward from an earlier keyframe. The gate paces issuance to actual
-    // render completion so rapid drag updates don't continuously cancel one another.
+    // Exact seeks can decode forward from an earlier keyframe. The gate limits seek command
+    // frequency while guaranteeing that the newest request is eventually issued. A render event
+    // may accelerate the queue, but correctness never depends on onRenderedFirstFrame(), which is
+    // not an every-seek completion callback.
     val seekGate = remember(player) { SeekGate(player) }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -184,13 +188,16 @@ fun VideoPlayerScreen(
                 seekGate.reset()
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener) }
+        onDispose {
+            player.removeListener(listener)
+            seekGate.release()
+        }
     }
 
     LaunchedEffect(player, entry.id) {
         while (isActive) {
-            // Prefer the gate's queued target so the readout tracks the finger even
-            // while a seek is still decoding.
+            // Prefer the gate's newest target so the readout follows rapid seek input even
+            // while decoding is catching up.
             positionMs = (seekGate.targetMs.takeIf { it >= 0 } ?: player.currentPosition)
                 .coerceAtLeast(0L)
             durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
@@ -738,49 +745,84 @@ private fun ModeToggleText(
 }
 
 /**
- * Serializes seeks so at most one is decoding at a time; the newest request replaces any
- * queued one and is issued when the in-flight seek's frame actually renders. Without
- * this, drag-speed seek streams keep aborting the keyframe-forward decode and no frame
- * appears until the gesture ends. All calls are main-thread (gestures + Player.Listener).
+ * Throttles high-frequency seek input while keeping latest-wins semantics. The previous
+ * implementation waited for Player.Listener.onRenderedFirstFrame() before issuing a queued seek,
+ * but Media3 only guarantees that callback for the first frame after a surface/renderer/stream
+ * reset, not after every seek. A queued second seek could therefore remain stuck indefinitely.
+ *
+ * A timer now guarantees the latest queued target is issued within [SEEK_THROTTLE_MS]. A render
+ * callback can still flush it sooner, and [SEEK_TARGET_HOLD_MS] keeps the UI anchored to the
+ * requested position while decoding catches up without allowing the readout to freeze forever.
+ * All calls originate on the main thread.
  */
 private class SeekGate(private val player: ExoPlayer) {
-    /** In-flight or queued seek target; -1 when idle. Anchors chained steps. */
+    /** Most recently requested seek target; -1 when the UI can follow currentPosition again. */
     var targetMs = -1L
         private set
-    private var queuedMs = -1L
-    private var busySince = 0L
 
-    fun request(ms: Long) {
-        val now = SystemClock.uptimeMillis()
-        // The staleness escape covers a missed render callback (e.g. seek resolved to
-        // the already-shown frame on some codecs) so the gate can never wedge shut.
-        if (targetMs >= 0 && now - busySince < STALE_SEEK_MS) {
-            queuedMs = ms
-            targetMs = ms
-            return
-        }
-        targetMs = ms
-        queuedMs = -1L
-        busySince = now
-        player.seekTo(ms)
+    private val handler = Handler(Looper.getMainLooper())
+    private var queuedMs = -1L
+    private var lastIssuedAt = 0L
+
+    private val flushQueuedRunnable = Runnable { flushQueued() }
+    private val clearTargetRunnable = Runnable {
+        if (queuedMs < 0) targetMs = -1L
     }
 
+    fun request(ms: Long) {
+        targetMs = ms
+        val now = SystemClock.uptimeMillis()
+        val waitMs = if (lastIssuedAt == 0L) {
+            0L
+        } else {
+            (lastIssuedAt + SEEK_THROTTLE_MS - now).coerceAtLeast(0L)
+        }
+
+        if (waitMs == 0L) {
+            issue(ms, now)
+        } else {
+            queuedMs = ms
+            handler.removeCallbacks(flushQueuedRunnable)
+            handler.postDelayed(flushQueuedRunnable, waitMs)
+        }
+    }
+
+    private fun flushQueued() {
+        if (queuedMs < 0) return
+        val target = queuedMs
+        issue(target, SystemClock.uptimeMillis())
+    }
+
+    private fun issue(ms: Long, now: Long) {
+        queuedMs = -1L
+        lastIssuedAt = now
+        player.seekTo(ms)
+
+        handler.removeCallbacks(clearTargetRunnable)
+        handler.postDelayed(clearTargetRunnable, SEEK_TARGET_HOLD_MS)
+    }
+
+    /** A frame became available; use it as an opportunity to send the newest queued target. */
     fun onFrameRendered() {
         if (queuedMs >= 0) {
-            val t = queuedMs
-            queuedMs = -1L
-            busySince = SystemClock.uptimeMillis()
-            player.seekTo(t)
+            handler.removeCallbacks(flushQueuedRunnable)
+            flushQueued()
         } else {
+            handler.removeCallbacks(clearTargetRunnable)
             targetMs = -1L
         }
     }
 
     /** A queued seek targets the old item's timeline; drop it on item transitions. */
     fun reset() {
+        handler.removeCallbacks(flushQueuedRunnable)
+        handler.removeCallbacks(clearTargetRunnable)
         targetMs = -1L
         queuedMs = -1L
+        lastIssuedAt = 0L
     }
+
+    fun release() = reset()
 }
 
 /**
@@ -824,7 +866,8 @@ private val STANDARD_FPS =
     floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 48f, 50f, 59.94f, 60f, 90f, 120f)
 
 private const val FALLBACK_FPS = 30f
-private const val STALE_SEEK_MS = 800L
+private const val SEEK_THROTTLE_MS = 150L
+private const val SEEK_TARGET_HOLD_MS = 800L
 private const val FRAME_SWIPE_DP = 8f // one frame per this much horizontal travel
 private const val EDGE_GUARD_DP = 24 // scrub dead zone at screen edges (back gesture)
 private const val TIME_SWIPE_MS_PER_DP = 100L // a full-width swipe covers roughly 40 s
