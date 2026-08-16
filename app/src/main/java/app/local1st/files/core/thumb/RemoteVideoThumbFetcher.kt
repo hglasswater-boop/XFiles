@@ -2,6 +2,7 @@ package app.local1st.files.core.thumb
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
@@ -84,29 +85,107 @@ class RemoteVideoThumbFetcher(
         val source = SmbMediaDataSource(entry)
         return try {
             retriever.setDataSource(source)
-            if (Build.VERSION.SDK_INT >= 27) {
-                retriever.getScaledFrameAtTime(
-                    0L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                    THUMB_SIZE,
-                    THUMB_SIZE,
-                ) ?: retriever.getScaledFrameAtTime(
-                    -1L,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                    THUMB_SIZE,
-                    THUMB_SIZE,
+            val durationMs = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()
+                ?.takeIf { it > 0L }
+            val candidatesUs = if (durationMs != null) {
+                // Do not use the opening frame: many files start with black/fade-in/title cards.
+                // Usually the first 25% frame is enough; later positions are only read when the
+                // selected frame is nearly black, so the common case stays fast.
+                longArrayOf(
+                    durationMs * 250L,
+                    durationMs * 500L,
+                    durationMs * 750L,
                 )
             } else {
-                retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    ?.let(::scaleDown)
-                    ?: retriever.getFrameAtTime(-1L)?.let(::scaleDown)
+                longArrayOf(60_000_000L, 180_000_000L, -1L)
             }
+
+            var best: Bitmap? = null
+            var bestScore = -1.0
+            for (timeUs in candidatesUs) {
+                val frame = frameAt(retriever, timeUs) ?: continue
+                val score = brightnessScore(frame)
+                if (score > bestScore) {
+                    if (best != null && best !== frame) best.recycle()
+                    best = frame
+                    bestScore = score
+                } else if (best !== frame) {
+                    frame.recycle()
+                }
+                // Reject only genuinely near-black frames. Dark scenes are still accepted.
+                if (best != null && !isNearlyBlack(best)) return best
+            }
+            best
         } catch (_: Exception) {
             null
         } finally {
             runCatching { retriever.release() }
             runCatching { source.close() }
         }
+    }
+
+    private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? =
+        if (Build.VERSION.SDK_INT >= 27) {
+            retriever.getScaledFrameAtTime(
+                timeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                THUMB_SIZE,
+                THUMB_SIZE,
+            )
+        } else {
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?.let(::scaleDown)
+        }
+
+    private fun brightnessScore(bitmap: Bitmap): Double {
+        val stepX = (bitmap.width / 12).coerceAtLeast(1)
+        val stepY = (bitmap.height / 12).coerceAtLeast(1)
+        var sum = 0.0
+        var count = 0
+        var y = stepY / 2
+        while (y < bitmap.height) {
+            var x = stepX / 2
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                val luma = 0.2126 * Color.red(pixel) +
+                    0.7152 * Color.green(pixel) +
+                    0.0722 * Color.blue(pixel)
+                sum += luma
+                count++
+                x += stepX
+            }
+            y += stepY
+        }
+        return if (count > 0) sum / count else 0.0
+    }
+
+    private fun isNearlyBlack(bitmap: Bitmap): Boolean {
+        val stepX = (bitmap.width / 12).coerceAtLeast(1)
+        val stepY = (bitmap.height / 12).coerceAtLeast(1)
+        var sum = 0.0
+        var count = 0
+        var visiblyLit = 0
+        var y = stepY / 2
+        while (y < bitmap.height) {
+            var x = stepX / 2
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                val luma = 0.2126 * Color.red(pixel) +
+                    0.7152 * Color.green(pixel) +
+                    0.0722 * Color.blue(pixel)
+                sum += luma
+                if (luma >= 50.0) visiblyLit++
+                count++
+                x += stepX
+            }
+            y += stepY
+        }
+        if (count == 0) return true
+        val average = sum / count
+        val litFraction = visiblyLit.toDouble() / count
+        return average < 22.0 && litFraction < 0.05
     }
 
     private fun scaleDown(src: Bitmap): Bitmap {
@@ -133,7 +212,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v3:$id:$mtime:$size"
+            "remote-video-thumb-v4:$id:$mtime:$size"
         }
     }
 
@@ -148,7 +227,7 @@ class RemoteVideoThumbFetcher(
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v3|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v4|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
