@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release
+  group: release-github-hosted
   cancel-in-progress: true
 
 permissions:
