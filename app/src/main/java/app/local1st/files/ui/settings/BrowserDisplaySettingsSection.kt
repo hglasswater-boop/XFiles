@@ -89,6 +89,8 @@ internal fun BrowserDisplaySettingsSection() {
             )
         }
     }
+
+    SettingsBackupSection()
 }
 
 private fun BrowserDisplayPreset.label(): String = when (this) {
