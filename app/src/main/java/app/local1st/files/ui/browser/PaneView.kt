@@ -119,7 +119,8 @@ fun PaneView(
     var itemAnimationsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
 
     // Count only visible direct children of an expanded directory. Keep the last fresh result so
-    // collapsing the directory does not make its compact folder/file summary disappear.
+    // collapsing the directory does not make its compact folder/file summary disappear. TreeNode
+    // keys are position-unique; entry ids alone can legitimately appear in more than one branch.
     val knownChildCounts = remember(controller) { mutableStateMapOf<String, DirectChildCounts>() }
     val visibleChildCounts = remember(state.nodes, state.snapshotOnly) {
         if (state.snapshotOnly) emptyMap() else directChildCountsOf(state.nodes)
@@ -193,7 +194,7 @@ fun PaneView(
                         EntryRow(
                             node = node,
                             childCounts = if (node.loading) null
-                            else visibleChildCounts[node.entry.id] ?: knownChildCounts[node.entry.id],
+                            else visibleChildCounts[node.key] ?: knownChildCounts[node.key],
                             selected = node.entry.id in state.selection,
                             focused = node.entry.id == state.focusedDirId,
                             onClick = {
@@ -247,13 +248,13 @@ private fun directChildCountsOf(nodes: List<TreeNode>): Map<String, DirectChildC
 
         if (node.depth > 0 && ancestors.size >= node.depth) {
             val parent = ancestors[node.depth - 1]
-            counts[parent.entry.id]?.let { parentCounts ->
+            counts[parent.key]?.let { parentCounts ->
                 if (node.entry.isDir) parentCounts[0]++ else parentCounts[1]++
             }
         }
 
         if (node.entry.isDir && node.expanded && !node.loading && node.error == null) {
-            counts[node.entry.id] = intArrayOf(0, 0)
+            counts[node.key] = intArrayOf(0, 0)
         }
 
         if (ancestors.size == node.depth) {
