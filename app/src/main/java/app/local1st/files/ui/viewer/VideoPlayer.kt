@@ -337,7 +337,7 @@ fun VideoPlayerScreen(
                     )
                     .pointerInput(Unit) {
                         var mode = VideoGestureMode.UNDECIDED
-                        var wasPlaying = false
+                        var resumeAfterSeek = false
                         var accumX = 0f
                         var accumY = 0f
                         var baseMs = 0L
@@ -352,7 +352,7 @@ fun VideoPlayerScreen(
                                     scrubLabel = null
                                     // Frame mode exists to inspect a chosen frame — stay on it
                                     // instead of resuming playback over it.
-                                    if (wasPlaying && !frameMode) player.play()
+                                    if (resumeAfterSeek && !frameMode) player.play()
                                 }
                                 VideoGestureMode.VOLUME -> volumeAdjusting = false
                                 else -> Unit
@@ -387,7 +387,7 @@ fun VideoPlayerScreen(
                                     when (mode) {
                                         VideoGestureMode.HORIZONTAL_SEEK -> {
                                             scrubbing = true
-                                            wasPlaying = player.isPlaying
+                                            resumeAfterSeek = player.playWhenReady
                                             player.pause()
                                             baseMs = anchorMs()
                                             baseFrame = frameOf(baseMs)
@@ -608,7 +608,7 @@ fun VideoPlayerScreen(
                                     // Pause while scrubbing: playback racing the
                                     // thumb fights the user, and a video ending
                                     // mid-drag would auto-advance under the finger.
-                                    sliderWasPlaying = player.isPlaying
+                                    sliderWasPlaying = player.playWhenReady
                                     player.pause()
                                 }
                                 sliderPos = v
