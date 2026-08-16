@@ -1,21 +1,27 @@
-name: Debug CI
+name: Apply UI and CI customizations
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: debug-ci-${{ github.ref }}
+  group: apply-ui-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  apply-build-push:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Apply customizations
+        run: |
+          python3 .github/scripts/apply_context_menu_customizations.py
+          git diff --check
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,16 +36,15 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -eu
-          test -n "$KEYSTORE_BASE64" || { echo 'Missing KEYSTORE_BASE64'; exit 1; }
-          test -n "$KEYSTORE_PASSWORD" || { echo 'Missing KEYSTORE_PASSWORD'; exit 1; }
-          test -n "$KEY_ALIAS" || { echo 'Missing KEY_ALIAS'; exit 1; }
-          test -n "$KEY_PASSWORD" || { echo 'Missing KEY_PASSWORD'; exit 1; }
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
 
       - name: Decode stable signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
       - name: Compile and test
         env:
@@ -49,10 +54,28 @@ jobs:
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleDebug :app:testDebugUnitTest -PbuildNumber=${{ github.run_number }} --no-daemon
 
+      - name: Name debug APK
+        id: apk_name
+        run: |
+          set -eu
+          VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
+          APK_NAME="XFiles-${VERSION}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
+          echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Commit validated changes
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add configurable context menu ordering"
+          git push
+
       - name: Upload signed debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: XFiles-signed-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: XFiles-${{ github.run_number }}-signed-debug
+          path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
