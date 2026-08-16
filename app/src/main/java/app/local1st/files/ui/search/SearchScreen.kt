@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
+import app.local1st.files.core.fs.XId
 import app.local1st.files.core.search.SearchHit
 import app.local1st.files.core.util.Format
 import app.local1st.files.di.Graph
@@ -220,7 +221,7 @@ private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         EntryIcon(
             entry,
@@ -232,11 +233,9 @@ private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
             Text(
                 entry.name,
                 style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Text(
-                hit.parentId.substringAfter("://"),
+                displayParentPath(hit.parentId),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -258,5 +257,22 @@ private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+private fun displayParentPath(parentId: String): String {
+    if (XId.schemeOf(parentId) != XId.SCHEME_SMB) {
+        return parentId.substringAfter("://")
+    }
+    val raw = parentId.removePrefix("${XId.SCHEME_SMB}://").trim('/')
+    if (raw.isEmpty()) return "SMB"
+    val connectionId = raw.substringBefore('/')
+    val relativePath = raw.substringAfter('/', "")
+    val connection = Graph.smbConnections.find(connectionId)
+        ?: return relativePath.ifBlank { "SMB" }
+    return if (relativePath.isBlank()) {
+        connection.name
+    } else {
+        "${connection.name} / $relativePath"
     }
 }
