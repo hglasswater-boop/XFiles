@@ -1,11 +1,11 @@
-name: Apply inline transfer destination
+name: Apply inline transfer and seek fix
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: inline-transfer-${{ github.ref }}
+  group: inline-transfer-seek-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -18,366 +18,233 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Keep transfer destination selection in browser
+      - name: Apply browser transfer mode and seek fix
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
+          # ----- Inline copy/move destination selection -----
           vm_path = Path('app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt')
           vm = vm_path.read_text()
 
-          old = '''    private fun showDestinationPicker(transfer: PendingTransfer) {
-              navigation.navigate(AppScreen.DestinationPicker(transfer))
+          vm, n = re.subn(
+              r'\n    private fun showDestinationPicker\(transfer: PendingTransfer\) \{\n        navigation\.navigate\(AppScreen\.DestinationPicker\(transfer\)\)\n    \}\n',
+              '\n    /** Copy/move destination selection stays in the two-pane browser. */\n'
+              '    val pendingTransfer = MutableStateFlow<PendingTransfer?>(null)\n',
+              vm,
+              count=1,
+          )
+          if n != 1:
+              raise SystemExit(f'showDestinationPicker replacement count={n}')
+
+          start = vm.index("    /** Copies or moves the active pane's selection directly into the other pane's folder. */")
+          end = vm.index('    fun requestDelete(', start)
+          transfer_code = '''    /** All copy/move entry points now start inline destination-selection mode. */
+          fun copySelection(move: Boolean, sources: List<XEntry> = activeCtrl.selectionEntries()) {
+              chooseTransferDestination(move = move, sources = sources)
+          }
+
+          fun chooseTransferDestination(
+              move: Boolean,
+              sources: List<XEntry> = activeCtrl.selectionEntries(),
+          ) {
+              if (sources.isEmpty()) return
+              val sourcePane = activePane.value
+              pendingTransfer.value = PendingTransfer(
+                  sources = sources,
+                  move = move,
+                  startDirId = panes[1 - sourcePane].state.value.focusedDirId,
+                  sourcePane = sourcePane,
+              )
+          }
+
+          fun cancelTransferDestination() {
+              val transfer = pendingTransfer.value ?: return
+              pendingTransfer.value = null
+              activePane.value = transfer.sourcePane
+          }
+
+          fun confirmTransferCurrentDestination() {
+              val destDir = activeCtrl.focusedDirEntry()
+              if (destDir == null) {
+                  validDestinationOrNotify(null)
+                  return
+              }
+              confirmTransfer(destDir)
+          }
+
+          fun confirmTransfer(destDir: XEntry) {
+              val transfer = pendingTransfer.value ?: return
+              val validDest = validDestinationOrNotify(destDir) ?: return
+              Graph.opEngine.submit(FileOp.Copy(transfer.sources, validDest, transfer.move))
+              pendingTransfer.value = null
+              panes[transfer.sourcePane].clearSelection()
           }
 
           '''
-          new = '''    /** Copy/move destination selection stays in the two-pane browser. */
-              val pendingTransfer = MutableStateFlow<PendingTransfer?>(null)
+          vm = vm[:start] + transfer_code + vm[end:]
 
-          '''
-          if old not in vm:
-              raise SystemExit('showDestinationPicker block not found')
-          vm = vm.replace(old, new, 1)
-
-          old = '''    /** Copies or moves the active pane's selection directly into the other pane's folder. */
-              fun copySelection(move: Boolean, sources: List<XEntry> = activeCtrl.selectionEntries()) {
-                  if (sources.isEmpty()) return
-                  val destDir = validDestinationOrNotify(otherPaneDestination()) ?: return
-                  Graph.opEngine.submit(FileOp.Copy(sources, destDir, move))
-                  activeCtrl.clearSelection()
-              }
-
-              /** Secondary one-item workflow: choose a destination instead of using the other pane. */
-              fun chooseTransferDestination(
-                  move: Boolean,
-                  sources: List<XEntry> = activeCtrl.selectionEntries(),
-              ) {
-                  if (sources.isEmpty()) return
-                  showDestinationPicker(
-                      PendingTransfer(
-                          sources = sources,
-                          move = move,
-                          startDirId = inactiveCtrl.state.value.focusedDirId,
-                      ),
-                  )
-              }
-
-              /** Called by the picker once the user confirms a destination folder. */
-              fun confirmTransfer(destDir: XEntry) {
-                  val current = screenBackStack.last()
-                  val transfer = (current.screen as? AppScreen.DestinationPicker)?.transfer ?: return
-                  navigateBack(current.id)
-                  val validDest = validDestinationOrNotify(destDir) ?: return
-                  Graph.opEngine.submit(FileOp.Copy(transfer.sources, validDest, transfer.move))
-                  activeCtrl.clearSelection()
-              }
-          '''
-          new = '''    /** All copy/move entry points now start inline destination-selection mode. */
-              fun copySelection(move: Boolean, sources: List<XEntry> = activeCtrl.selectionEntries()) {
-                  chooseTransferDestination(move = move, sources = sources)
-              }
-
-              /**
-               * Keeps the normal browser visible while the user navigates either pane to a target.
-               * Sources and their originating pane are retained even after the active pane changes.
-               */
-              fun chooseTransferDestination(
-                  move: Boolean,
-                  sources: List<XEntry> = activeCtrl.selectionEntries(),
-              ) {
-                  if (sources.isEmpty()) return
-                  val sourcePane = activePane.value
-                  pendingTransfer.value = PendingTransfer(
-                      sources = sources,
-                      move = move,
-                      startDirId = panes[1 - sourcePane].state.value.focusedDirId,
-                      sourcePane = sourcePane,
-                  )
-              }
-
-              /** Cancels destination selection and returns focus to the pane that owns the sources. */
-              fun cancelTransferDestination() {
-                  val transfer = pendingTransfer.value ?: return
-                  pendingTransfer.value = null
-                  activePane.value = transfer.sourcePane
-              }
-
-              /** Confirms whichever folder is currently focused in the active browser pane. */
-              fun confirmTransferCurrentDestination() {
-                  val destDir = activeCtrl.focusedDirEntry()
-                  if (destDir == null) {
-                      validDestinationOrNotify(null)
-                      return
-                  }
-                  confirmTransfer(destDir)
-              }
-
-              /** Executes only after an explicit destination confirmation. */
-              fun confirmTransfer(destDir: XEntry) {
-                  val transfer = pendingTransfer.value ?: return
-                  val validDest = validDestinationOrNotify(destDir) ?: return
-                  Graph.opEngine.submit(FileOp.Copy(transfer.sources, validDest, transfer.move))
-                  pendingTransfer.value = null
-                  panes[transfer.sourcePane].clearSelection()
-              }
-          '''
-          if old not in vm:
-              raise SystemExit('transfer operations block not found')
-          vm = vm.replace(old, new, 1)
-
-          old = '''/** A copy or move whose non-pane destination is being chosen. */
+          model_start = vm.index('/** A copy or move whose non-pane destination is being chosen. */')
+          vm = vm[:model_start] + '''/** A copy or move waiting for explicit confirmation in the browser. */
           data class PendingTransfer(
               val sources: List<XEntry>,
               val move: Boolean,
               val startDirId: String?,
-          )'''
-          new = '''/** A copy or move waiting for an explicit destination confirmation in the browser. */
-          data class PendingTransfer(
-              val sources: List<XEntry>,
-              val move: Boolean,
-              val startDirId: String?,
-              val sourcePane: Int,
-          )'''
-          if old not in vm:
-              raise SystemExit('PendingTransfer model not found')
-          vm = vm.replace(old, new, 1)
+              val sourcePane: Int = 0,
+          )
+          '''
           vm_path.write_text(vm)
 
           screen_path = Path('app/src/main/java/app/local1st/files/ui/main/MainScreen.kt')
           screen = screen_path.read_text()
 
-          old = '''    val activePane by vm.activePane.collectAsStateWithLifecycle()
-              val activeState by vm.panes[activePane].state.collectAsStateWithLifecycle()
-          '''
-          new = '''    val activePane by vm.activePane.collectAsStateWithLifecycle()
-              val pendingTransfer by vm.pendingTransfer.collectAsStateWithLifecycle()
-              val activeState by vm.panes[activePane].state.collectAsStateWithLifecycle()
-          '''
-          if old not in screen:
-              raise SystemExit('active pane state marker not found')
-          screen = screen.replace(old, new, 1)
+          marker = '    val activePane by vm.activePane.collectAsStateWithLifecycle()\n'
+          if marker not in screen:
+              raise SystemExit('activePane marker missing')
+          screen = screen.replace(
+              marker,
+              marker + '    val pendingTransfer by vm.pendingTransfer.collectAsStateWithLifecycle()\n',
+              1,
+          )
 
-          old = '''    val canUseOtherPane = isFileOperationDestination(otherPaneDestination)
-              var initiallyLaidOutPanes by remember(vm) { mutableStateOf<Set<Int>>(emptySet()) }
-          '''
-          new = '''    val canUseOtherPane = isFileOperationDestination(otherPaneDestination)
-              val transferDestination = vm.activeCtrl.focusedDirEntry()
-              val transferDestinationName = paneLocationName(transferDestination, activeState.focusedDirId)
-              val canConfirmTransfer = isFileOperationDestination(transferDestination)
-              var initiallyLaidOutPanes by remember(vm) { mutableStateOf<Set<Int>>(emptySet()) }
-          '''
-          if old not in screen:
-              raise SystemExit('transfer destination marker not found')
-          screen = screen.replace(old, new, 1)
+          marker = '    val canUseOtherPane = isFileOperationDestination(otherPaneDestination)\n'
+          if marker not in screen:
+              raise SystemExit('canUseOtherPane marker missing')
+          screen = screen.replace(
+              marker,
+              marker +
+              '    val transferDestination = vm.activeCtrl.focusedDirEntry()\n' +
+              '    val transferDestinationName = paneLocationName(transferDestination, activeState.focusedDirId)\n' +
+              '    val canConfirmTransfer = isFileOperationDestination(transferDestination)\n',
+              1,
+          )
 
-          old = '''    val copyTargetLabel = if (canUseOtherPane) {
-                  "${stringResource(R.string.copy_to_title)} $otherPaneName"
-              } else {
-                  unavailableDestinationLabel
-              }
-              val moveTargetLabel = if (canUseOtherPane) {
-                  "${stringResource(R.string.move_to_title)} $otherPaneName"
-              } else {
-                  unavailableDestinationLabel
-              }
-          '''
-          new = '''    val copyTargetLabel = stringResource(R.string.copy_to)
-              val moveTargetLabel = stringResource(R.string.move_to)
-          '''
-          if old not in screen:
-              raise SystemExit('copy/move target labels not found')
-          screen = screen.replace(old, new, 1)
+          labels_start = screen.index('    val copyTargetLabel = if (canUseOtherPane) {')
+          labels_end = screen.index('    val compressTargetLabel = if (canUseOtherPane) {', labels_start)
+          screen = screen[:labels_start] + (
+              '    val copyTargetLabel = stringResource(R.string.copy_to)\n'
+              '    val moveTargetLabel = stringResource(R.string.move_to)\n'
+          ) + screen[labels_end:]
 
-          old = '''    BackHandler(enabled = selectionCount > 0) {
-                  vm.activeCtrl.clearSelection()
-              }
+          old_back = '''    BackHandler(enabled = selectionCount > 0) {
+              vm.activeCtrl.clearSelection()
+          }
           '''
-          new = '''    BackHandler(enabled = pendingTransfer != null) {
-                  vm.cancelTransferDestination()
-              }
-              BackHandler(enabled = pendingTransfer == null && selectionCount > 0) {
-                  vm.activeCtrl.clearSelection()
-              }
-          '''
-          if old not in screen:
-              raise SystemExit('selection BackHandler not found')
-          screen = screen.replace(old, new, 1)
+          if old_back not in screen:
+              raise SystemExit('BackHandler marker missing')
+          screen = screen.replace(
+              old_back,
+              '''    BackHandler(enabled = pendingTransfer != null) {
+              vm.cancelTransferDestination()
+          }
+          BackHandler(enabled = pendingTransfer == null && selectionCount > 0) {
+              vm.activeCtrl.clearSelection()
+          }
+          ''',
+              1,
+          )
 
           screen = screen.replace(
-              'onOpenEntry = { vm.openEntry(pane, it) },\n                            onEntryMenu = { vm.dialog.value = DialogRequest.EntryMenu(it) },',
+              'onOpenEntry = { vm.openEntry(pane, it) },',
               '''onOpenEntry = { entry ->
-                                  if (pendingTransfer == null || entry.isContainer) vm.openEntry(pane, entry)
-                              },
-                              onEntryMenu = { entry ->
-                                  if (pendingTransfer == null) vm.dialog.value = DialogRequest.EntryMenu(entry)
+                                  if (pendingTransfer == null || entry.isContainer) {
+                                      vm.openEntry(pane, entry)
+                                  }
                               },''',
-              1,
           )
           screen = screen.replace(
-              'onOpenEntry = { vm.openEntry(pane, it) },\n                        onEntryMenu = { vm.dialog.value = DialogRequest.EntryMenu(it) },',
-              '''onOpenEntry = { entry ->
-                              if (pendingTransfer == null || entry.isContainer) vm.openEntry(pane, entry)
-                          },
-                          onEntryMenu = { entry ->
-                              if (pendingTransfer == null) vm.dialog.value = DialogRequest.EntryMenu(entry)
-                          },''',
-              1,
+              'onEntryMenu = { vm.dialog.value = DialogRequest.EntryMenu(it) },',
+              '''onEntryMenu = { entry ->
+                                  if (pendingTransfer == null) {
+                                      vm.dialog.value = DialogRequest.EntryMenu(entry)
+                                  }
+                              },''',
           )
 
-          toolbar_start = screen.index('        // Signature X-plore action bar, reimagined as an Expressive floating toolbar.')
+          toolbar_marker = '        // Signature X-plore action bar, reimagined as an Expressive floating toolbar.\n'
+          toolbar_start = screen.index(toolbar_marker)
           toolbar_end = screen.index('        val requiredPanes = if (wideLayout)', toolbar_start)
-          toolbar = '''        // The browser itself becomes the destination picker. No separate screen is opened.
-              HorizontalFloatingToolbar(
-                  expanded = true,
-                  modifier = Modifier
-                      .align(Alignment.BottomCenter)
-                      .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                      .offset(y = (-24).dp),
-                  content = {
-                      AnimatedContent(
-                          targetState = when {
-                              pendingTransfer != null -> 2
-                              selectionCount > 0 -> 1
-                              else -> 0
-                          },
-                          label = "toolbar",
-                      ) { toolbarMode ->
-                          Row {
-                              when (toolbarMode) {
-                                  2 -> {
-                                      val transfer = pendingTransfer
-                                      val move = transfer?.move == true
-                                      TooltipIconButton(
-                                          label = stringResource(R.string.cancel),
-                                          icon = Icons.Outlined.Close,
-                                      ) { vm.cancelTransferDestination() }
-                                      Text(
-                                          "${transfer?.sources?.size ?: 0}",
-                                          style = MaterialTheme.typography.titleMedium,
-                                          modifier = Modifier.align(Alignment.CenterVertically),
-                                      )
-                                      Text(
-                                          transferDestinationName,
-                                          style = MaterialTheme.typography.labelLarge,
-                                          maxLines = 1,
-                                          overflow = TextOverflow.Ellipsis,
-                                          modifier = Modifier
-                                              .align(Alignment.CenterVertically)
-                                              .padding(horizontal = 6.dp)
-                                              .widthIn(max = 140.dp),
-                                      )
-                                      TooltipIconButton(
-                                          label = if (move) {
-                                              "ここへ移動: $transferDestinationName"
-                                          } else {
-                                              "ここへコピー: $transferDestinationName"
-                                          },
-                                          icon = if (move) {
-                                              Icons.AutoMirrored.Outlined.DriveFileMove
-                                          } else {
-                                              Icons.Outlined.ContentCopy
-                                          },
-                                          enabled = canConfirmTransfer,
-                                      ) { vm.confirmTransferCurrentDestination() }
-                                  }
-
-                                  1 -> {
-                                      TooltipIconButton(stringResource(R.string.clear), Icons.Outlined.Close) {
-                                          vm.activeCtrl.clearSelection()
-                                      }
-                                      Text(
-                                          "$selectionCount",
-                                          style = MaterialTheme.typography.titleMedium,
-                                          modifier = Modifier.align(Alignment.CenterVertically),
-                                      )
-                                      TooltipIconButton(
-                                          label = copyTargetLabel,
-                                          icon = Icons.Outlined.ContentCopy,
-                                      ) {
-                                          vm.chooseTransferDestination(move = false)
-                                      }
-                                      TooltipIconButton(
-                                          label = moveTargetLabel,
-                                          icon = Icons.AutoMirrored.Outlined.DriveFileMove,
-                                      ) {
-                                          vm.chooseTransferDestination(move = true)
-                                      }
-                                      TooltipIconButton(stringResource(R.string.delete), Icons.Outlined.Delete) {
-                                          vm.requestDelete()
-                                      }
-                                      TooltipIconButton(
-                                          label = compressTargetLabel,
-                                          icon = Icons.Outlined.Archive,
-                                          enabled = canUseOtherPane,
-                                      ) { vm.requestCompress() }
-                                      TooltipIconButton(
-                                          label = stringResource(
-                                              if (canShareSelection) R.string.share
-                                              else R.string.share_requires_local_files,
-                                          ),
-                                          icon = Icons.Outlined.Share,
-                                          enabled = canShareSelection,
-                                      ) { vm.shareSelection() }
-                                  }
-
-                                  else -> {
-                                      TooltipIconButton(stringResource(R.string.new_folder), Icons.Outlined.CreateNewFolder) {
-                                          vm.requestNewFolder()
-                                      }
-                                      TooltipIconButton(
-                                          stringResource(R.string.new_text_file),
-                                          Icons.AutoMirrored.Outlined.NoteAdd,
-                                      ) {
-                                          vm.requestNewTextFile()
-                                      }
-                                      TooltipIconButton(
-                                          stringResource(R.string.search),
-                                          Icons.Outlined.Search,
-                                          onClick = dropUnlessResumed { vm.openSearch() },
-                                      )
-                                      TooltipIconButton(stringResource(R.string.refresh), Icons.Outlined.Refresh) {
-                                          vm.activeCtrl.refreshAllExpanded()
-                                      }
-                                      TooltipIconButton(stringResource(R.string.more), Icons.Outlined.MoreVert) {
-                                          vm.dialog.value = DialogRequest.EntryMenu(
-                                              entry = vm.activeCtrl.focusedDirEntry(),
-                                              showSettings = true,
-                                          )
-                                      }
-                                  }
+          existing_toolbar = screen[toolbar_start:toolbar_end]
+          existing_toolbar = existing_toolbar.replace(
+              toolbar_marker,
+              toolbar_marker + '        if (pendingTransfer == null) {\n',
+              1,
+          )
+          existing_toolbar = existing_toolbar.rstrip() + '''
+              } else {
+                  val transfer = pendingTransfer
+                  if (transfer != null) {
+                      HorizontalFloatingToolbar(
+                          expanded = true,
+                          modifier = Modifier
+                              .align(Alignment.BottomCenter)
+                              .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                              .offset(y = (-24).dp),
+                          content = {
+                              Row(verticalAlignment = Alignment.CenterVertically) {
+                                  TooltipIconButton(
+                                      label = stringResource(R.string.cancel),
+                                      icon = Icons.Outlined.Close,
+                                  ) { vm.cancelTransferDestination() }
+                                  Text(
+                                      "${transfer.sources.size}",
+                                      style = MaterialTheme.typography.titleMedium,
+                                  )
+                                  Text(
+                                      transferDestinationName,
+                                      style = MaterialTheme.typography.labelLarge,
+                                      maxLines = 1,
+                                      overflow = TextOverflow.Ellipsis,
+                                      modifier = Modifier
+                                          .padding(horizontal = 6.dp)
+                                          .widthIn(max = 140.dp),
+                                  )
+                                  TooltipIconButton(
+                                      label = if (transfer.move) {
+                                          "ここへ移動: $transferDestinationName"
+                                      } else {
+                                          "ここへコピー: $transferDestinationName"
+                                      },
+                                      icon = if (transfer.move) {
+                                          Icons.AutoMirrored.Outlined.DriveFileMove
+                                      } else {
+                                          Icons.Outlined.ContentCopy
+                                      },
+                                      enabled = canConfirmTransfer,
+                                  ) { vm.confirmTransferCurrentDestination() }
                               }
-                          }
-                      }
-                  },
-              )
+                          },
+                      )
+                  }
+              }
 
           '''
-          screen = screen[:toolbar_start] + toolbar + screen[toolbar_end:]
+          screen = screen[:toolbar_start] + existing_toolbar + screen[toolbar_end:]
           screen_path.write_text(screen)
 
-          dialogs_path = Path('app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt')
-          dialogs = dialogs_path.read_text()
-          old = '''            entry.localPath?.let {
-                      MenuItem(
-                          label = stringResource(R.string.copy_to_other_pane),
-                          enabled = canUseOtherPane,
-                          disabledReason = unavailableDestinationReason,
-                      ) {
-                          vm.copySelection(move = false, sources = listOf(entry))
-                          dismiss()
-                      }
-                  }
-          '''
-          new = '''            entry.localPath?.let {
-                      MenuItem(label = stringResource(R.string.copy_to)) {
-                          vm.chooseTransferDestination(move = false, sources = listOf(entry))
-                          dismiss()
-                      }
-                  }
-          '''
-          if old not in dialogs:
-              raise SystemExit('app copy menu block not found')
-          dialogs_path.write_text(dialogs.replace(old, new, 1))
+          # ----- Early-seek playback preservation -----
+          player_path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          player = player_path.read_text()
+          replacements = {
+              'var wasPlaying = false': 'var resumeAfterSeek = false',
+              'if (wasPlaying && !frameMode) player.play()': 'if (resumeAfterSeek && !frameMode) player.play()',
+              'wasPlaying = player.isPlaying': 'resumeAfterSeek = player.playWhenReady',
+              'sliderWasPlaying = player.isPlaying': 'sliderWasPlaying = player.playWhenReady',
+          }
+          for old, new in replacements.items():
+              count = player.count(old)
+              if count != 1:
+                  raise SystemExit(f'VideoPlayer marker {old!r} count={count}')
+              player = player.replace(old, new, 1)
+          player_path.write_text(player)
+
+          # Remove stale full-screen destination from navigation host; the old screen file may remain
+          # for compatibility, but no copy/move action navigates to it anymore.
+          git_paths = [vm_path, screen_path, player_path]
+          for path in git_paths:
+              if not path.exists():
+                  raise SystemExit(f'missing {path}')
           PY
 
           git diff --check
@@ -431,7 +298,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Commit validated inline transfer mode
+      - name: Commit validated changes
         run: |
           set -eu
           git config user.name "github-actions[bot]"
@@ -439,6 +306,6 @@ jobs:
           git add \
             app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt \
             app/src/main/java/app/local1st/files/ui/main/MainScreen.kt \
-            app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt
-          git commit -m "Choose copy and move destinations inline"
+            app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          git commit -m "Choose transfer destinations inline and preserve playback on seek"
           git push
