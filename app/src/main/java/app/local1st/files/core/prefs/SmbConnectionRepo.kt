@@ -56,6 +56,29 @@ class SmbConnectionRepo(context: Context) {
         return config
     }
 
+    /** Duplicate an existing definition, including its decrypted/re-encrypted password. */
+    fun duplicate(id: String): SmbConnectionConfig {
+        val source = find(id) ?: error("SMB connection not found")
+        val baseName = "${source.name} のコピー"
+        val usedNames = _connections.value.mapTo(HashSet()) { it.name }
+        val copiedName = if (baseName !in usedNames) {
+            baseName
+        } else {
+            generateSequence(2) { it + 1 }
+                .map { "$baseName $it" }
+                .first { it !in usedNames }
+        }
+        return add(
+            name = copiedName,
+            host = source.host,
+            share = source.share,
+            username = source.username,
+            password = password(source.id),
+            domain = source.domain,
+            port = source.port,
+        )
+    }
+
     /**
      * Updates a saved connection without changing its stable id.
      * A null [password] keeps the existing encrypted password; a non-null value replaces it.
