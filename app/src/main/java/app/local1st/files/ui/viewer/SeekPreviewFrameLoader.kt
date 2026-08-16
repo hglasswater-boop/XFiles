@@ -164,10 +164,9 @@ internal object SeekPreviewFrameLoader {
 /**
  * SMB random-access bridge for seek previews.
  *
- * The bridge now lives for the whole preview session instead of one frame, so the open SMB handle
- * and read-ahead blocks are reused across consecutive slider positions. A larger 12 MiB block LRU
- * covers MP4 header/sample-table reads plus several nearby keyframe regions without excessive NAS
- * round trips.
+ * The bridge lives for the whole preview session so the open SMB handle and a small read-ahead LRU
+ * are reused. Large read-ahead is deliberately avoided: timeline scrubbing usually jumps between
+ * distant keyframe regions, where retaining many old 1 MiB blocks provides little benefit.
  */
 private class SeekPreviewSmbDataSource(private val entry: XEntry) : MediaDataSource() {
     private var file: SmbRandomAccessFile? = null
@@ -229,6 +228,6 @@ private class SeekPreviewSmbDataSource(private val entry: XEntry) : MediaDataSou
 
     private companion object {
         const val BLOCK_SIZE = 1024 * 1024
-        const val MAX_CACHED_BLOCKS = 12
+        const val MAX_CACHED_BLOCKS = 4
     }
 }
