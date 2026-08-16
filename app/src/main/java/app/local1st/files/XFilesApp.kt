@@ -12,6 +12,8 @@ import app.local1st.files.core.ops.BackgroundJobs
 import app.local1st.files.core.ops.OpsService
 import app.local1st.files.core.thumb.AppIconFetcher
 import app.local1st.files.core.thumb.PrivFileFetcher
+import app.local1st.files.core.thumb.RemoteFileFetcher
+import app.local1st.files.core.thumb.RemoteVideoThumbFetcher
 import app.local1st.files.core.thumb.VideoThumbFetcher
 import app.local1st.files.di.Graph
 import kotlinx.coroutines.flow.combine
@@ -47,6 +49,10 @@ class XFilesApp : Application(), SingletonImageLoader.Factory {
                 add(VideoFrameDecoder.Factory())
                 add(VideoThumbFetcher.Factory(this@XFilesApp))
                 add(VideoThumbFetcher.Key())
+                add(RemoteVideoThumbFetcher.Factory(this@XFilesApp))
+                add(RemoteVideoThumbFetcher.Key())
+                add(RemoteFileFetcher.Factory())
+                add(RemoteFileFetcher.Key())
                 add(PrivFileFetcher.Factory())
                 add(PrivFileFetcher.Key())
                 add(AppIconFetcher.Factory(this@XFilesApp))

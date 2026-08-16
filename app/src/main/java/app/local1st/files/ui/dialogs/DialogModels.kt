@@ -10,6 +10,9 @@ sealed interface DialogRequest {
     data class NewTextFile(val parent: XEntry) : DialogRequest
     data class CompressTo(val sources: List<XEntry>, val destDir: XEntry) : DialogRequest
     data class Details(val entry: XEntry) : DialogRequest
+    data class FolderSort(val folder: XEntry) : DialogRequest
+    data class EditSmbConnection(val connectionId: String) : DialogRequest
+    data class ConfirmDeleteSmbConnection(val connectionId: String) : DialogRequest
 
     /** Long-press or toolbar overflow menu. [showSettings] is for the overflow only. */
     data class EntryMenu(

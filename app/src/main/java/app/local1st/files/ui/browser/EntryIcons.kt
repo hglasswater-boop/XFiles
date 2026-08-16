@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.Android
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Description
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import app.local1st.files.core.fs.EntryKind
+import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.fs.priv.PrivilegedAccess
@@ -54,6 +56,7 @@ import coil3.compose.AsyncImagePainter
 object EntryIcons {
 
     fun forEntry(entry: XEntry, expanded: Boolean = false): ImageVector = when {
+        entry.id == SmbTreeFileSystem.ADD_SERVER_ID -> Icons.Outlined.AddCircleOutline
         // A pinned favorite folder keeps its star even when expanded — the star marks
         // the shortcut root itself, not its open/closed state.
         entry.pinned && entry.isDir -> Icons.Outlined.FolderSpecial
@@ -118,6 +121,7 @@ object EntryIcons {
         // size < 0 = stat failed mid-listing: nothing decodable behind the entry, and a
         // video's (path, mtime, size) thumb-cache key would be degenerate.
         val readableModel = entry.localPath != null ||
+            entry.scheme == XId.SCHEME_SMB ||
             (entry.scheme == XId.SCHEME_ROOT && PrivilegedAccess.canOpenFd())
         if (!readableModel || entry.isDir || entry.size < 0) return false
         return when (FileTypes.categoryOf(entry.name, entry.mime)) {

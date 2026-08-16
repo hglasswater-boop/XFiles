@@ -32,6 +32,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
+import app.local1st.files.core.fs.SmbTreeFileSystem
+import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.FolderSortSpec
+import app.local1st.files.core.prefs.SortBy
 import app.local1st.files.core.util.AppComponents
 import app.local1st.files.core.util.ComponentType
 import app.local1st.files.core.util.FileTypes
@@ -43,10 +47,6 @@ import app.local1st.files.ui.main.isFileOperationDestination
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * Renders the dialog requested via [MainViewModel.dialog].
- * (Baseline implementation; visual polish iterates here.)
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainDialogs(vm: MainViewModel) {
@@ -61,13 +61,21 @@ fun MainDialogs(vm: MainViewModel) {
             title = { Text(stringResource(R.string.delete)) },
             text = {
                 val names = req.entries.take(3).joinToString(", ") { it.name }
-                val extra = if (req.entries.size > 3) stringResource(R.string.and_more, req.entries.size - 3) else ""
+                val extra = if (req.entries.size > 3) {
+                    stringResource(R.string.and_more, req.entries.size - 3)
+                } else {
+                    ""
+                }
                 Text(stringResource(R.string.delete_confirmation, names, extra))
             },
             confirmButton = {
-                Button(onClick = { vm.performDelete(req.entries) }) { Text(stringResource(R.string.delete)) }
+                Button(onClick = { vm.performDelete(req.entries) }) {
+                    Text(stringResource(R.string.delete))
+                }
             },
-            dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.cancel)) } },
+            dismissButton = {
+                TextButton(onClick = dismiss) { Text(stringResource(R.string.cancel)) }
+            },
         )
 
         is DialogRequest.Rename -> NameDialog(
@@ -109,18 +117,152 @@ fun MainDialogs(vm: MainViewModel) {
             text = {
                 Column {
                     Text(stringResource(R.string.location, req.entry.id))
-                    if (!req.entry.isDir) Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
+                    if (!req.entry.isDir) {
+                        Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
+                    }
                     Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
                     req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
                 }
             },
-            confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) } },
+            confirmButton = {
+                TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
+            },
         )
 
-        is DialogRequest.EntryMenu -> ModalBottomSheet(onDismissRequest = dismiss) {
-            EntryMenuContent(vm, req, dismiss)
+        is DialogRequest.FolderSort -> FolderSortDialog(req.folder, dismiss)
+
+        is DialogRequest.EditSmbConnection -> SmbConnectionDialog(
+            connectionId = req.connectionId,
+            onDismiss = dismiss,
+        )
+
+        is DialogRequest.ConfirmDeleteSmbConnection -> ConfirmDeleteSmbConnectionDialog(
+            connectionId = req.connectionId,
+            onDismiss = dismiss,
+        )
+
+        is DialogRequest.EntryMenu -> {
+            if (req.entry?.id == SmbTreeFileSystem.ADD_SERVER_ID) {
+                SmbConnectionDialog(onDismiss = dismiss)
+            } else {
+                ModalBottomSheet(onDismissRequest = dismiss) {
+                    EntryMenuContent(vm, req, dismiss)
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun ConfirmDeleteSmbConnectionDialog(
+    connectionId: String,
+    onDismiss: () -> Unit,
+) {
+    val connection = remember(connectionId) { Graph.smbConnections.find(connectionId) }
+    if (connection == null) {
+        LaunchedEffect(connectionId) { onDismiss() }
+        return
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("SMBサーバーを削除") },
+        text = {
+            Text(
+                "「${connection.name}」の接続定義を削除します。" +
+                    "NAS上のファイルやフォルダは削除されません。",
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    Graph.smbConnections.remove(connectionId)
+                    onDismiss()
+                },
+            ) { Text("削除") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun FolderSortDialog(
+    folder: app.local1st.files.core.fs.XEntry,
+    onDismiss: () -> Unit,
+) {
+    val overrides by Graph.folderSorts.sorts.collectAsState()
+    val globalBy by Graph.settings.sortBy.collectAsState(initial = SortBy.NAME)
+    val globalDescending by Graph.settings.sortDescending.collectAsState(initial = false)
+    val globalDirsFirst by Graph.settings.dirsFirst.collectAsState(initial = true)
+    val current = overrides[folder.id]
+    var by by remember(folder.id, current, globalBy) { mutableStateOf(current?.by ?: globalBy) }
+    var descending by remember(folder.id, current, globalDescending) {
+        mutableStateOf(current?.descending ?: globalDescending)
+    }
+    var dirsFirst by remember(folder.id, current, globalDirsFirst) {
+        mutableStateOf(current?.dirsFirst ?: globalDirsFirst)
+    }
+
+    fun sortLabel(value: SortBy): String = when (value) {
+        SortBy.NAME -> "名前"
+        SortBy.SIZE -> "サイズ"
+        SortBy.DATE -> "更新日時"
+        SortBy.TYPE -> "種類"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("このフォルダの並び順") },
+        text = {
+            Column {
+                Text(folder.name)
+                SortBy.entries.forEach { option ->
+                    TextButton(
+                        onClick = { by = option },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (option == by) "● ${sortLabel(option)}" else "○ ${sortLabel(option)}")
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                TextButton(
+                    onClick = { descending = !descending },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (descending) "順序: 降順" else "順序: 昇順")
+                }
+                TextButton(
+                    onClick = { dirsFirst = !dirsFirst },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (dirsFirst) "フォルダを先頭: ON" else "フォルダを先頭: OFF")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    Graph.folderSorts.set(
+                        folder.id,
+                        FolderSortSpec(by, descending, dirsFirst),
+                    )
+                    onDismiss()
+                },
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            Column {
+                TextButton(
+                    onClick = {
+                        Graph.folderSorts.set(folder.id, null)
+                        onDismiss()
+                    },
+                ) { Text("全体設定を使用") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            }
+        },
+    )
 }
 
 @Composable
@@ -167,7 +309,9 @@ private fun NameDialog(
                 onClick = { onConfirm(value.text.trim()) },
             ) { Text(confirmLabel) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
     )
 }
 
@@ -186,6 +330,15 @@ private fun EntryMenuContent(
         R.string.cannot_write,
         otherPaneDestination?.name ?: stringResource(R.string.this_device),
     )
+    val smbConnection = entry
+        ?.takeIf {
+            it.scheme == XId.SCHEME_SMB &&
+                it.isDir &&
+                XId.parent(it.id) == "${XId.SCHEME_SMB}://"
+        }
+        ?.path
+        ?.let(Graph.smbConnections::find)
+
     Column(Modifier.padding(bottom = 24.dp)) {
         if (entry != null) {
             Text(
@@ -194,7 +347,25 @@ private fun EntryMenuContent(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
         }
-        if (entry?.kind == EntryKind.APP_COMPONENT) {
+
+        if (smbConnection != null) {
+            Text(
+                "\\\\${smbConnection.host}\\${smbConnection.share}",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 8.dp),
+            )
+            MenuItem("編集") {
+                vm.dialog.value = DialogRequest.EditSmbConnection(smbConnection.id)
+            }
+            MenuItem("コピー") {
+                Graph.smbConnections.duplicate(smbConnection.id)
+                dismiss()
+            }
+            MenuItem("削除") {
+                vm.dialog.value = DialogRequest.ConfirmDeleteSmbConnection(smbConnection.id)
+            }
+        } else if (entry?.kind == EntryKind.APP_COMPONENT) {
             val parsed = AppComponents.parseId(entry.id)
             parsed?.let {
                 Text(
@@ -206,12 +377,15 @@ private fun EntryMenuContent(
                 )
             }
             if (parsed?.type == ComponentType.ACTIVITY) {
-                MenuItem(stringResource(R.string.launch)) { vm.launchComponent(entry); dismiss() }
-                MenuItem(stringResource(R.string.create_shortcut)) { vm.createComponentShortcut(entry); dismiss() }
+                MenuItem(stringResource(R.string.launch)) {
+                    vm.launchComponent(entry)
+                    dismiss()
+                }
+                MenuItem(stringResource(R.string.create_shortcut)) {
+                    vm.createComponentShortcut(entry)
+                    dismiss()
+                }
             }
-            // Non-null = the component's current enabled state, and we can actually flip it
-            // (own package, or working root). Resolved off the main thread: the root probe
-            // and PackageManager lookups both block.
             val toggleEnabled by produceState<Boolean?>(null, entry.id) {
                 value = withContext(Dispatchers.IO) {
                     parsed?.takeIf { AppComponents.canToggle(context, it.packageName) }
@@ -228,14 +402,29 @@ private fun EntryMenuContent(
                 clipboard.setText(AnnotatedString(parsed?.className ?: entry.name))
                 dismiss()
             }
-            parsed?.let { p ->
-                MenuItem(stringResource(R.string.app_details)) { vm.showAppDetails(p.packageName); dismiss() }
+            parsed?.let { parsedComponent ->
+                MenuItem(stringResource(R.string.app_details)) {
+                    vm.showAppDetails(parsedComponent.packageName)
+                    dismiss()
+                }
             }
         } else if (entry?.kind == EntryKind.APP) {
-            MenuItem(stringResource(R.string.launch)) { IntentUtils.launchApp(context, entry.path); dismiss() }
-            MenuItem(stringResource(R.string.open_as_zip)) { vm.openAppAsZip(entry); dismiss() }
-            MenuItem(stringResource(R.string.details)) { vm.showAppDetails(entry.path); dismiss() }
-            MenuItem(stringResource(R.string.system_info)) { IntentUtils.appInfo(context, entry.path); dismiss() }
+            MenuItem(stringResource(R.string.launch)) {
+                IntentUtils.launchApp(context, entry.path)
+                dismiss()
+            }
+            MenuItem(stringResource(R.string.open_as_zip)) {
+                vm.openAppAsZip(entry)
+                dismiss()
+            }
+            MenuItem(stringResource(R.string.details)) {
+                vm.showAppDetails(entry.path)
+                dismiss()
+            }
+            MenuItem(stringResource(R.string.system_info)) {
+                IntentUtils.appInfo(context, entry.path)
+                dismiss()
+            }
             entry.localPath?.let {
                 MenuItem(
                     label = stringResource(R.string.copy_to_other_pane),
@@ -246,30 +435,38 @@ private fun EntryMenuContent(
                     dismiss()
                 }
             }
-            MenuItem(stringResource(R.string.uninstall)) { IntentUtils.uninstall(context, entry.path); dismiss() }
+            MenuItem(stringResource(R.string.uninstall)) {
+                IntentUtils.uninstall(context, entry.path)
+                dismiss()
+            }
         } else if (entry != null) {
-            MenuItem(stringResource(R.string.details)) { vm.dialog.value = DialogRequest.Details(entry) }
+            MenuItem(stringResource(R.string.details)) {
+                vm.dialog.value = DialogRequest.Details(entry)
+            }
+            if (entry.isDir) {
+                MenuItem("このフォルダの並び順") {
+                    vm.dialog.value = DialogRequest.FolderSort(entry)
+                }
+            }
             if (entry.isDir && vm.canCreateFileIn(entry)) {
-                // Replaces the bottom-sheet request with the naming dialog. Calling dismiss after it
-                // would immediately clear that new request again.
-                MenuItem(stringResource(R.string.new_text_file)) { vm.requestNewTextFile(entry) }
+                MenuItem(stringResource(R.string.new_text_file)) {
+                    vm.requestNewTextFile(entry)
+                }
             }
 
-            // Pin files/folders/archives as top-level shortcuts. Anything already at the
-            // top level (volumes, App manager, Root) is excluded: pinning it again would
-            // be a silent no-op. Pinned rows
-            // themselves stay, for "Remove from favorites".
-            if ((entry.kind == EntryKind.DIR || entry.kind == EntryKind.FILE ||
+            if ((entry.kind == EntryKind.DIR ||
+                    entry.kind == EntryKind.FILE ||
                     entry.kind == EntryKind.ARCHIVE) &&
                 (entry.pinned || !vm.activeCtrl.isTopLevelRoot(entry.id))
             ) {
-                // The Graph cache is warm from startup, so the item renders with the right
-                // label on the first frame (null only before the very first DataStore read).
                 val favorites by Graph.favorites.collectAsState()
                 favorites?.let { favs ->
                     val pinned = favs.any { it.id == entry.id }
                     MenuItem(
-                        stringResource(if (pinned) R.string.remove_from_favorites else R.string.add_to_favorites),
+                        stringResource(
+                            if (pinned) R.string.remove_from_favorites
+                            else R.string.add_to_favorites,
+                        ),
                     ) {
                         vm.toggleFavorite(entry)
                         dismiss()
@@ -283,22 +480,24 @@ private fun EntryMenuContent(
                     label = stringResource(R.string.open_with),
                     enabled = hasLocalFile,
                     disabledReason = stringResource(R.string.requires_local_file),
-                ) { vm.openWith(entry); dismiss() }
-                MenuItem(stringResource(R.string.open_as_text)) { vm.openAsText(entry); dismiss() }
-                MenuItem(stringResource(R.string.open_as_hex)) { vm.openAsHex(entry); dismiss() }
+                ) {
+                    vm.openWith(entry)
+                    dismiss()
+                }
                 MenuItem(
                     label = stringResource(R.string.share),
                     enabled = hasLocalFile,
                     disabledReason = stringResource(R.string.requires_local_file),
-                ) { vm.shareSelection(listOf(entry)); dismiss() }
+                ) {
+                    vm.shareSelection(listOf(entry))
+                    dismiss()
+                }
             }
-            // Secondary explicit-location workflow; toolbar copy/move use the other pane directly.
+
             MenuItem(stringResource(R.string.copy_to)) {
                 vm.chooseTransferDestination(move = false, sources = listOf(entry))
                 dismiss()
             }
-            // Move deletes the source, so only when the source itself is writable (not a read-only
-            // root entry or an archive member).
             if (entry.canWrite) {
                 MenuItem(stringResource(R.string.move_to)) {
                     vm.chooseTransferDestination(move = true, sources = listOf(entry))
@@ -309,7 +508,10 @@ private fun EntryMenuContent(
                 label = stringResource(R.string.zip),
                 enabled = canUseOtherPane,
                 disabledReason = unavailableDestinationReason,
-            ) { vm.requestCompress(listOf(entry)); dismiss() }
+            ) {
+                vm.requestCompress(listOf(entry))
+                dismiss()
+            }
             if (entry.kind == EntryKind.ARCHIVE) {
                 MenuItem(
                     label = stringResource(R.string.extract_to_other_pane),
@@ -324,7 +526,10 @@ private fun EntryMenuContent(
                         label = stringResource(R.string.install),
                         enabled = entry.localPath != null,
                         disabledReason = stringResource(R.string.requires_local_file),
-                    ) { vm.installPackage(entry); dismiss() }
+                    ) {
+                        vm.installPackage(entry)
+                        dismiss()
+                    }
                 }
             }
             if (entry.canWrite) {

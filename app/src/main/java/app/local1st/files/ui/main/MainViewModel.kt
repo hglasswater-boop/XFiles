@@ -190,6 +190,15 @@ class MainViewModel : ViewModel() {
                 panes.forEach { it.reloadRoots() }
             }
         }
+        // Connection edits in Settings must invalidate cached SMB listings immediately.
+        viewModelScope.launch {
+            Graph.smbConnections.connections.drop(1).collect {
+                panes.forEach { pane ->
+                    pane.invalidateScheme(XId.SCHEME_SMB)
+                    pane.reloadRoots()
+                }
+            }
+        }
     }
 
     /**
@@ -898,7 +907,9 @@ class MainViewModel : ViewModel() {
 
 internal fun isFileOperationDestination(dest: XEntry?): Boolean =
     dest != null && dest.isDir && dest.canWrite &&
-        (dest.scheme == XId.SCHEME_FILE || dest.scheme == XId.SCHEME_ROOT)
+        (dest.scheme == XId.SCHEME_FILE ||
+            dest.scheme == XId.SCHEME_ROOT ||
+            dest.scheme == XId.SCHEME_SMB)
 
 /** A copy or move whose non-pane destination is being chosen. */
 data class PendingTransfer(

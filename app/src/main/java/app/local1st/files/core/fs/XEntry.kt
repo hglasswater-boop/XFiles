@@ -11,6 +11,7 @@ import androidx.compose.runtime.Immutable
  *  - `zip:///storage/emulated/0/a.zip!/inner/dir`   (archive file path + `!/` + inner path)
  *  - `apps://`                                       (app manager root)
  *  - `apps://com.example.app`                        (one installed app)
+ *  - `smb://<connection-id>/folder`                  (saved SMB share + relative path)
  */
 @Immutable
 data class XEntry(
@@ -68,6 +69,7 @@ object XId {
     const val SCHEME_ZIP = "zip"
     const val SCHEME_APPS = "apps"
     const val SCHEME_ROOT = "root"
+    const val SCHEME_SMB = "smb"
     const val ARCHIVE_SEP = "!/"
 
     fun file(absolutePath: String): String = "$SCHEME_FILE://$absolutePath"
@@ -88,7 +90,7 @@ object XId {
     fun zipInnerPath(id: String): String =
         id.substringAfter("://").substringAfter(ARCHIVE_SEP, "").trimEnd('/')
 
-    /** Child id under a parent container id (handles file/ root/ zip/ apps schemes). */
+    /** Child id under a parent container id (handles file/ root/ zip/ apps and SMB schemes). */
     fun child(parent: XEntry, childName: String): String = when (parent.scheme) {
         SCHEME_FILE ->
             if (parent.kind == EntryKind.ARCHIVE) zip(parent.path, childName)
@@ -134,6 +136,12 @@ object XId {
                 // a bare <pkg> (or @user/@system category) sits directly under the apps root.
                 return if (p.contains('/')) "$SCHEME_APPS://${p.substringBeforeLast('/')}"
                 else "$SCHEME_APPS://"
+            }
+            SCHEME_SMB -> {
+                val p = id.substringAfter("://").trimEnd('/')
+                if (p.isEmpty()) return null
+                val parentPath = p.substringBeforeLast('/', "")
+                return if (parentPath.isEmpty()) "$SCHEME_SMB://" else "$SCHEME_SMB://$parentPath"
             }
             else -> return null
         }

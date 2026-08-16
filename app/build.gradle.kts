@@ -13,7 +13,8 @@ val appVersionName = Properties().apply {
 }.getProperty("versionName", "1.0")
 val appBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
 
-// Release signing comes from env (CI injects it from GitHub secrets). Absent locally → unsigned.
+// CI signing comes from env (CI injects it from GitHub secrets). Absent locally, Android's
+// normal debug signing still works; personal CI explicitly refuses to publish without these envs.
 val ciKeystore: String? = System.getenv("XFILES_KEYSTORE")
 
 android {
@@ -40,6 +41,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // GitHub-hosted runners otherwise create a fresh ~/.android/debug.keystore per run,
+            // which makes every APK a different signer and prevents Android from updating the
+            // previous build. Reuse the CI key whenever one is supplied.
+            if (ciKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -117,6 +126,7 @@ dependencies {
     implementation(libs.commons.compress)
     implementation(libs.xz)
     implementation(libs.junrar)
+    implementation(libs.smbj)
     // Carries bundletool and ARSCLib, both relocated under app.local1st.files.vendor.
     implementation(project(path = ":vendor:bundletool-shaded", configuration = "shadedRuntimeElements"))
 

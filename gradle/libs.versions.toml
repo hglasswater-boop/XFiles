@@ -19,6 +19,7 @@ junrar = "7.6.0"
 media3 = "1.10.1"
 iconsExtended = "1.7.8"
 shizuku = "13.1.5"
+smbj = "0.14.0"
 # These are bundletool 1.18.3's ABI-pinned runtime deps, shaded into
 # :vendor:bundletool-shaded; re-derive from bundletool's POM when bundletool is bumped — do NOT
 # bump independently.
@@ -66,6 +67,7 @@ coil-gif = { group = "io.coil-kt.coil3", name = "coil-gif", version.ref = "coil"
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
 junrar = { group = "com.github.junrar", name = "junrar", version.ref = "junrar" }
+smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
 bundletool = { group = "com.android.tools.build", name = "bundletool", version.ref = "bundletool" }
 protobuf-java = { group = "com.google.protobuf", name = "protobuf-java", version.ref = "protobuf" }
 guava = { group = "com.google.guava", name = "guava", version.ref = "guava" }

@@ -27,12 +27,39 @@ object FileTypes {
         "ini", "conf", "properties", "log", "csv", "gradle", "pro", "sql", "srt",
     )
 
+    // Keep the thumbnail path independent of a device/vendor MimeTypeMap being incomplete.
+    // Network filesystems commonly provide no MIME at all, so extension fallback is essential.
+    private val imageExtensions = setOf(
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff",
+    )
+    private val videoExtensions = setOf(
+        "mp4", "m4v", "mkv", "avi", "mov", "webm", "mpg", "mpeg", "ts", "m2ts", "mts",
+        "3gp", "3g2", "flv", "wmv", "vob",
+    )
+    private val audioExtensions = setOf(
+        "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
+    )
+
     fun mimeOf(name: String): String? {
         val ext = name.substringAfterLast('.', "").lowercase()
         if (ext.isEmpty()) return null
         if (ext == "aab" || ext in apkBundleExtensions) return null
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
             ?: when (ext) {
+                in imageExtensions -> when (ext) {
+                    "jpg", "jpeg" -> "image/jpeg"
+                    "png" -> "image/png"
+                    "gif" -> "image/gif"
+                    "webp" -> "image/webp"
+                    else -> "image/*"
+                }
+                in videoExtensions -> when (ext) {
+                    "mp4", "m4v" -> "video/mp4"
+                    "mkv" -> "video/x-matroska"
+                    "webm" -> "video/webm"
+                    else -> "video/*"
+                }
+                in audioExtensions -> "audio/*"
                 in textExtensions -> "text/plain"
                 "apk" -> "application/vnd.android.package-archive"
                 "7z" -> "application/x-7z-compressed"
@@ -41,18 +68,22 @@ object FileTypes {
             }
     }
 
-    fun categoryOf(name: String, mime: String? = mimeOf(name)): FileCategory {
+    fun categoryOf(name: String, mime: String? = null): FileCategory {
         val ext = name.substringAfterLast('.', "").lowercase()
+        val resolvedMime = mime?.takeIf { it.isNotBlank() } ?: mimeOf(name)
         return when {
             ext == "apk" || ext == "aab" || ext in apkBundleExtensions -> FileCategory.APK
             ext == "db" || ext == "sqlite" || ext == "sqlite3" -> FileCategory.DATABASE
             ext in archiveExtensions -> FileCategory.ARCHIVE
-            mime == null -> if (ext in textExtensions) FileCategory.TEXT else FileCategory.GENERIC
-            mime.startsWith("image/") -> FileCategory.IMAGE
-            mime.startsWith("video/") -> FileCategory.VIDEO
-            mime.startsWith("audio/") -> FileCategory.AUDIO
-            mime == "application/pdf" -> FileCategory.PDF
-            mime.startsWith("text/") -> FileCategory.TEXT
+            ext in imageExtensions -> FileCategory.IMAGE
+            ext in videoExtensions -> FileCategory.VIDEO
+            ext in audioExtensions -> FileCategory.AUDIO
+            resolvedMime == null -> if (ext in textExtensions) FileCategory.TEXT else FileCategory.GENERIC
+            resolvedMime.startsWith("image/") -> FileCategory.IMAGE
+            resolvedMime.startsWith("video/") -> FileCategory.VIDEO
+            resolvedMime.startsWith("audio/") -> FileCategory.AUDIO
+            resolvedMime == "application/pdf" -> FileCategory.PDF
+            resolvedMime.startsWith("text/") -> FileCategory.TEXT
             else -> FileCategory.GENERIC
         }
     }

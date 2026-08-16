@@ -1,6 +1,6 @@
 package app.local1st.files.ui.browser
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -34,23 +34,27 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.local1st.files.R
+import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.BrowserDisplaySettings
+import app.local1st.files.di.Graph
+import app.local1st.files.ui.dialogs.AddSmbConnectionDialog
 import kotlinx.coroutines.flow.first
 
 /**
@@ -80,7 +84,12 @@ fun PaneView(
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
+    val display by BrowserDisplaySettings.state(Graph.appContext).collectAsStateWithLifecycle()
     val initialScrollIndex = state.initialScrollIndex
+    var breadcrumbSortTarget by remember(controller) {
+        mutableStateOf<Pair<String, String>?>(null)
+    }
+
     if (initialScrollIndex == null) {
         Surface(
             modifier = modifier.fillMaxSize(),
@@ -101,24 +110,36 @@ fun PaneView(
                         onActivate()
                         controller.revealPath(id)
                     },
+                    onCrumbLongClick = { id, name ->
+                        onActivate()
+                        breadcrumbSortTarget = id to name
+                    },
                 )
             }
+        }
+        breadcrumbSortTarget?.let { (id, name) ->
+            BreadcrumbSortDialog(
+                folderId = id,
+                folderName = name,
+                onDismiss = { breadcrumbSortTarget = null },
+            )
         }
         return
     }
 
-    // This state is first created only after PaneController has published the fully restored tree.
-    // LazyColumn therefore lays out the restored row on its first frame; there is no row-0 frame
-    // followed by a corrective scroll (animated or otherwise).
+    // Anchor the visible indentation window to the currently focused directory and its direct
+    // children. With a two-level setting, for example, the current folder remains one level in
+    // and its children two levels in; older ancestors collapse to the left instead of all deeper
+    // rows being flattened at the same absolute depth.
+    val focusedDepth = state.nodes.firstOrNull { it.entry.id == state.focusedDirId }?.depth ?: 0
+    val depthBase = (focusedDepth + 1 - display.treeLevels).coerceAtLeast(0)
+
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
     val currentOnInitialLayoutReady by rememberUpdatedState(onInitialLayoutReady)
-    // NavDisplay removes covered destinations from composition. Save these booleans with the
-    // browser entry so returning from Settings/Search does not replay the lightweight-row phase.
     var richRowsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
     var itemAnimationsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
+    var showAddSmbServer by rememberSaveable(controller) { mutableStateOf(false) }
 
-    // A measured lightweight list is already a valid first frame. Remove the startup cover now;
-    // thumbnail painters and animation nodes are enabled only after that frame is safely visible.
     LaunchedEffect(controller, listState, state.treeVersion) {
         snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
         currentOnInitialLayoutReady(state.treeVersion)
@@ -129,8 +150,6 @@ fun PaneView(
         }
     }
 
-    // A background restore may insert saved off-path branches. Let stable item keys preserve the
-    // scroll anchor, and enable placement animation only on a later frame after reconciliation.
     LaunchedEffect(state.startupSettled, richRowsEnabled) {
         itemAnimationsEnabled = false
         if (state.startupSettled && richRowsEnabled) {
@@ -154,10 +173,6 @@ fun PaneView(
         shape = RoundedCornerShape(16.dp),
     ) {
         Box(Modifier.fillMaxSize()) {
-            // Rows scroll edge-to-edge under the status bar and the floating breadcrumb;
-            // the top inset only keeps row 0 initially clear of both.
-            // IgnoringVisibility: the video player hides the system bars, and reacting
-            // to that would reflow (and permanently shift) this list on every return.
             val statusPad = WindowInsets.statusBarsIgnoringVisibility
                 .asPaddingValues().calculateTopPadding()
 
@@ -178,18 +193,37 @@ fun PaneView(
                         count = state.nodes.size,
                         key = { state.nodes[it].key },
                     ) { index ->
-                        val node = state.nodes[index]
+                        val rawNode = state.nodes[index]
+                        val visualDepth = (rawNode.depth - depthBase).coerceIn(0, display.treeLevels)
+                        val guideBase = (rawNode.depth - visualDepth).coerceAtLeast(0)
+                        val visualGuides = if (visualDepth == rawNode.depth && guideBase == 0) {
+                            rawNode.guides
+                        } else {
+                            List(visualDepth + 1) { localDepth ->
+                                rawNode.guides.getOrNull(guideBase + localDepth) ?: false
+                            }
+                        }
+                        val node = if (
+                            visualDepth == rawNode.depth && visualGuides === rawNode.guides
+                        ) {
+                            rawNode
+                        } else {
+                            rawNode.copy(depth = visualDepth, guides = visualGuides)
+                        }
+                        val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
                         EntryRow(
                             node = node,
                             selected = node.entry.id in state.selection,
                             focused = node.entry.id == state.focusedDirId,
                             onClick = {
                                 onActivate()
-                                onOpenEntry(node.entry)
+                                if (addSmbServer) showAddSmbServer = true
+                                else onOpenEntry(node.entry)
                             },
                             onLongClick = {
                                 onActivate()
-                                onEntryMenu(node.entry)
+                                if (addSmbServer) showAddSmbServer = true
+                                else onEntryMenu(node.entry)
                             },
                             onToggleSelect = {
                                 onActivate()
@@ -219,8 +253,23 @@ fun PaneView(
                     onActivate()
                     controller.revealPath(id)
                 },
+                onCrumbLongClick = { id, name ->
+                    onActivate()
+                    breadcrumbSortTarget = id to name
+                },
             )
         }
+    }
+
+    if (showAddSmbServer) {
+        AddSmbConnectionDialog(onDismiss = { showAddSmbServer = false })
+    }
+    breadcrumbSortTarget?.let { (id, name) ->
+        BreadcrumbSortDialog(
+            folderId = id,
+            folderName = name,
+            onDismiss = { breadcrumbSortTarget = null },
+        )
     }
 }
 
@@ -234,9 +283,8 @@ private fun BoxScope.PaneHeader(
     headerEndPadding: Dp,
     headerOverlay: (@Composable () -> Unit)?,
     onCrumbClick: (String) -> Unit,
+    onCrumbLongClick: (String, String) -> Unit,
 ) {
-    // One row so the compact target chip only takes the width it needs. Overlaying two
-    // independently aligned pills forced a worst-case hole on the opposite side.
     val chipOnStart = headerOverlay != null && breadcrumbAlignment == Alignment.TopEnd
     val chipOnEnd = headerOverlay != null && !chipOnStart
     Row(
@@ -263,6 +311,7 @@ private fun BoxScope.PaneHeader(
                 focusedDirId = focusedDirId,
                 active = active,
                 onCrumbClick = onCrumbClick,
+                onCrumbLongClick = onCrumbLongClick,
                 modifier = Modifier.wrapContentWidth(
                     align = if (chipOnStart) Alignment.End else Alignment.Start,
                     unbounded = false,
@@ -276,24 +325,17 @@ private fun BoxScope.PaneHeader(
     }
 }
 
-/**
- * Floating breadcrumb pill; the list scrolls underneath it.
- *
- * It shares a row (and [CrumbBarHeight] mid-line) with the compact target chip. A floor
- * rather than a fixed height: at large font scales the pill grows instead of clipping
- * the trail.
- */
 @Composable
 private fun BreadcrumbBar(
     focusedDirId: String?,
     active: Boolean,
     onCrumbClick: (String) -> Unit,
+    onCrumbLongClick: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val crumbs = crumbsFor(focusedDirId)
     Surface(
         shape = RoundedCornerShape(CrumbBarHeight / 2),
-        // On wide screens both panes are visible: the inactive pane's breadcrumb is the target.
         color = if (active) {
             MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f)
         } else {
@@ -315,9 +357,6 @@ private fun BreadcrumbBar(
                     "XFiles",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    // Padded exactly like a crumb: the fallback and a real trail have to
-                    // measure alike at every font scale, or the pill would resize (and jolt
-                    // the list under it) every time the tree collapses back to the root.
                     modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
                 )
             }
@@ -342,7 +381,10 @@ private fun BreadcrumbBar(
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     modifier = Modifier
-                        .clickable { onCrumbClick(id) }
+                        .combinedClickable(
+                            onClick = { onCrumbClick(id) },
+                            onLongClick = { onCrumbLongClick(id, name) },
+                        )
                         .padding(vertical = 4.dp, horizontal = 1.dp),
                 )
             }
@@ -356,9 +398,12 @@ private fun crumbsFor(focusedDirId: String?): List<Pair<String, String>> {
     val chain = generateSequence(focusedDirId) { XId.parent(it) }.toList().reversed()
     return chain.map { id ->
         val raw = id.substringAfter("://")
-        val name = when (raw) {
-            "@user" -> stringResource(R.string.installed_apps)
-            "@system" -> stringResource(R.string.system_apps)
+        val name = when {
+            id == "${XId.SCHEME_SMB}://" -> "SMB"
+            id.startsWith("${XId.SCHEME_SMB}://") && raw.isNotBlank() && !raw.contains('/') ->
+                Graph.smbConnections.find(raw)?.name ?: raw
+            raw == "@user" -> stringResource(R.string.installed_apps)
+            raw == "@system" -> stringResource(R.string.system_apps)
             else -> raw.trimEnd('/').substringAfterLast('/')
                 .substringAfterLast(XId.ARCHIVE_SEP)
                 .ifEmpty { if (id.startsWith(XId.SCHEME_APPS)) stringResource(R.string.apps) else "/" }

@@ -133,7 +133,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                 LargeFlexibleTopAppBar(
                     title = { Text(stringResource(R.string.settings)) },
                     navigationIcon = {
-                        TooltipIconButton(stringResource(R.string.back), Icons.AutoMirrored.Outlined.ArrowBack, onClick = close)
+                        TooltipIconButton(
+                            stringResource(R.string.back),
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            onClick = close,
+                        )
                     },
                     scrollBehavior = scrollBehavior,
                 )
@@ -165,6 +169,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
 
                 SectionHeader(stringResource(R.string.browsing))
+                BrowserDisplaySettingsSection()
                 SwitchRow(
                     title = stringResource(R.string.show_hidden),
                     subtitle = stringResource(R.string.show_hidden_summary),

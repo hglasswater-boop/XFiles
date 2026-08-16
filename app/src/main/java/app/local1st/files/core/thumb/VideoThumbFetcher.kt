@@ -2,6 +2,7 @@ package app.local1st.files.core.thumb
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -39,9 +40,12 @@ data class VideoThumb(
 
 /**
  * Extracts a small poster frame from a local video and keeps it in an on-disk thumbnail
- * cache. Frame extraction spins up a hardware codec and can take seconds for big videos,
- * so results must survive process death — Coil's own disk cache only stores source data
- * (which here would be the whole video), never decoded frames.
+ * cache. Embedded cover/jacket art is preferred when the container exposes one; only videos
+ * without usable artwork fall back to a decoded representative frame.
+ *
+ * Frame extraction spins up a hardware codec and can take seconds for big videos, so results
+ * must survive process death — Coil's own disk cache only stores source data (which here would
+ * be the whole video), never decoded frames.
  *
  * Entries for videos that were deleted or renamed are not cleaned up eagerly; they sit
  * in the app-private, OS-clearable cacheDir until pruning reclaims them.
@@ -145,8 +149,16 @@ class VideoThumbFetcher(
             } else {
                 retriever.setDataSource(data.path)
             }
-            // timeUs -1 = the format's representative frame. Scaled decode caps the
-            // output at thumb size instead of a full video-resolution bitmap.
+
+            // A container-provided jacket/cover is intentional artwork and is therefore a better
+            // thumbnail than an arbitrary video frame. Decode it sampled so several rows with
+            // high-resolution cover art cannot briefly allocate multiple full-size bitmaps.
+            retriever.embeddedPicture
+                ?.let(::decodeEmbeddedPicture)
+                ?.let { return it }
+
+            // No usable embedded art: use the format's representative frame. Scaled decode caps
+            // the output at thumb size instead of a full video-resolution bitmap.
             if (Build.VERSION.SDK_INT >= 27) {
                 retriever.getScaledFrameAtTime(
                     -1, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, THUMB_SIZE, THUMB_SIZE,
@@ -162,6 +174,23 @@ class VideoThumbFetcher(
             // MediaMetadataRetriever does not own the caller's descriptor.
             runCatching { descriptor?.close() }
         }
+    }
+
+    private fun decodeEmbeddedPicture(bytes: ByteArray): Bitmap? {
+        if (bytes.isEmpty()) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sample = 1
+        while (
+            bounds.outWidth / sample > THUMB_SIZE * 2 ||
+            bounds.outHeight / sample > THUMB_SIZE * 2
+        ) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let(::scaleDown)
     }
 
     private fun scaleDown(src: Bitmap): Bitmap {
@@ -204,7 +233,7 @@ class VideoThumbFetcher(
     /** Without an explicit keyer a custom model has no memory-cache key at all. */
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v2:${data.path}:${data.mtime}:${data.size}"
     }
 
     companion object {
@@ -226,7 +255,7 @@ class VideoThumbFetcher(
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
+                .digest("v2|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             val dir = File(context.cacheDir, "video_thumbs")
             dir.mkdirs()

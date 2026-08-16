@@ -71,7 +71,8 @@ import kotlinx.coroutines.isActive
 
 /**
  * media3 playback: PlayerView for video, an Expressive card UI for audio.
- * Local files use Media3's normal file source; root:// files use a binder-opened seekable fd.
+ * Local files use Media3's normal file source; root:// uses a binder-opened seekable fd;
+ * smb:// uses SMBJ offset reads so large remote media can stream and seek without a local copy.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -108,7 +109,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         playable.indexOfFirst { it.id == entry.id }.coerceAtLeast(0)
     }
     val player = remember {
-        val dataSourceFactory = DefaultDataSource.Factory(context, PrivilegedDataSource.Factory())
+        val dataSourceFactory = DefaultDataSource.Factory(context, XFilesRemoteDataSource.Factory())
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory),
@@ -183,6 +184,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 private fun mediaUri(entry: XEntry) = when {
     entry.localPath != null -> File(entry.localPath).toUri()
     entry.scheme == "content" -> entry.id.toUri()
+    entry.scheme == XId.SCHEME_SMB -> entry.id.toUri()
     else -> null
 }
 
