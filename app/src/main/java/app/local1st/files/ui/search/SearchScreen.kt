@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -90,7 +91,9 @@ import kotlinx.coroutines.flow.flowOn
 
 private const val DEBOUNCE_MS = 400L
 private const val MIN_QUERY_LENGTH = 2
-private const val MAX_HISTORY_SUGGESTIONS = 6
+private const val MAX_HISTORY_ITEMS = 20
+private const val HISTORY_VISIBLE_ITEMS = 6
+private const val HISTORY_ITEM_HEIGHT_DP = 44
 
 private enum class SearchPhase { IDLE, SEARCHING, DONE }
 
@@ -121,7 +124,7 @@ fun SearchScreen(
             .asSequence()
             .filterNot { it.equals(q, ignoreCase = true) }
             .filter { q.isBlank() || it.contains(q, ignoreCase = true) }
-            .take(MAX_HISTORY_SUGGESTIONS)
+            .take(MAX_HISTORY_ITEMS)
             .toList()
     }
 
@@ -218,21 +221,27 @@ fun SearchScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 2.dp),
                         )
-                        historySuggestions.forEach { historyItem ->
-                            Text(
-                                historyItem,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        query = historyItem
-                                        historyVisible = false
-                                        keyboard?.hide()
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                            )
+                        LazyColumn(
+                            modifier = Modifier.heightIn(
+                                max = (HISTORY_ITEM_HEIGHT_DP * HISTORY_VISIBLE_ITEMS).dp,
+                            ),
+                        ) {
+                            items(historySuggestions, key = { it }) { historyItem ->
+                                Text(
+                                    historyItem,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            query = historyItem
+                                            historyVisible = false
+                                            keyboard?.hide()
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                )
+                            }
                         }
                     }
                 }
