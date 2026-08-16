@@ -1,21 +1,28 @@
-name: Debug CI
+name: Apply full-width video seekbar
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: debug-ci-${{ github.ref }}
+  group: video-seekbar-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  apply-build-push:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Apply full-width seekbar layout
+        run: |
+          python3 .github/scripts/apply_full_width_seekbar.py
+          git diff --check
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -64,3 +71,13 @@ jobs:
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Commit validated seekbar layout
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          git rm .github/scripts/apply_full_width_seekbar.py
+          git commit -m "Use full-width video seekbar with times above"
+          git push
