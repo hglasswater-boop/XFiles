@@ -199,6 +199,36 @@ class SmbFileSystem(
         )
     }
 
+    /**
+     * Moves [entry] to [destDir] using an SMB server-side rename when both endpoints resolve
+     * to the same server/share. Returns false for cross-server/share moves so the operation
+     * engine can fall back to streaming copy + delete.
+     */
+    fun moveWithinShare(entry: XEntry, destDir: XEntry): Boolean {
+        val source = target(entry.id)
+        val destination = target(XId.child(destDir, entry.name))
+        if (!sameShare(source.connection, destination.connection)) return false
+
+        val oldPath = toSmbPath(source.path)
+        val newPath = toSmbPath(destination.path)
+        withShare(source.connection) { share ->
+            val options = if (entry.isDir) {
+                EnumSet.of(SMB2CreateOptions.FILE_DIRECTORY_FILE)
+            } else {
+                EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE)
+            }
+            share.open(
+                oldPath,
+                EnumSet.of(AccessMask.DELETE),
+                EnumSet.noneOf(FileAttributes::class.java),
+                SHARE_ACCESS,
+                SMB2CreateDisposition.FILE_OPEN,
+                options,
+            ).use { it.rename(newPath) }
+        }
+        return true
+    }
+
     override fun canWrite(entry: XEntry): Boolean = entry.id != ROOT_ID
 
     private fun connectionEntry(config: SmbConnectionConfig): XEntry = XEntry(
@@ -231,6 +261,11 @@ class SmbFileSystem(
         }
         return Target(connection, path)
     }
+
+    private fun sameShare(first: SmbConnectionConfig, second: SmbConnectionConfig): Boolean =
+        first.port == second.port &&
+            first.host.equals(second.host, ignoreCase = true) &&
+            first.share.equals(second.share, ignoreCase = true)
 
     private fun <T> withShare(config: SmbConnectionConfig, block: (DiskShare) -> T): T {
         val client = SMBClient()
