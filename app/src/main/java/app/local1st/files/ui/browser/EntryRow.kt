@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,19 +24,18 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
@@ -45,19 +45,21 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import coil3.compose.AsyncImagePainter
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.BrowserDisplayConfig
+import app.local1st.files.core.prefs.BrowserDisplaySettings
+import app.local1st.files.core.prefs.FilenameDisplayMode
 import app.local1st.files.core.thumb.AppIcon
 import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
@@ -66,13 +68,16 @@ import app.local1st.files.core.thumb.VideoThumb
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
 import app.local1st.files.core.util.Format
+import app.local1st.files.di.Graph
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import java.io.File
 
-// One tree level. The expand chevron is drawn inside this slot (no Material icon
-// padding), centered a hairline (its 1px lead) right of the children's vertical spine —
-// the lead keeps a visible gap between a branch line's round cap and the chevron.
+// One visible tree level. Deeper paths are visually compressed according to the display setting;
+// the breadcrumb still carries the full path, so the list does not need unlimited indentation.
 private val IndentWidth = 12.dp
-private val RowHeight = 48.dp
+private val BaseRowHeight = 48.dp
+private val SelectionWidth = 36.dp
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -88,6 +93,14 @@ fun EntryRow(
     modifier: Modifier = Modifier,
 ) {
     val entry = node.entry
+    val display by BrowserDisplaySettings.state(Graph.appContext).collectAsState()
+    val wantsThumbnail = EntryIcons.wantsThumbnail(entry)
+    val displayDepth = minOf(node.depth, display.treeLevels)
+    val rowMinHeight = if (wantsThumbnail) {
+        maxOf(48, display.thumbnailSize.heightDp + 8).dp
+    } else {
+        BaseRowHeight
+    }
     val isVolume = entry.kind == EntryKind.VOLUME_INTERNAL ||
         entry.kind == EntryKind.VOLUME_SD ||
         entry.kind == EntryKind.VOLUME_USB
@@ -111,6 +124,10 @@ fun EntryRow(
             enabled = enabled,
             selectable = selectable,
             isVolume = isVolume,
+            display = display,
+            wantsThumbnail = wantsThumbnail,
+            displayDepth = displayDepth,
+            rowMinHeight = rowMinHeight,
             modifier = modifier,
         )
         return
@@ -121,7 +138,7 @@ fun EntryRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .height(RowHeight)
+            .heightIn(min = rowMinHeight)
             .clip(RoundedCornerShape(8.dp))
             .background(background)
             .combinedClickable(
@@ -130,35 +147,31 @@ fun EntryRow(
                 onLongClick = onLongClick,
             ),
     ) {
-        // Tree guide lines + connector elbow. The ancestor spines show the full nesting path —
-        // parent, grandparent, and so on up to the root.
-        if (node.depth > 0) {
+        // Keep only the most recent N levels. This prevents an 8- or 10-level path from consuming
+        // most of a phone screen while still preserving local parent/child structure.
+        if (displayDepth > 0) {
             Canvas(
                 Modifier
-                    .width(IndentWidth * node.depth)
+                    .width(IndentWidth * displayDepth)
                     .fillMaxHeight(),
             ) {
                 val unit = IndentWidth.toPx()
                 val stroke = 1.dp.toPx()
-                // guides[i] tells whether the ancestor at depth i has a following sibling; that
-                // ancestor's sibling-spine sits one indent to the left, at level i-1. (guides[0]
-                // is the root — no spine.) The spine at this row's OWN level (depth-1) is the
-                // connector below — never drawn here, so a last child doesn't get a second,
-                // non-closing line over its "└".
-                node.guides.forEachIndexed { i, draw ->
-                    if (draw && i >= 1) {
-                        val gx = unit * (i - 1) + unit / 2
+
+                // In the uncapped model a visible slot maps to guides[index + 1]. When depth is
+                // compressed, shift that mapping to the most recent ancestors instead.
+                for (localIndex in 0 until displayDepth - 1) {
+                    val guideIndex = node.depth - displayDepth + localIndex + 1
+                    if (node.guides.getOrNull(guideIndex) == true) {
+                        val gx = unit * localIndex + unit / 2
                         drawLine(guideColor, Offset(gx, 0f), Offset(gx, size.height), stroke)
                     }
                 }
-                val x = unit * (node.depth - 1) + unit / 2
+
+                val x = unit * (displayDepth - 1) + unit / 2
                 val midY = size.height / 2
-                // Round caps extend past the end by half the stroke; stop at the
-                // column edge so the chevron's 1px leading gap stays visible.
                 val endX = x + unit / 2 - stroke / 2f
                 if (node.isLastChild) {
-                    // Rounded "└": the vertical stops here and curves into the branch — the arc
-                    // alone marks the last item, so it uses the same tone/weight as other guides.
                     val r = unit * 0.4f
                     val path = Path().apply {
                         moveTo(x, 0f)
@@ -172,7 +185,6 @@ fun EntryRow(
                         style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
                 } else {
-                    // "├": the spine continues past this item to its following siblings.
                     drawLine(guideColor, Offset(x, 0f), Offset(x, size.height), stroke)
                     drawLine(guideColor, Offset(x, midY), Offset(endX, midY), stroke, cap = StrokeCap.Round)
                 }
@@ -194,7 +206,6 @@ fun EntryRow(
 
         // Icon or thumbnail (selection is the trailing control, to avoid mis-taps here).
         Box(Modifier.padding(end = 6.dp), contentAlignment = Alignment.Center) {
-            val wantsThumbnail = EntryIcons.wantsThumbnail(entry)
             if (entry.kind == EntryKind.APP) {
                 AsyncImage(
                     model = AppIcon(entry.path),
@@ -202,7 +213,7 @@ fun EntryRow(
                     modifier = Modifier.size(32.dp),
                 )
             } else if (wantsThumbnail) {
-                EntryThumbnail(entry)
+                EntryThumbnail(entry, display)
             } else {
                 EntryIcon(
                     entry,
@@ -214,9 +225,24 @@ fun EntryRow(
             }
         }
 
-        // Name + details. Weight expresses hierarchy: navigable containers read heavier than
-        // plain files, volumes heaviest — the M3 Expressive variable-weight cue.
-        Column(Modifier.weight(1f)) {
+        val nameMaxLines = when (display.filenameMode) {
+            FilenameDisplayMode.SINGLE_LINE -> 1
+            FilenameDisplayMode.TWO_LINES -> 2
+            FilenameDisplayMode.FULL -> Int.MAX_VALUE
+        }
+        val nameOverflow = if (display.filenameMode == FilenameDisplayMode.FULL) {
+            TextOverflow.Clip
+        } else {
+            TextOverflow.Ellipsis
+        }
+
+        // Name + details. Rows are no longer fixed-height: a large thumbnail or wrapped filename
+        // can grow the row, while compact entries still retain the 48dp baseline.
+        Column(
+            Modifier
+                .weight(1f)
+                .padding(vertical = 4.dp),
+        ) {
             Text(
                 entry.name,
                 style = if (isVolume) MaterialTheme.typography.titleMedium
@@ -226,8 +252,8 @@ fun EntryRow(
                     entry.isContainer -> FontWeight.Medium
                     else -> FontWeight.Normal
                 },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = nameMaxLines,
+                overflow = nameOverflow,
                 color = if (node.error != null) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurface,
             )
@@ -263,7 +289,13 @@ fun EntryRow(
             val description = stringResource(if (selected) R.string.deselect else R.string.select)
             val tint = if (selected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.outlineVariant
-            IconButton(onClick = onToggleSelect, enabled = enabled) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .width(SelectionWidth)
+                    .fillMaxHeight()
+                    .clickable(enabled = enabled, onClick = onToggleSelect),
+            ) {
                 Icon(
                     icon,
                     contentDescription = description,
@@ -335,6 +367,10 @@ private fun StartupEntryRow(
     enabled: Boolean,
     selectable: Boolean,
     isVolume: Boolean,
+    display: BrowserDisplayConfig,
+    wantsThumbnail: Boolean,
+    displayDepth: Int,
+    rowMinHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier,
 ) {
     val entry = node.entry
@@ -343,24 +379,17 @@ private fun StartupEntryRow(
         focused -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> Color.Transparent
     }
-    val wantsThumbnail = EntryIcons.wantsThumbnail(entry)
-    val iconSize = when {
-        entry.kind == EntryKind.APP -> 32.dp
-        wantsThumbnail -> 36.dp
-        isVolume -> 28.dp
-        else -> 24.dp
-    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .height(RowHeight)
+            .heightIn(min = rowMinHeight)
             .clip(RoundedCornerShape(8.dp))
             .background(background)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
-        if (node.depth > 0) Spacer(Modifier.width(IndentWidth * node.depth))
+        if (displayDepth > 0) Spacer(Modifier.width(IndentWidth * displayDepth))
         if (entry.isContainer) {
             ExpandChevron(
                 expanded = node.expanded,
@@ -371,7 +400,14 @@ private fun StartupEntryRow(
             Spacer(Modifier.width(expandSlotWidth()))
         }
         Box(
-            Modifier.padding(end = 6.dp),
+            modifier = if (wantsThumbnail) {
+                Modifier
+                    .padding(end = 6.dp)
+                    .width(display.thumbnailSize.widthDp.dp)
+                    .height(display.thumbnailSize.heightDp.dp)
+            } else {
+                Modifier.padding(end = 6.dp)
+            },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -379,10 +415,30 @@ private fun StartupEntryRow(
                 contentDescription = null,
                 tint = if (entry.isContainer) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(iconSize),
+                modifier = Modifier.size(
+                    when {
+                        entry.kind == EntryKind.APP -> 32.dp
+                        isVolume -> 28.dp
+                        else -> 24.dp
+                    },
+                ),
             )
         }
-        Column(Modifier.weight(1f)) {
+        val nameMaxLines = when (display.filenameMode) {
+            FilenameDisplayMode.SINGLE_LINE -> 1
+            FilenameDisplayMode.TWO_LINES -> 2
+            FilenameDisplayMode.FULL -> Int.MAX_VALUE
+        }
+        val nameOverflow = if (display.filenameMode == FilenameDisplayMode.FULL) {
+            TextOverflow.Clip
+        } else {
+            TextOverflow.Ellipsis
+        }
+        Column(
+            Modifier
+                .weight(1f)
+                .padding(vertical = 4.dp),
+        ) {
             Text(
                 entry.name,
                 style = if (isVolume) MaterialTheme.typography.titleMedium
@@ -392,8 +448,8 @@ private fun StartupEntryRow(
                     entry.isContainer -> FontWeight.Medium
                     else -> FontWeight.Normal
                 },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = nameMaxLines,
+                overflow = nameOverflow,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             val details = entryDetails(node, loadFolderCount = false)
@@ -408,7 +464,12 @@ private fun StartupEntryRow(
             }
         }
         if (selectable) {
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .width(SelectionWidth)
+                    .fillMaxHeight(),
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
                     if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                     contentDescription = null,
@@ -427,10 +488,20 @@ private fun StartupEntryRow(
  * so the slot is never blank. Videos additionally get a small play badge.
  */
 @Composable
-private fun EntryThumbnail(entry: XEntry) {
+private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
-    Box(contentAlignment = Alignment.Center) {
+    val width = display.thumbnailSize.widthDp.dp
+    val height = display.thumbnailSize.heightDp.dp
+    val playBadge = if (display.thumbnailSize.widthDp >= 80) 20.dp else 16.dp
+    val playIcon = if (display.thumbnailSize.widthDp >= 80) 15.dp else 12.dp
+
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(height),
+        contentAlignment = Alignment.Center,
+    ) {
         if (!loaded) {
             Icon(
                 EntryIcons.forEntry(entry),
@@ -456,13 +527,14 @@ private fun EntryThumbnail(entry: XEntry) {
             contentScale = ContentScale.Crop,
             onState = { loaded = it is AsyncImagePainter.State.Success },
             modifier = Modifier
-                .size(36.dp)
+                .width(width)
+                .height(height)
                 .clip(RoundedCornerShape(8.dp)),
         )
         if (isVideo && loaded) {
             Box(
                 Modifier
-                    .size(16.dp)
+                    .size(playBadge)
                     .background(Color.Black.copy(alpha = 0.45f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
@@ -470,7 +542,7 @@ private fun EntryThumbnail(entry: XEntry) {
                     Icons.Filled.PlayArrow,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(12.dp),
+                    modifier = Modifier.size(playIcon),
                 )
             }
         }
