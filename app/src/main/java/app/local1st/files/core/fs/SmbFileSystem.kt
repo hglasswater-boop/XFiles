@@ -229,7 +229,7 @@ class SmbFileSystem(
                 AuthenticationContext(
                     config.username,
                     connections.password(config.id).toCharArray(),
-                    config.domain.ifBlank { null },
+                    config.domain.takeIf { it.isNotBlank() },
                 )
             }
             val session = connection.authenticate(auth)
@@ -277,7 +277,7 @@ class SmbFileSystem(
                 AuthenticationContext(
                     target.connection.username,
                     connections.password(target.connection.id).toCharArray(),
-                    target.connection.domain.ifBlank { null },
+                    target.connection.domain.takeIf { it.isNotBlank() },
                 )
             }
             val session = connection.authenticate(auth)
