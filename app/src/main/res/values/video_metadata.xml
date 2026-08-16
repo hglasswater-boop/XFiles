@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_resolution">Resolution: %1$s</string>
+    <string name="video_frame_rate">Frame rate: %1$s fps</string>
+    <string name="video_duration">Duration: %1$s</string>
+    <string name="video_codec">Video codec: %1$s</string>
+    <string name="video_bitrate">Bit rate: %1$s</string>
+</resources>

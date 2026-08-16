@@ -34,10 +34,16 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.media.VideoMetadata
+import app.local1st.files.core.media.VideoMetadataReader
+import app.local1st.files.core.media.formatVideoBitrate
+import app.local1st.files.core.media.formatVideoDuration
+import app.local1st.files.core.media.formatVideoFrameRate
 import app.local1st.files.core.prefs.FolderSortSpec
 import app.local1st.files.core.prefs.SortBy
 import app.local1st.files.core.util.AppComponents
 import app.local1st.files.core.util.ComponentType
+import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
 import app.local1st.files.core.util.Format
 import app.local1st.files.core.util.IntentUtils
@@ -111,23 +117,71 @@ fun MainDialogs(vm: MainViewModel) {
             onConfirm = { vm.performCompress(req.sources, req.destDir, it) },
         )
 
-        is DialogRequest.Details -> AlertDialog(
-            onDismissRequest = dismiss,
-            title = { Text(req.entry.name) },
-            text = {
-                Column {
-                    Text(stringResource(R.string.location, req.entry.id))
-                    if (!req.entry.isDir) {
-                        Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
+        is DialogRequest.Details -> {
+            val isVideo = FileTypes.categoryOf(req.entry.name, req.entry.mime) == FileCategory.VIDEO
+            val videoMetadata by produceState<VideoMetadata?>(
+                initialValue = null,
+                req.entry.id,
+                req.entry.mtime,
+                req.entry.size,
+            ) {
+                if (isVideo) value = VideoMetadataReader.read(req.entry)
+            }
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(req.entry.name) },
+                text = {
+                    Column {
+                        Text(stringResource(R.string.location, req.entry.id))
+                        if (!req.entry.isDir) {
+                            Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
+                        }
+                        Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
+                        req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
+                        videoMetadata?.let { metadata ->
+                            if (metadata.width != null && metadata.height != null) {
+                                Text(
+                                    stringResource(
+                                        R.string.video_resolution,
+                                        "${metadata.width} × ${metadata.height}",
+                                    ),
+                                )
+                            }
+                            metadata.frameRate?.let {
+                                Text(
+                                    stringResource(
+                                        R.string.video_frame_rate,
+                                        formatVideoFrameRate(it),
+                                    ),
+                                )
+                            }
+                            metadata.durationMs?.let {
+                                Text(
+                                    stringResource(
+                                        R.string.video_duration,
+                                        formatVideoDuration(it),
+                                    ),
+                                )
+                            }
+                            metadata.codec?.let {
+                                Text(stringResource(R.string.video_codec, it))
+                            }
+                            metadata.bitrate?.let {
+                                Text(
+                                    stringResource(
+                                        R.string.video_bitrate,
+                                        formatVideoBitrate(it),
+                                    ),
+                                )
+                            }
+                        }
                     }
-                    Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
-                    req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
-            },
-        )
+                },
+                confirmButton = {
+                    TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
+                },
+            )
+        }
 
         is DialogRequest.FolderSort -> FolderSortDialog(req.folder, dismiss)
 
