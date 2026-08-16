@@ -19,55 +19,124 @@ import kotlinx.coroutines.withContext
 /**
  * Extracts the small frame shown above the video seek bar.
  *
- * Only one extraction is allowed at a time. Scrubbing can produce many target changes and native
- * MediaMetadataRetriever work is not reliably cancellable; serializing it prevents rapid slider
- * movement from opening several decoders / SMB readers at once.
+ * Frame extraction is serialized because MediaMetadataRetriever is not thread-safe. Unlike the
+ * original implementation, the retriever and its SMB random-access source stay alive while the
+ * same video is being scrubbed. This avoids reparsing the container and reopening the NAS file for
+ * every slider movement. Recently decoded frames are also retained in a tiny in-memory LRU cache.
  */
 internal object SeekPreviewFrameLoader {
     private val semaphore = Semaphore(1)
+    private var session: PreviewSession? = null
 
     suspend fun load(entry: XEntry, targetMs: Long): Bitmap? = semaphore.withPermit {
-        withContext(Dispatchers.IO) { extract(entry, targetMs) }
+        withContext(Dispatchers.IO) {
+            val normalizedTarget = normalizeTarget(entry, targetMs)
+            val active = sessionFor(entry) ?: return@withContext null
+            active.cached(normalizedTarget)?.let { return@withContext it }
+            active.extract(normalizedTarget)?.also { active.cache(normalizedTarget, it) }
+        }
     }
 
-    private fun extract(entry: XEntry, targetMs: Long): Bitmap? {
-        val retriever = MediaMetadataRetriever()
-        var descriptor: ParcelFileDescriptor? = null
-        var smbSource: SeekPreviewSmbDataSource? = null
-        return try {
-            when {
-                entry.scheme == XId.SCHEME_SMB -> {
-                    smbSource = SeekPreviewSmbDataSource(entry)
-                    retriever.setDataSource(smbSource)
-                }
-                entry.localPath != null -> retriever.setDataSource(entry.localPath)
-                entry.scheme == XId.SCHEME_ROOT -> {
-                    // Preview decoration must never trigger a new root prompt/probe.
-                    val transport = PrivilegedAccess.fdTransport() ?: return null
-                    descriptor = transport.openFd(entry.path, write = false) ?: return null
-                    retriever.setDataSource(descriptor.fileDescriptor)
-                }
-                else -> retriever.setDataSource(entry.path)
-            }
+    /** Close the previous video's resources when another video starts being previewed. */
+    private fun sessionFor(entry: XEntry): PreviewSession? {
+        val key = sessionKey(entry)
+        session?.let { current ->
+            if (current.key == key) return current
+            current.close()
+            session = null
+        }
+        return PreviewSession.create(entry, key)?.also { session = it }
+    }
 
+    private fun normalizeTarget(entry: XEntry, targetMs: Long): Long {
+        val bucket = if (entry.scheme == XId.SCHEME_SMB) SMB_PREVIEW_BUCKET_MS else LOCAL_PREVIEW_BUCKET_MS
+        val safe = targetMs.coerceAtLeast(0L)
+        return (safe / bucket) * bucket
+    }
+
+    private fun sessionKey(entry: XEntry): String = "${entry.id}|${entry.mtime}|${entry.size}"
+
+    private const val LOCAL_PREVIEW_BUCKET_MS = 500L
+    private const val SMB_PREVIEW_BUCKET_MS = 1_000L
+    private const val PREVIEW_WIDTH = 320
+    private const val PREVIEW_HEIGHT = 180
+    private const val MAX_CACHED_FRAMES = 18
+
+    private class PreviewSession private constructor(
+        val key: String,
+        private val retriever: MediaMetadataRetriever,
+        private val descriptor: ParcelFileDescriptor?,
+        private val smbSource: SeekPreviewSmbDataSource?,
+    ) {
+        private val frames = object : LinkedHashMap<Long, Bitmap>(MAX_CACHED_FRAMES, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?): Boolean =
+                size > MAX_CACHED_FRAMES
+        }
+
+        fun cached(targetMs: Long): Bitmap? = frames[targetMs]
+
+        fun cache(targetMs: Long, bitmap: Bitmap) {
+            frames[targetMs] = bitmap
+        }
+
+        fun extract(targetMs: Long): Bitmap? {
             val timeUs = targetMs.coerceAtLeast(0L) * 1000L
-            if (Build.VERSION.SDK_INT >= 27) {
-                retriever.getScaledFrameAtTime(
-                    timeUs,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                    PREVIEW_WIDTH,
-                    PREVIEW_HEIGHT,
-                )
-            } else {
-                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    ?.let(::scaleDown)
+            return try {
+                if (Build.VERSION.SDK_INT >= 27) {
+                    retriever.getScaledFrameAtTime(
+                        timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        PREVIEW_WIDTH,
+                        PREVIEW_HEIGHT,
+                    )
+                } else {
+                    retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        ?.let(::scaleDown)
+                }
+            } catch (_: Exception) {
+                null
             }
-        } catch (_: Exception) {
-            null
-        } finally {
+        }
+
+        fun close() {
+            frames.clear()
             runCatching { retriever.release() }
             runCatching { descriptor?.close() }
             runCatching { smbSource?.close() }
+        }
+
+        companion object {
+            fun create(entry: XEntry, key: String): PreviewSession? {
+                val retriever = MediaMetadataRetriever()
+                var descriptor: ParcelFileDescriptor? = null
+                var smbSource: SeekPreviewSmbDataSource? = null
+                return try {
+                    when {
+                        entry.scheme == XId.SCHEME_SMB -> {
+                            smbSource = SeekPreviewSmbDataSource(entry)
+                            retriever.setDataSource(smbSource)
+                        }
+                        entry.localPath != null -> retriever.setDataSource(entry.localPath)
+                        entry.scheme == XId.SCHEME_ROOT -> {
+                            // Preview decoration must never trigger a new root prompt/probe.
+                            val transport = PrivilegedAccess.fdTransport() ?: return null.also {
+                                runCatching { retriever.release() }
+                            }
+                            descriptor = transport.openFd(entry.path, write = false) ?: return null.also {
+                                runCatching { retriever.release() }
+                            }
+                            retriever.setDataSource(descriptor.fileDescriptor)
+                        }
+                        else -> retriever.setDataSource(entry.path)
+                    }
+                    PreviewSession(key, retriever, descriptor, smbSource)
+                } catch (_: Exception) {
+                    runCatching { retriever.release() }
+                    runCatching { descriptor?.close() }
+                    runCatching { smbSource?.close() }
+                    null
+                }
+            }
         }
     }
 
@@ -86,12 +155,16 @@ internal object SeekPreviewFrameLoader {
         if (out !== src) src.recycle()
         return out
     }
-
-    private const val PREVIEW_WIDTH = 320
-    private const val PREVIEW_HEIGHT = 180
 }
 
-/** SMB random-access bridge with the same read-ahead strategy as normal remote thumbnails. */
+/**
+ * SMB random-access bridge for seek previews.
+ *
+ * The bridge now lives for the whole preview session instead of one frame, so the open SMB handle
+ * and read-ahead blocks are reused across consecutive slider positions. A larger 12 MiB block LRU
+ * covers MP4 header/sample-table reads plus several nearby keyframe regions without excessive NAS
+ * round trips.
+ */
 private class SeekPreviewSmbDataSource(private val entry: XEntry) : MediaDataSource() {
     private var file: SmbRandomAccessFile? = null
     private val blocks = object : LinkedHashMap<Long, ByteArray>(MAX_CACHED_BLOCKS, 0.75f, true) {
@@ -152,6 +225,6 @@ private class SeekPreviewSmbDataSource(private val entry: XEntry) : MediaDataSou
 
     private companion object {
         const val BLOCK_SIZE = 1024 * 1024
-        const val MAX_CACHED_BLOCKS = 4
+        const val MAX_CACHED_BLOCKS = 12
     }
 }
