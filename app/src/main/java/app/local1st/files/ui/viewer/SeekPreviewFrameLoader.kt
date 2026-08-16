@@ -10,12 +10,17 @@ import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.fs.priv.PrivilegedAccess
+import app.local1st.files.core.prefs.SeekPreviewSettings
 import app.local1st.files.di.Graph
 import java.io.ByteArrayOutputStream
 import java.util.LinkedHashMap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -30,14 +35,37 @@ import kotlinx.coroutines.withContext
  */
 internal object SeekPreviewFrameLoader {
     private val semaphore = Semaphore(1)
+    private val prefetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var prefetchJob: Job? = null
     private var session: PreviewSession? = null
 
-    suspend fun load(entry: XEntry, targetMs: Long): Bitmap? = semaphore.withPermit {
-        withContext(Dispatchers.IO) {
-            val normalizedTarget = normalizeTarget(targetMs)
-            val active = sessionFor(entry) ?: return@withContext null
-            active.cached(normalizedTarget)?.let { return@withContext it }
-            active.extract(normalizedTarget)?.also { active.cache(normalizedTarget, it) }
+    suspend fun load(entry: XEntry, targetMs: Long): Bitmap? {
+        val normalizedTarget = normalizeTarget(targetMs)
+        val bitmap = semaphore.withPermit {
+            withContext(Dispatchers.IO) {
+                val active = sessionFor(entry) ?: return@withContext null
+                active.cached(normalizedTarget)?.let { return@withContext it }
+                active.extract(normalizedTarget)?.also { active.cache(normalizedTarget, it) }
+            }
+        }
+        schedulePrefetch(entry, normalizedTarget)
+        return bitmap
+    }
+
+    private fun schedulePrefetch(entry: XEntry, centerMs: Long) {
+        prefetchJob?.cancel()
+        val radiusMinutes = SeekPreviewSettings.currentPrefetchMinutes(Graph.appContext)
+        if (radiusMinutes <= 0) return
+        prefetchJob = prefetchScope.launch {
+            val durationMs = semaphore.withPermit {
+                sessionFor(entry)?.durationMs ?: 0L
+            }
+            prefetchAround(
+                entry = entry,
+                centerMs = centerMs,
+                durationMs = durationMs,
+                radiusMinutes = radiusMinutes,
+            )
         }
     }
 
@@ -45,7 +73,7 @@ internal object SeekPreviewFrameLoader {
      * Fills the configured range nearest-first. Cancellation is checked between every frame so a new
      * thumb position immediately takes priority over obsolete background prefetch work.
      */
-    suspend fun prefetchAround(
+    private suspend fun prefetchAround(
         entry: XEntry,
         centerMs: Long,
         durationMs: Long,
@@ -83,6 +111,7 @@ internal object SeekPreviewFrameLoader {
         val key = sessionKey(entry)
         session?.let { current ->
             if (current.key == key) return current
+            prefetchJob?.cancel()
             current.close()
             session = null
         }
@@ -106,6 +135,7 @@ internal object SeekPreviewFrameLoader {
     private class PreviewSession private constructor(
         val key: String,
         private val retriever: MediaMetadataRetriever,
+        val durationMs: Long,
         private val descriptor: ParcelFileDescriptor?,
         private val smbSource: SeekPreviewSmbDataSource?,
     ) {
@@ -192,7 +222,12 @@ internal object SeekPreviewFrameLoader {
                         }
                         else -> retriever.setDataSource(entry.path)
                     }
-                    PreviewSession(key, retriever, descriptor, smbSource)
+                    val durationMs = retriever
+                        .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull()
+                        ?.coerceAtLeast(0L)
+                        ?: 0L
+                    PreviewSession(key, retriever, durationMs, descriptor, smbSource)
                 } catch (_: Exception) {
                     runCatching { retriever.release() }
                     runCatching { descriptor?.close() }
