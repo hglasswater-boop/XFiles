@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
 import app.local1st.files.core.prefs.FolderSortSpec
@@ -61,7 +62,11 @@ internal fun BreadcrumbSortDialog(
                         onClick = { by = option },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (option == by) "● ${sortLabel(option)}" else "○ ${sortLabel(option)}")
+                        Text(
+                            if (option == by) "● ${sortLabel(option)}" else "○ ${sortLabel(option)}",
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -69,13 +74,21 @@ internal fun BreadcrumbSortDialog(
                     onClick = { descending = !descending },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (descending) "順序: 降順" else "順序: 昇順")
+                    Text(
+                        if (descending) "順序: 降順" else "順序: 昇順",
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 TextButton(
                     onClick = { dirsFirst = !dirsFirst },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (dirsFirst) "フォルダを先頭: ON" else "フォルダを先頭: OFF")
+                    Text(
+                        if (dirsFirst) "フォルダを先頭: ON" else "フォルダを先頭: OFF",
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         },
