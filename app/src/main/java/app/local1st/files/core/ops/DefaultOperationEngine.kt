@@ -3,6 +3,7 @@ package app.local1st.files.core.ops
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.FsRegistry
 import app.local1st.files.core.fs.LocalFileSystem
+import app.local1st.files.core.fs.SmbFileSystem
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.util.FileTypes
@@ -132,7 +133,7 @@ class DefaultOperationEngine(
         val validSources = op.sources.filterNot { isSelfOrInside(destDir, it) }
         val rejected = op.sources.size - validSources.size
 
-        // Move fast path: same-scheme local rename covers instant same-volume moves.
+        // Move fast path: local same-volume rename and SMB server-side rename avoid byte copies.
         // Only attempted when the target name is free; conflicts take the slow path
         // so the user still gets the conflict dialog.
         var movedFast = 0
@@ -221,10 +222,19 @@ class DefaultOperationEngine(
         destDir: XEntry,
         destNames: MutableSet<String>,
     ): Boolean {
-        if (src.scheme != XId.SCHEME_FILE || destDir.scheme != XId.SCHEME_FILE) return false
-        if (destDir.kind == EntryKind.ARCHIVE) return false
         if (src.name in destNames) return false
-        val renamed = File(src.path).renameTo(File(destDir.path, src.name))
+
+        val renamed = when {
+            src.scheme == XId.SCHEME_FILE && destDir.scheme == XId.SCHEME_FILE -> {
+                if (destDir.kind == EntryKind.ARCHIVE) false
+                else File(src.path).renameTo(File(destDir.path, src.name))
+            }
+            src.scheme == XId.SCHEME_SMB && destDir.scheme == XId.SCHEME_SMB -> {
+                (registry.forScheme(XId.SCHEME_SMB) as? SmbFileSystem)
+                    ?.moveWithinShare(src, destDir) == true
+            }
+            else -> false
+        }
         if (renamed) destNames += src.name
         return renamed
     }
