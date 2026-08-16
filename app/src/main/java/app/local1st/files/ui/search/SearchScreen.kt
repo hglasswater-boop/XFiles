@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -16,13 +17,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,8 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -49,12 +53,24 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.BrowserDisplayConfig
+import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.search.SearchHit
+import app.local1st.files.core.thumb.PrivFile
+import app.local1st.files.core.thumb.RemoteFile
+import app.local1st.files.core.thumb.RemoteVideoThumb
+import app.local1st.files.core.thumb.VideoThumb
+import app.local1st.files.core.util.FileCategory
+import app.local1st.files.core.util.FileTypes
 import app.local1st.files.core.util.Format
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.browser.EntryIcon
+import app.local1st.files.ui.browser.EntryIcons
 import app.local1st.files.ui.components.TooltipIconButton
 import app.local1st.files.ui.main.MainViewModel
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -78,6 +94,7 @@ fun SearchScreen(
     val r = root
     val close = onBack
     val searchFailed = stringResource(R.string.search_failed)
+    val display by BrowserDisplaySettings.state(Graph.appContext).collectAsState()
 
     // Navigation 3 retains saveable entry state while another destination is on top.
     var query by rememberSaveable { mutableStateOf("") }
@@ -205,7 +222,11 @@ fun SearchScreen(
             } else {
                 LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                     items(results, key = { it.entry.id }) { hit ->
-                        SearchHitRow(hit, onClick = { vm.revealSearchHit(hit.entry.id) })
+                        SearchHitRow(
+                            hit = hit,
+                            display = display,
+                            onClick = { vm.revealSearchHit(hit.entry.id) },
+                        )
                     }
                 }
             }
@@ -214,7 +235,11 @@ fun SearchScreen(
 }
 
 @Composable
-private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
+private fun SearchHitRow(
+    hit: SearchHit,
+    display: BrowserDisplayConfig,
+    onClick: () -> Unit,
+) {
     val entry = hit.entry
     Row(
         modifier = Modifier
@@ -223,11 +248,15 @@ private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        EntryIcon(
-            entry,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(28.dp),
-        )
+        if (EntryIcons.wantsThumbnail(entry)) {
+            SearchThumbnail(entry, display)
+        } else {
+            EntryIcon(
+                entry,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
+            )
+        }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -257,6 +286,51 @@ private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+/** Uses the same local/privileged/SMB thumbnail models as the normal browser rows. */
+@Composable
+private fun SearchThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
+    val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
+    var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    val width = display.thumbnailSize.widthDp.dp
+    val height = display.thumbnailSize.heightDp.dp
+
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(height),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!loaded) {
+            EntryIcon(
+                entry,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        AsyncImage(
+            model = when {
+                entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(entry)
+                entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
+                isVideo -> VideoThumb(
+                    path = entry.localPath ?: entry.path,
+                    mtime = entry.mtime,
+                    size = entry.size,
+                    privileged = entry.localPath == null,
+                )
+                entry.localPath != null -> File(entry.localPath)
+                else -> PrivFile(entry.path, entry.mtime, entry.size)
+            },
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            onState = { loaded = it is AsyncImagePainter.State.Success },
+            modifier = Modifier
+                .width(width)
+                .height(height)
+                .clip(RoundedCornerShape(8.dp)),
+        )
     }
 }
 
