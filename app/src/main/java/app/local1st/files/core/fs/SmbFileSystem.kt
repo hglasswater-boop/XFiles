@@ -21,7 +21,7 @@ import java.io.OutputStream
 import java.util.EnumSet
 
 /** SMB2/SMB3 filesystem backed by SMBJ. Each saved connection represents one share. */
-class SmbFileSystem(
+open class SmbFileSystem(
     private val connections: SmbConnectionRepo,
 ) : XFileSystem {
     override val scheme: String = XId.SCHEME_SMB
