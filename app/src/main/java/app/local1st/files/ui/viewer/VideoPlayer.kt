@@ -1,6 +1,7 @@
 package app.local1st.files.ui.viewer
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.os.Build
@@ -13,6 +14,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
@@ -36,6 +39,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -75,9 +79,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -141,6 +148,9 @@ fun VideoPlayerScreen(
     var sliderPos by remember { mutableStateOf<Float?>(null) }
     var sliderWasPlaying by remember { mutableStateOf(false) }
     var cardDragging by remember { mutableStateOf(false) }
+    var seekPreviewTargetMs by remember { mutableLongStateOf(-1L) }
+    var seekPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var seekPreviewTrackWidthPx by remember { mutableIntStateOf(0) }
 
     // The system bars belong to the same chrome as the close row and the control card: they go
     // when it goes and come back with it, rather than being suppressed for the whole session.
@@ -148,6 +158,7 @@ fun VideoPlayerScreen(
     // zones on its own, instead of relying on hidden bars to swallow the first edge swipe.
     SystemBarsHidden(hidden = !controlsVisible)
     val view = LocalView.current
+    val density = LocalDensity.current
     val context = LocalContext.current
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -206,6 +217,8 @@ fun VideoPlayerScreen(
         }
     }
     LaunchedEffect(entry.id) {
+        seekPreviewTargetMs = -1L
+        seekPreviewBitmap = null
         // New item: forget the previous stream's rate (the poll above refills it), then
         // give the declared format a moment to surface before paying for a probe.
         fps = 0f
@@ -213,6 +226,20 @@ fun VideoPlayerScreen(
         if (fps > 0f) return@LaunchedEffect
         val probed = withContext(Dispatchers.IO) { probeFrameRate(entry.localPath) }
         if (fps <= 0f && probed != null) fps = probed
+    }
+
+    // A destination preview is deliberately debounced. Native frame extraction is expensive and
+    // SMB random access has real network cost, so only ask for a frame after the thumb pauses for
+    // a moment. Targets are quantized below as well, avoiding redundant near-identical frames.
+    LaunchedEffect(entry.id, seekPreviewTargetMs) {
+        val target = seekPreviewTargetMs
+        if (target < 0L) {
+            seekPreviewBitmap = null
+            return@LaunchedEffect
+        }
+        delay(SEEK_PREVIEW_DEBOUNCE_MS)
+        val bitmap = SeekPreviewFrameLoader.load(entry, target)
+        if (seekPreviewTargetMs == target) seekPreviewBitmap = bitmap
     }
 
     // NAS seeks are far faster when normal time scrubbing can land on the nearest sync frame.
@@ -309,24 +336,24 @@ fun VideoPlayerScreen(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
-                  val xFraction = offset.x / size.width
-                  val deltaSeconds = when {
-                      xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
-                      xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
-                      else -> null
-                  }
-                  if (deltaSeconds != null) {
-                      val target = clampMs(anchorMs() + deltaSeconds * 1000L)
-                      seekGate.request(target)
-                      tapSeekLabel = if (deltaSeconds > 0) {
-                          "+${DOUBLE_TAP_SEEK_SECONDS}秒"
-                      } else {
-                          "-${DOUBLE_TAP_SEEK_SECONDS}秒"
-                      }
-                      interactionTick++
-                  }
-              },
-              onTap = { controlsVisible = !controlsVisible },
+                            val xFraction = offset.x / size.width
+                            val deltaSeconds = when {
+                                xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
+                                xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
+                                else -> null
+                            }
+                            if (deltaSeconds != null) {
+                                val target = clampMs(anchorMs() + deltaSeconds * 1000L)
+                                seekGate.request(target)
+                                tapSeekLabel = if (deltaSeconds > 0) {
+                                    "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                } else {
+                                    "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                }
+                                interactionTick++
+                            }
+                        },
+                        onTap = { controlsVisible = !controlsVisible },
                     )
                 },
         ) {
@@ -385,10 +412,8 @@ fun VideoPlayerScreen(
 
                                 if (mode == VideoGestureMode.UNDECIDED) {
                                     mode = when {
-                                        abs(accumX) >= abs(accumY) ->
-                                            VideoGestureMode.HORIZONTAL_SEEK
-                                        startX >= size.width * VOLUME_REGION_START_FRACTION ->
-                                            VideoGestureMode.VOLUME
+                                        abs(accumX) >= abs(accumY) -> VideoGestureMode.HORIZONTAL_SEEK
+                                        startX >= size.width * VOLUME_REGION_START_FRACTION -> VideoGestureMode.VOLUME
                                         else -> VideoGestureMode.IGNORED
                                     }
                                     when (mode) {
@@ -606,6 +631,63 @@ fun VideoPlayerScreen(
                             },
                         )
                     }
+
+                    sliderPos?.let { previewFraction ->
+                        val previewWidth = 160.dp
+                        val previewHeight = 90.dp
+                        val previewWidthPx = with(density) { previewWidth.roundToPx() }
+                        val previewMs = seekPreviewTargetMs.takeIf { it >= 0L }
+                            ?: (previewFraction * durationMs).toLong()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(previewHeight + 8.dp)
+                                .onSizeChanged { seekPreviewTrackWidthPx = it.width },
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Black,
+                                shadowElevation = 6.dp,
+                                modifier = Modifier
+                                    .width(previewWidth)
+                                    .height(previewHeight)
+                                    .offset {
+                                        val travel =
+                                            (seekPreviewTrackWidthPx - previewWidthPx).coerceAtLeast(0)
+                                        IntOffset(
+                                            (travel * previewFraction.coerceIn(0f, 1f)).roundToInt(),
+                                            0,
+                                        )
+                                    },
+                            ) {
+                                Box(Modifier.fillMaxSize()) {
+                                    seekPreviewBitmap?.let { bitmap ->
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                    Text(
+                                        text = formatPlayTime(previewMs),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color.White,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = 4.dp)
+                                            .background(
+                                                Color.Black.copy(alpha = 0.68f),
+                                                RoundedCornerShape(5.dp),
+                                            )
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Slider(
                         value = sliderPos
                             ?: if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
@@ -619,12 +701,24 @@ fun VideoPlayerScreen(
                                     player.pause()
                                 }
                                 sliderPos = v
-                                seekGate.request((v * durationMs).toLong())
+                                val target = (v * durationMs).toLong()
+                                seekGate.request(target)
+                                val previewTarget =
+                                    (target / SEEK_PREVIEW_BUCKET_MS) * SEEK_PREVIEW_BUCKET_MS
+                                if (previewTarget != seekPreviewTargetMs) {
+                                    seekPreviewTargetMs = previewTarget
+                                    seekPreviewBitmap = null
+                                }
                             }
                         },
                         onValueChangeFinished = {
-                            sliderPos?.let { seekGate.request((it * durationMs).toLong()) }
+                            sliderPos?.let {
+                                seekGate.request((it * durationMs).toLong())
+                                seekGate.flushLatest()
+                            }
                             sliderPos = null
+                            seekPreviewTargetMs = -1L
+                            seekPreviewBitmap = null
                             if (sliderWasPlaying && !frameMode) player.play()
                             sliderWasPlaying = false
                             interactionTick++
@@ -787,6 +881,12 @@ private class SeekGate(private val player: ExoPlayer) {
         }
     }
 
+    fun flushLatest() {
+        if (queuedMs < 0) return
+        handler.removeCallbacks(flushQueuedRunnable)
+        flushQueued()
+    }
+
     private fun flushQueued() {
         if (queuedMs < 0) return
         val target = queuedMs
@@ -868,6 +968,8 @@ private val STANDARD_FPS =
 private const val FALLBACK_FPS = 30f
 private const val SEEK_THROTTLE_MS = 150L
 private const val SEEK_TARGET_HOLD_MS = 800L
+private const val SEEK_PREVIEW_BUCKET_MS = 500L
+private const val SEEK_PREVIEW_DEBOUNCE_MS = 120L
 private const val FRAME_SWIPE_DP = 8f // one frame per this much horizontal travel
 private const val EDGE_GUARD_DP = 24 // scrub dead zone at screen edges (back gesture)
 private const val TIME_SWIPE_MS_PER_DP = 100L // a full-width swipe covers roughly 40 s
