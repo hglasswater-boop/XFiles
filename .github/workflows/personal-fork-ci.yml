@@ -2,7 +2,7 @@ name: Personal Fork CI
 
 on:
   push:
-    branches: [agent/smb-folder-sort]
+    branches: ['agent/**']
   workflow_dispatch:
 
 concurrency:
