@@ -13,7 +13,7 @@ import java.io.File
 
 /**
  * Pane roots from [StorageManager]: mounted storage volumes, pinned favorites,
- * plus the app-manager root and (when the Settings switch is on) the filesystem root `/`.
+ * plus SMB, the app-manager root and (when the Settings switch is on) the filesystem root `/`.
  *
  * Favorites and stat are injected as lambdas so this class stays free of the
  * DI graph (wired in GraphInit).
@@ -41,6 +41,7 @@ class DefaultRootsRepository(
     override fun paneRoots(): List<XEntry> {
         val volumeEntries = volumes().map { it.entry }
         val specials = ArrayList<XEntry>()
+        specials += SmbFileSystem.rootEntry()
         specials += XEntry(
             id = "${XId.SCHEME_APPS}://",
             name = "App manager",
