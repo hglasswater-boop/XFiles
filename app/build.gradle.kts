@@ -6,12 +6,15 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// versionName is human-set in version.properties; the build number (versionCode) is passed by
-// CI via -PbuildNumber and increments on every push. Defaults keep local builds working.
-val appVersionName = Properties().apply {
+// versionName is human-set in version.properties. CI passes GitHub's monotonically increasing
+// workflow run number via -PbuildNumber; publish builds expose it in both versionCode and
+// versionName so installed builds are unambiguous (for example 1.3.6-smb-b92).
+val appBaseVersionName = Properties().apply {
     rootProject.file("version.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }.getProperty("versionName", "1.0")
-val appBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
+val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull()
+val appBuildNumber = ciBuildNumber ?: 1
+val appVersionName = ciBuildNumber?.let { "$appBaseVersionName-b$it" } ?: appBaseVersionName
 
 // CI signing comes from env (CI injects it from GitHub secrets). Absent locally, Android's
 // normal debug signing still works; personal CI explicitly refuses to publish without these envs.
