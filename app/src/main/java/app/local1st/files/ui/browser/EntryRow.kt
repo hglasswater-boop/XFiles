@@ -223,6 +223,7 @@ fun EntryRow(
         val nameMaxLines = when (display.filenameMode) {
             FilenameDisplayMode.SINGLE_LINE -> 1
             FilenameDisplayMode.TWO_LINES -> 2
+            FilenameDisplayMode.THREE_LINES -> 3
             FilenameDisplayMode.FULL -> Int.MAX_VALUE
         }
         val nameOverflow = if (display.filenameMode == FilenameDisplayMode.FULL) {
@@ -240,8 +241,8 @@ fun EntryRow(
         ) {
             Text(
                 entry.name,
-                style = if (isVolume) MaterialTheme.typography.titleMedium
-                else MaterialTheme.typography.bodyLarge,
+                style = if (isVolume) MaterialTheme.typography.titleSmall
+                else MaterialTheme.typography.bodyMedium,
                 fontWeight = when {
                     isVolume -> FontWeight.SemiBold
                     entry.isContainer -> FontWeight.Medium
@@ -422,6 +423,7 @@ private fun StartupEntryRow(
         val nameMaxLines = when (display.filenameMode) {
             FilenameDisplayMode.SINGLE_LINE -> 1
             FilenameDisplayMode.TWO_LINES -> 2
+            FilenameDisplayMode.THREE_LINES -> 3
             FilenameDisplayMode.FULL -> Int.MAX_VALUE
         }
         val nameOverflow = if (display.filenameMode == FilenameDisplayMode.FULL) {
@@ -436,8 +438,8 @@ private fun StartupEntryRow(
         ) {
             Text(
                 entry.name,
-                style = if (isVolume) MaterialTheme.typography.titleMedium
-                else MaterialTheme.typography.bodyLarge,
+                style = if (isVolume) MaterialTheme.typography.titleSmall
+                else MaterialTheme.typography.bodyMedium,
                 fontWeight = when {
                     isVolume -> FontWeight.SemiBold
                     entry.isContainer -> FontWeight.Medium
