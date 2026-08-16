@@ -32,6 +32,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
+import app.local1st.files.core.fs.SmbTreeFileSystem
+import app.local1st.files.core.fs.XId
 import app.local1st.files.core.prefs.FolderSortSpec
 import app.local1st.files.core.prefs.SortBy
 import app.local1st.files.core.util.AppComponents
@@ -121,10 +123,59 @@ fun MainDialogs(vm: MainViewModel) {
 
         is DialogRequest.FolderSort -> FolderSortDialog(req.folder, dismiss)
 
-        is DialogRequest.EntryMenu -> ModalBottomSheet(onDismissRequest = dismiss) {
-            EntryMenuContent(vm, req, dismiss)
+        is DialogRequest.EditSmbConnection -> SmbConnectionDialog(
+            connectionId = req.connectionId,
+            onDismiss = dismiss,
+        )
+
+        is DialogRequest.ConfirmDeleteSmbConnection -> ConfirmDeleteSmbConnectionDialog(
+            connectionId = req.connectionId,
+            onDismiss = dismiss,
+        )
+
+        is DialogRequest.EntryMenu -> {
+            if (req.entry?.id == SmbTreeFileSystem.ADD_SERVER_ID) {
+                SmbConnectionDialog(onDismiss = dismiss)
+            } else {
+                ModalBottomSheet(onDismissRequest = dismiss) {
+                    EntryMenuContent(vm, req, dismiss)
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun ConfirmDeleteSmbConnectionDialog(
+    connectionId: String,
+    onDismiss: () -> Unit,
+) {
+    val connection = remember(connectionId) { Graph.smbConnections.find(connectionId) }
+    if (connection == null) {
+        LaunchedEffect(connectionId) { onDismiss() }
+        return
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("SMBサーバーを削除") },
+        text = {
+            Text(
+                "「${connection.name}」の接続定義を削除します。" +
+                    "NAS上のファイルやフォルダは削除されません。",
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    Graph.smbConnections.remove(connectionId)
+                    onDismiss()
+                },
+            ) { Text("削除") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 @Composable
@@ -269,6 +320,15 @@ private fun EntryMenuContent(
         R.string.cannot_write,
         otherPaneDestination?.name ?: stringResource(R.string.this_device),
     )
+    val smbConnection = entry
+        ?.takeIf {
+            it.scheme == XId.SCHEME_SMB &&
+                it.isDir &&
+                XId.parent(it.id) == "${XId.SCHEME_SMB}://"
+        }
+        ?.path
+        ?.let(Graph.smbConnections::find)
+
     Column(Modifier.padding(bottom = 24.dp)) {
         if (entry != null) {
             Text(
@@ -277,7 +337,20 @@ private fun EntryMenuContent(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
         }
-        if (entry?.kind == EntryKind.APP_COMPONENT) {
+        if (smbConnection != null) {
+            Text(
+                "\\\\${smbConnection.host}\\${smbConnection.share}",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 8.dp),
+            )
+            MenuItem("編集") {
+                vm.dialog.value = DialogRequest.EditSmbConnection(smbConnection.id)
+            }
+            MenuItem("削除") {
+                vm.dialog.value = DialogRequest.ConfirmDeleteSmbConnection(smbConnection.id)
+            }
+        } else if (entry?.kind == EntryKind.APP_COMPONENT) {
             val parsed = AppComponents.parseId(entry.id)
             parsed?.let {
                 Text(
