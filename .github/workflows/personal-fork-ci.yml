@@ -1,21 +1,82 @@
-name: Debug CI
+name: Apply video double-tap zones
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: debug-ci-${{ github.ref }}
+  group: video-double-tap-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  apply-build-push:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Narrow double-tap seek regions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          text = path.read_text()
+          text = text.replace(
+              '// Single tap toggles chrome; double tap on the left/right half seeks -/+10 seconds.',
+              '// Single tap toggles chrome; double-tap seek is limited to the outer 30% on each side.',
+              1,
+          )
+          old = '''                        onDoubleTap = { offset ->
+                              val deltaSeconds = if (offset.x >= size.width / 2f) {
+                                  DOUBLE_TAP_SEEK_SECONDS
+                              } else {
+                                  -DOUBLE_TAP_SEEK_SECONDS
+                              }
+                              val target = clampMs(anchorMs() + deltaSeconds * 1000L)
+                              seekGate.request(target)
+                              tapSeekLabel = if (deltaSeconds > 0) {
+                                  "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                              } else {
+                                  "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                              }
+                              interactionTick++
+                          },'''
+          new = '''                        onDoubleTap = { offset ->
+                              val xFraction = offset.x / size.width
+                              val deltaSeconds = when {
+                                  xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
+                                  xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
+                                  else -> null
+                              }
+                              if (deltaSeconds != null) {
+                                  val target = clampMs(anchorMs() + deltaSeconds * 1000L)
+                                  seekGate.request(target)
+                                  tapSeekLabel = if (deltaSeconds > 0) {
+                                      "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                  } else {
+                                      "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                  }
+                                  interactionTick++
+                              }
+                          },'''
+          if old not in text:
+              raise SystemExit('double-tap block not found')
+          text = text.replace(old, new, 1)
+          marker = 'private const val DOUBLE_TAP_SEEK_SECONDS = 10\n'
+          if marker not in text:
+              raise SystemExit('double-tap constant marker not found')
+          text = text.replace(
+              marker,
+              marker + 'private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f\n',
+              1,
+          )
+          path.write_text(text)
+          PY
+          git diff --check
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -64,3 +125,12 @@ jobs:
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Commit validated gesture change
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          git commit -m "Limit double-tap video seeking to screen edges"
+          git push
