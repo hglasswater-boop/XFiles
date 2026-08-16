@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -117,6 +118,16 @@ fun PaneView(
     var richRowsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
     var itemAnimationsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
 
+    // Count only visible direct children of an expanded directory. Keep the last fresh result so
+    // collapsing the directory does not make its compact folder/file summary disappear.
+    val knownChildCounts = remember(controller) { mutableStateMapOf<String, DirectChildCounts>() }
+    val visibleChildCounts = remember(state.nodes, state.snapshotOnly) {
+        if (state.snapshotOnly) emptyMap() else directChildCountsOf(state.nodes)
+    }
+    LaunchedEffect(visibleChildCounts) {
+        knownChildCounts.putAll(visibleChildCounts)
+    }
+
     // A measured lightweight list is already a valid first frame. Remove the startup cover now;
     // thumbnail painters and animation nodes are enabled only after that frame is safely visible.
     LaunchedEffect(controller, listState, state.treeVersion) {
@@ -181,6 +192,8 @@ fun PaneView(
                         val node = state.nodes[index]
                         EntryRow(
                             node = node,
+                            childCounts = if (node.loading) null
+                            else visibleChildCounts[node.entry.id] ?: knownChildCounts[node.entry.id],
                             selected = node.entry.id in state.selection,
                             focused = node.entry.id == state.focusedDirId,
                             onClick = {
@@ -222,6 +235,35 @@ fun PaneView(
             )
         }
     }
+}
+
+/** O(n) direct-child count extraction from the already flattened, visibility-filtered tree. */
+private fun directChildCountsOf(nodes: List<TreeNode>): Map<String, DirectChildCounts> {
+    val counts = LinkedHashMap<String, IntArray>()
+    val ancestors = ArrayList<TreeNode>()
+
+    nodes.forEach { node ->
+        while (ancestors.size > node.depth) ancestors.removeAt(ancestors.lastIndex)
+
+        if (node.depth > 0 && ancestors.size >= node.depth) {
+            val parent = ancestors[node.depth - 1]
+            counts[parent.entry.id]?.let { parentCounts ->
+                if (node.entry.isDir) parentCounts[0]++ else parentCounts[1]++
+            }
+        }
+
+        if (node.entry.isDir && node.expanded && !node.loading && node.error == null) {
+            counts[node.entry.id] = intArrayOf(0, 0)
+        }
+
+        if (ancestors.size == node.depth) {
+            ancestors.add(node)
+        } else if (node.depth < ancestors.size) {
+            ancestors[node.depth] = node
+        }
+    }
+
+    return counts.mapValues { (_, value) -> DirectChildCounts(value[0], value[1]) }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
