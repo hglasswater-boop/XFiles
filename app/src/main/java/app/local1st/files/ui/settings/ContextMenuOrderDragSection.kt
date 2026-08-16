@@ -32,8 +32,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import app.local1st.files.R
 import app.local1st.files.core.prefs.ContextMenuOrderSettings
 
 /** Context-menu order editor with both button and long-press drag reordering. */
@@ -153,7 +155,7 @@ internal fun ReorderableContextMenuOrderSection() {
                                     modifier = Modifier.padding(end = 10.dp),
                                 )
                                 Text(
-                                    contextMenuOrderLabel(id),
+                                    reorderContextMenuLabel(id),
                                     modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
@@ -190,4 +192,22 @@ internal fun ReorderableContextMenuOrderSection() {
             },
         )
     }
+}
+
+@Composable
+private fun reorderContextMenuLabel(id: String): String = when (id) {
+    ContextMenuOrderSettings.DETAILS -> stringResource(R.string.details)
+    ContextMenuOrderSettings.FOLDER_SORT -> "このフォルダの並び順"
+    ContextMenuOrderSettings.NEW_TEXT_FILE -> stringResource(R.string.new_text_file)
+    ContextMenuOrderSettings.FAVORITE -> "お気に入りに追加／解除"
+    ContextMenuOrderSettings.OPEN_WITH -> stringResource(R.string.open_with)
+    ContextMenuOrderSettings.SHARE -> stringResource(R.string.share)
+    ContextMenuOrderSettings.COPY_TO -> stringResource(R.string.copy_to)
+    ContextMenuOrderSettings.MOVE_TO -> stringResource(R.string.move_to)
+    ContextMenuOrderSettings.ZIP -> stringResource(R.string.zip)
+    ContextMenuOrderSettings.EXTRACT -> stringResource(R.string.extract_to_other_pane)
+    ContextMenuOrderSettings.INSTALL -> stringResource(R.string.install)
+    ContextMenuOrderSettings.RENAME -> stringResource(R.string.rename)
+    ContextMenuOrderSettings.DELETE -> stringResource(R.string.delete)
+    else -> id
 }
