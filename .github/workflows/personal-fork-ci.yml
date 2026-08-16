@@ -20,6 +20,20 @@ jobs:
       - name: Apply customizations
         run: |
           python3 .github/scripts/apply_context_menu_customizations.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt')
+          s = p.read_text()
+          s = s.replace(
+              'constraints.constrainWidth(contentWidth),',
+              'contentWidth.coerceIn(constraints.minWidth, constraints.maxWidth),',
+          )
+          s = s.replace(
+              'constraints.constrainHeight(contentHeight),',
+              'contentHeight.coerceIn(constraints.minHeight, constraints.maxHeight),',
+          )
+          p.write_text(s)
+          PY
           git diff --check
 
       - uses: actions/setup-java@v4
