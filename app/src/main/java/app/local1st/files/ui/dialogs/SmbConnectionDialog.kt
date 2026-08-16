@@ -2,16 +2,19 @@ package app.local1st.files.ui.dialogs
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -19,7 +22,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.local1st.files.R
+import app.local1st.files.core.fs.SmbFileSystem
+import app.local1st.files.core.prefs.smbConnectionFromInput
 import app.local1st.files.di.Graph
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Connection editor opened directly from the SMB tree. */
 @Composable
@@ -29,6 +37,7 @@ fun SmbConnectionDialog(
     onSaved: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val existing = remember(connectionId) { connectionId?.let(Graph.smbConnections::find) }
 
     if (connectionId != null && existing == null) {
@@ -43,10 +52,58 @@ fun SmbConnectionDialog(
     val editing = existing != null
     var name by rememberSaveable(connectionId) { mutableStateOf(existing?.name.orEmpty()) }
     var host by rememberSaveable(connectionId) { mutableStateOf(existing?.host.orEmpty()) }
-    var share by rememberSaveable(connectionId) { mutableStateOf(existing?.share.orEmpty()) }
+    var share by rememberSaveable(connectionId) { mutableStateOf(existing?.sharePath.orEmpty()) }
     var username by rememberSaveable(connectionId) { mutableStateOf(existing?.username.orEmpty()) }
     var password by rememberSaveable(connectionId) { mutableStateOf("") }
     var domain by rememberSaveable(connectionId) { mutableStateOf(existing?.domain.orEmpty()) }
+    var testing by rememberSaveable(connectionId) { mutableStateOf(false) }
+    var testSucceeded by rememberSaveable(connectionId) { mutableStateOf<Boolean?>(null) }
+    var testMessage by rememberSaveable(connectionId) { mutableStateOf<String?>(null) }
+
+    fun clearTestResult() {
+        testSucceeded = null
+        testMessage = null
+    }
+
+    fun runConnectionTest() {
+        if (testing || host.isBlank() || share.isBlank()) return
+        testing = true
+        testSucceeded = null
+        testMessage = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val draft = smbConnectionFromInput(
+                        id = existing?.id ?: "connection-test",
+                        name = name,
+                        host = host,
+                        sharePath = share,
+                        username = username,
+                        domain = domain,
+                        port = existing?.port ?: 445,
+                    )
+                    val effectivePassword = if (existing != null && password.isEmpty()) {
+                        Graph.smbConnections.password(existing.id)
+                    } else {
+                        password
+                    }
+                    SmbFileSystem.testConnection(draft, effectivePassword)
+                    draft
+                }
+            }
+            testing = false
+            result.onSuccess { tested ->
+                testSucceeded = true
+                testMessage = "接続成功: ${tested.uncPath}"
+            }.onFailure { error ->
+                testSucceeded = false
+                val detail = generateSequence(error) { it.cause }.last().message
+                    ?: error.message
+                    ?: "接続できませんでした"
+                testMessage = "接続失敗: $detail"
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -55,35 +112,38 @@ fun SmbConnectionDialog(
             Column {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = it; clearTestResult() },
                     label = { Text("表示名（省略可）") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = host,
-                    onValueChange = { host = it },
+                    onValueChange = { host = it; clearTestResult() },
                     label = { Text("ホスト / IPアドレス") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = share,
-                    onValueChange = { share = it },
-                    label = { Text("共有名") },
+                    onValueChange = { share = it; clearTestResult() },
+                    label = { Text("共有名 / パス") },
+                    supportingText = {
+                        Text("例: video_a/actress → video_a共有のactressから表示")
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = username,
-                    onValueChange = { username = it },
+                    onValueChange = { username = it; clearTestResult() },
                     label = { Text("ユーザー名（匿名なら空欄）") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = password,
-                    onValueChange = { password = it },
+                    onValueChange = { password = it; clearTestResult() },
                     label = {
                         Text(
                             if (editing) "パスワード（空欄なら変更しない）"
@@ -96,16 +156,27 @@ fun SmbConnectionDialog(
                 )
                 OutlinedTextField(
                     value = domain,
-                    onValueChange = { domain = it },
+                    onValueChange = { domain = it; clearTestResult() },
                     label = { Text("ドメイン（省略可）") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                testMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = if (testSucceeded == true) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
-                enabled = host.isNotBlank() && share.isNotBlank(),
+                enabled = !testing && host.isNotBlank() && share.isNotBlank(),
                 onClick = {
                     runCatching {
                         if (existing == null) {
@@ -143,7 +214,15 @@ fun SmbConnectionDialog(
             ) { Text("保存") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            Row {
+                TextButton(
+                    enabled = !testing && host.isNotBlank() && share.isNotBlank(),
+                    onClick = ::runConnectionTest,
+                ) {
+                    Text(if (testing) "テスト中…" else "接続テスト")
+                }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            }
         },
     )
 }
