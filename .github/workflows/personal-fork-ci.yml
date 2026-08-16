@@ -1,28 +1,21 @@
-name: Apply transfer destination picker
+name: Debug CI
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: transfer-picker-${{ github.ref }}
+  group: debug-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-build-push:
-    if: github.actor != 'github-actions[bot]'
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Apply destination picker customization
-        run: |
-          python3 .github/scripts/apply_transfer_destination_picker.py
-          git diff --check
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -71,16 +64,3 @@ jobs:
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
-
-      - name: Commit validated transfer picker changes
-        run: |
-          set -eu
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            app/src/main/java/app/local1st/files/ui/main/MainScreen.kt \
-            app/src/main/java/app/local1st/files/ui/dialogs/DestinationPickerScreen.kt \
-            README.md
-          git rm .github/scripts/apply_transfer_destination_picker.py
-          git commit -m "Confirm copy and move destinations before transfer"
-          git push
