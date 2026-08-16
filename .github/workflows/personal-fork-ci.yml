@@ -1,21 +1,28 @@
-name: Debug CI
+name: Apply transfer destination picker
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: debug-ci-${{ github.ref }}
+  group: transfer-picker-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  apply-build-push:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Apply destination picker customization
+        run: |
+          python3 .github/scripts/apply_transfer_destination_picker.py
+          git diff --check
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -53,7 +60,7 @@ jobs:
         run: |
           set -eu
           VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          APK_NAME="XFiles-${VERSION}.apk"
+          APK_NAME="XFiles-${VERSION}-smb.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
 
@@ -64,3 +71,16 @@ jobs:
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Commit validated transfer picker changes
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/app/local1st/files/ui/main/MainScreen.kt \
+            app/src/main/java/app/local1st/files/ui/dialogs/DestinationPickerScreen.kt \
+            README.md
+          git rm .github/scripts/apply_transfer_destination_picker.py
+          git commit -m "Confirm copy and move destinations before transfer"
+          git push
