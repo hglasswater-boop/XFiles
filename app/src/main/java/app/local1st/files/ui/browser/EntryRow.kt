@@ -52,6 +52,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
@@ -147,8 +148,6 @@ fun EntryRow(
                 val unit = IndentWidth.toPx()
                 val stroke = 1.dp.toPx()
 
-                // In the uncapped model a visible slot maps to guides[index + 1]. When depth is
-                // compressed, shift that mapping to the most recent ancestors instead.
                 for (localIndex in 0 until displayDepth - 1) {
                     val guideIndex = node.depth - displayDepth + localIndex + 1
                     if (node.guides.getOrNull(guideIndex) == true) {
@@ -186,7 +185,6 @@ fun EntryRow(
     ) {
         if (displayDepth > 0) Spacer(Modifier.width(IndentWidth * displayDepth))
 
-        // Expand chevron for containers, aligned space for leaves.
         if (entry.isContainer) {
             ExpandChevron(
                 expanded = node.expanded,
@@ -199,8 +197,12 @@ fun EntryRow(
             Spacer(Modifier.width(expandSlotWidth()))
         }
 
-        // Icon or thumbnail (selection is the trailing control, to avoid mis-taps here).
-        Box(Modifier.padding(end = 6.dp), contentAlignment = Alignment.Center) {
+        val mediaTopModifier = if (wantsThumbnail) {
+            Modifier.align(Alignment.Top).padding(top = 4.dp, end = 6.dp)
+        } else {
+            Modifier.padding(end = 6.dp)
+        }
+        Box(mediaTopModifier, contentAlignment = Alignment.Center) {
             if (entry.kind == EntryKind.APP) {
                 AsyncImage(
                     model = AppIcon(entry.path),
@@ -232,11 +234,11 @@ fun EntryRow(
             TextOverflow.Ellipsis
         }
 
-        // Name + details. Rows are no longer fixed-height: a large thumbnail or wrapped filename
-        // can grow the row, while compact entries still retain the 48dp baseline.
         Column(
-            Modifier
+            horizontalAlignment = Alignment.Start,
+            modifier = Modifier
                 .weight(1f)
+                .then(if (wantsThumbnail) Modifier.align(Alignment.Top) else Modifier)
                 .padding(vertical = 4.dp),
         ) {
             Text(
@@ -250,6 +252,8 @@ fun EntryRow(
                 },
                 maxLines = nameMaxLines,
                 overflow = nameOverflow,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth(),
                 color = if (node.error != null) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurface,
             )
@@ -260,6 +264,8 @@ fun EntryRow(
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth(),
                     color = if (node.error != null) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -328,9 +334,6 @@ private fun ExpandChevron(
                 }
             },
     ) {
-        // 90° tip (45° arms), same opening as Material's chevron, without its
-        // 24dp-viewport padding. A square corner-to-corner stroke was ~53° and
-        // read as a spike.
         val stroke = 1.25.dp.toPx()
         val pad = stroke / 2f + 0.5.dp.toPx()
         val half = size.minDimension / 2f - pad
@@ -349,11 +352,6 @@ private fun ExpandChevron(
     }
 }
 
-/**
- * First-draw row: same geometry and useful text, without Canvas guides, long-press machinery,
- * ripple/selection buttons, thumbnail painters, or animation nodes. The full row replaces it
- * after the lightweight list has already produced a visible frame.
- */
 @Composable
 private fun StartupEntryRow(
     node: TreeNode,
@@ -398,7 +396,8 @@ private fun StartupEntryRow(
         Box(
             modifier = if (wantsThumbnail) {
                 Modifier
-                    .padding(end = 6.dp)
+                    .align(Alignment.Top)
+                    .padding(top = 4.dp, end = 6.dp)
                     .width(display.thumbnailSize.widthDp.dp)
                     .height(display.thumbnailSize.heightDp.dp)
             } else {
@@ -432,8 +431,10 @@ private fun StartupEntryRow(
             TextOverflow.Ellipsis
         }
         Column(
-            Modifier
+            horizontalAlignment = Alignment.Start,
+            modifier = Modifier
                 .weight(1f)
+                .then(if (wantsThumbnail) Modifier.align(Alignment.Top) else Modifier)
                 .padding(vertical = 4.dp),
         ) {
             Text(
@@ -447,6 +448,8 @@ private fun StartupEntryRow(
                 },
                 maxLines = nameMaxLines,
                 overflow = nameOverflow,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             val details = entryDetails(node, loadFolderCount = false)
@@ -456,6 +459,8 @@ private fun StartupEntryRow(
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -479,11 +484,6 @@ private fun StartupEntryRow(
     }
 }
 
-/**
- * Thumbnail with a vector-icon fallback: the icon shows until the image actually arrives
- * (video frame extraction can take seconds on a cold cache) and stays if loading fails,
- * so the slot is never blank. Videos additionally get a small play badge.
- */
 @Composable
 private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
@@ -566,9 +566,10 @@ private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): Strin
                 } else ""
         }
         entry.isDir && entry.childCountHint >= 0 -> pluralStringResource(
-            R.plurals.item_count_plural, entry.childCountHint, entry.childCountHint,
+            R.plurals.item_count_plural,
+            entry.childCountHint,
+            entry.childCountHint,
         )
-        // Folders otherwise show just their name until their lazy direct-file count arrives.
         else -> ""
     }
 }
