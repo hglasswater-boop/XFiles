@@ -1,5 +1,6 @@
 package app.local1st.files.ui.settings
 
+import android.app.Activity
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,7 +39,7 @@ import kotlinx.coroutines.withContext
 private enum class BackupPasswordMode { EXPORT, IMPORT }
 
 @Composable
-internal fun SettingsBackupSection(onRestored: () -> Unit) {
+internal fun SettingsBackupSection() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var passwordMode by remember { mutableStateOf<BackupPasswordMode?>(null) }
@@ -165,7 +166,6 @@ internal fun SettingsBackupSection(onRestored: () -> Unit) {
                             }
                         }
                         busy = false
-                        if (result.isSuccess) onRestored()
                         Toast.makeText(
                             context,
                             result.fold(
@@ -174,6 +174,7 @@ internal fun SettingsBackupSection(onRestored: () -> Unit) {
                             ),
                             Toast.LENGTH_LONG,
                         ).show()
+                        if (result.isSuccess) (context as? Activity)?.recreate()
                     }
                 }
             },
