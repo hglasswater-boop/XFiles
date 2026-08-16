@@ -292,7 +292,7 @@ fun VideoPlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Single tap toggles chrome; double tap on the left/right half seeks -/+10 seconds.
+        // Single tap toggles chrome; double-tap seek is limited to the outer 30% on each side.
         // Drag direction is resolved after touch slop: horizontal means seek, vertical on the
         // right half means media volume. Keeping these on the same full-screen layer preserves
         // all gestures without carving the video into mutually exclusive touch zones.
@@ -302,21 +302,24 @@ fun VideoPlayerScreen(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
-                            val deltaSeconds = if (offset.x >= size.width / 2f) {
-                                DOUBLE_TAP_SEEK_SECONDS
-                            } else {
-                                -DOUBLE_TAP_SEEK_SECONDS
-                            }
-                            val target = clampMs(anchorMs() + deltaSeconds * 1000L)
-                            seekGate.request(target)
-                            tapSeekLabel = if (deltaSeconds > 0) {
-                                "+${DOUBLE_TAP_SEEK_SECONDS}秒"
-                            } else {
-                                "-${DOUBLE_TAP_SEEK_SECONDS}秒"
-                            }
-                            interactionTick++
-                        },
-                        onTap = { controlsVisible = !controlsVisible },
+                  val xFraction = offset.x / size.width
+                  val deltaSeconds = when {
+                      xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
+                      xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
+                      else -> null
+                  }
+                  if (deltaSeconds != null) {
+                      val target = clampMs(anchorMs() + deltaSeconds * 1000L)
+                      seekGate.request(target)
+                      tapSeekLabel = if (deltaSeconds > 0) {
+                          "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                      } else {
+                          "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                      }
+                      interactionTick++
+                  }
+              },
+              onTap = { controlsVisible = !controlsVisible },
                     )
                 },
         ) {
@@ -826,6 +829,7 @@ private const val FRAME_SWIPE_DP = 8f // one frame per this much horizontal trav
 private const val EDGE_GUARD_DP = 24 // scrub dead zone at screen edges (back gesture)
 private const val TIME_SWIPE_MS_PER_DP = 100L // a full-width swipe covers roughly 40 s
 private const val DOUBLE_TAP_SEEK_SECONDS = 10
+private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f
 private const val DOUBLE_TAP_LABEL_MS = 700L
 private const val VOLUME_REGION_START_FRACTION = 0.5f // right half of the video
 private const val VOLUME_FULL_SCALE_FRACTION = 0.7f // 70% screen-height drag spans 0..max
