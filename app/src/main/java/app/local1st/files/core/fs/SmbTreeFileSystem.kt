@@ -36,7 +36,7 @@ class SmbTreeFileSystem(
         name = config.name,
         isDir = true,
         kind = EntryKind.DIR,
-        badge = "\\\\${config.host}\\${config.share}",
+        badge = config.uncPath,
         canRead = true,
         canWrite = true,
     )
