@@ -7,6 +7,7 @@ import app.local1st.files.core.fs.LegacySafAccess
 import app.local1st.files.core.fs.RootsRepository
 import app.local1st.files.core.ops.OperationEngine
 import app.local1st.files.core.prefs.Favorite
+import app.local1st.files.core.prefs.FolderSortRepo
 import app.local1st.files.core.prefs.SessionState
 import app.local1st.files.core.prefs.SettingsRepo
 import app.local1st.files.core.search.SearchEngine
@@ -37,6 +38,7 @@ object Graph {
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val settings: SettingsRepo by lazy { SettingsRepo(appContext) }
+    val folderSorts: FolderSortRepo by lazy { FolderSortRepo(appContext) }
     /** Starts with Application.onCreate so the render snapshot can beat Compose's first draw. */
     private lateinit var startupSession: Deferred<SessionState>
     @Volatile
