@@ -10,6 +10,7 @@ import app.local1st.files.core.prefs.Favorite
 import app.local1st.files.core.prefs.FolderSortRepo
 import app.local1st.files.core.prefs.SessionState
 import app.local1st.files.core.prefs.SettingsRepo
+import app.local1st.files.core.prefs.SmbConnectionRepo
 import app.local1st.files.core.search.SearchEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -39,6 +40,7 @@ object Graph {
 
     val settings: SettingsRepo by lazy { SettingsRepo(appContext) }
     val folderSorts: FolderSortRepo by lazy { FolderSortRepo(appContext) }
+    val smbConnections: SmbConnectionRepo by lazy { SmbConnectionRepo(appContext) }
     /** Starts with Application.onCreate so the render snapshot can beat Compose's first draw. */
     private lateinit var startupSession: Deferred<SessionState>
     @Volatile
