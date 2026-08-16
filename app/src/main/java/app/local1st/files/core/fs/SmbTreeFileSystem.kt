@@ -6,30 +6,29 @@ import app.local1st.files.core.prefs.SmbConnectionRepo
 /**
  * Tree-facing SMB filesystem wrapper.
  *
- * Keeps the actual SMB protocol implementation in [SmbFileSystem], while exposing one
- * synthetic action row directly under the SMB root so connections can be added where
- * the user is already browsing them.
+ * Extends the actual SMB protocol implementation while exposing one synthetic action row
+ * directly under the SMB root so connections can be added where the user is already browsing.
+ * Keeping this as a real [SmbFileSystem] subtype is important: operation fast paths resolve the
+ * registered filesystem by scheme and need access to SMB-specific server-side move support.
  */
 class SmbTreeFileSystem(
     private val connections: SmbConnectionRepo,
-    private val delegate: SmbFileSystem = SmbFileSystem(connections),
-) : XFileSystem by delegate {
-    override val scheme: String = XId.SCHEME_SMB
+) : SmbFileSystem(connections) {
 
     override fun list(dir: XEntry): List<XEntry> =
-        if (dir.id == SmbFileSystem.ROOT_ID) {
+        if (dir.id == ROOT_ID) {
             connections.connections.value.map(::connectionEntry) + addServerEntry()
         } else {
-            delegate.list(dir)
+            super.list(dir)
         }
 
     override fun stat(id: String): XEntry? = when (id) {
         ADD_SERVER_ID -> addServerEntry()
-        else -> delegate.stat(id)
+        else -> super.stat(id)
     }
 
     override fun canWrite(entry: XEntry): Boolean =
-        entry.id != ADD_SERVER_ID && delegate.canWrite(entry)
+        entry.id != ADD_SERVER_ID && super.canWrite(entry)
 
     private fun connectionEntry(config: SmbConnectionConfig): XEntry = XEntry(
         id = "$scheme://${config.id}",
