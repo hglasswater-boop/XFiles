@@ -1,37 +1,21 @@
-name: Apply context menu drag reorder
+name: Debug CI
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: context-menu-drag-${{ github.ref }}
+  group: debug-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-build-push:
-    if: github.actor != 'github-actions[bot]'
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Enable reorderable context-menu editor
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('app/src/main/java/app/local1st/files/ui/settings/SettingsScreen.kt')
-          text = path.read_text()
-          old = '                ContextMenuOrderSection()\n'
-          new = '                ReorderableContextMenuOrderSection()\n'
-          if text.count(old) != 1:
-              raise SystemExit(f'ContextMenuOrderSection call count={text.count(old)}')
-          path.write_text(text.replace(old, new, 1))
-          PY
-          git diff --check
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -80,12 +64,3 @@ jobs:
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
-
-      - name: Commit validated settings switch
-        run: |
-          set -eu
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/app/local1st/files/ui/settings/SettingsScreen.kt
-          git commit -m "Enable long-press context menu reordering"
-          git push
