@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,10 +55,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.media.VideoMetadata
+import app.local1st.files.core.media.VideoMetadataReader
+import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
@@ -482,16 +487,27 @@ private fun StartupEntryRow(
 /**
  * Thumbnail with a vector-icon fallback: the icon shows until the image actually arrives
  * (video frame extraction can take seconds on a cold cache) and stays if loading fails,
- * so the slot is never blank. Videos additionally get a small play badge.
+ * so the slot is never blank. Videos additionally get a small play badge and their duration
+ * overlaid at the lower-right corner.
  */
 @Composable
 private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    val videoMetadata by produceState<VideoMetadata?>(
+        initialValue = null,
+        entry.id,
+        entry.mtime,
+        entry.size,
+        isVideo,
+    ) {
+        if (isVideo) value = VideoMetadataReader.read(entry)
+    }
     val width = display.thumbnailSize.widthDp.dp
     val height = display.thumbnailSize.heightDp.dp
     val playBadge = if (display.thumbnailSize.widthDp >= 80) 20.dp else 16.dp
     val playIcon = if (display.thumbnailSize.widthDp >= 80) 15.dp else 12.dp
+    val durationFontSize = if (display.thumbnailSize.widthDp >= 80) 10.sp else 8.sp
 
     Box(
         modifier = Modifier
@@ -541,6 +557,27 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
                     tint = Color.White,
                     modifier = Modifier.size(playIcon),
                 )
+            }
+            videoMetadata?.durationMs?.takeIf { it > 0L }?.let { durationMs ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(3.dp)
+                        .background(
+                            Color.Black.copy(alpha = 0.68f),
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 3.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        text = formatVideoDuration(durationMs),
+                        color = Color.White,
+                        fontSize = durationFontSize,
+                        lineHeight = durationFontSize,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
