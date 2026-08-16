@@ -1,44 +1,21 @@
-name: Apply early seek resume fix
+name: Debug CI
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: early-seek-fix-${{ github.ref }}
+  group: debug-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-build-push:
-    if: github.actor != 'github-actions[bot]'
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Preserve intended playback state while seeking
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
-          text = path.read_text()
-          replacements = [
-              ('var wasPlaying = false', 'var resumeAfterSeek = false'),
-              ('if (wasPlaying && !frameMode) player.play()', 'if (resumeAfterSeek && !frameMode) player.play()'),
-              ('wasPlaying = player.isPlaying', 'resumeAfterSeek = player.playWhenReady'),
-              ('sliderWasPlaying = player.isPlaying', 'sliderWasPlaying = player.playWhenReady'),
-          ]
-          for old, new in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{old!r}: expected 1 match, found {count}')
-              text = text.replace(old, new, 1)
-          path.write_text(text)
-          PY
-          git diff --check
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -87,12 +64,3 @@ jobs:
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
-
-      - name: Commit validated seek fix
-        run: |
-          set -eu
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
-          git commit -m "Preserve playback state while seeking"
-          git push
