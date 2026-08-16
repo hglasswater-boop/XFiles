@@ -292,7 +292,7 @@ fun VideoPlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Single tap toggles chrome; double tap on the left/right half seeks -/+10 seconds.
+        // Single tap toggles chrome; double-tap seek is limited to the outer 30% on each side.
         // Drag direction is resolved after touch slop: horizontal means seek, vertical on the
         // right half means media volume. Keeping these on the same full-screen layer preserves
         // all gestures without carving the video into mutually exclusive touch zones.
@@ -302,21 +302,24 @@ fun VideoPlayerScreen(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
-                            val deltaSeconds = if (offset.x >= size.width / 2f) {
-                                DOUBLE_TAP_SEEK_SECONDS
-                            } else {
-                                -DOUBLE_TAP_SEEK_SECONDS
-                            }
-                            val target = clampMs(anchorMs() + deltaSeconds * 1000L)
-                            seekGate.request(target)
-                            tapSeekLabel = if (deltaSeconds > 0) {
-                                "+${DOUBLE_TAP_SEEK_SECONDS}秒"
-                            } else {
-                                "-${DOUBLE_TAP_SEEK_SECONDS}秒"
-                            }
-                            interactionTick++
-                        },
-                        onTap = { controlsVisible = !controlsVisible },
+                  val xFraction = offset.x / size.width
+                  val deltaSeconds = when {
+                      xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
+                      xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
+                      else -> null
+                  }
+                  if (deltaSeconds != null) {
+                      val target = clampMs(anchorMs() + deltaSeconds * 1000L)
+                      seekGate.request(target)
+                      tapSeekLabel = if (deltaSeconds > 0) {
+                          "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                      } else {
+                          "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                      }
+                      interactionTick++
+                  }
+              },
+              onTap = { controlsVisible = !controlsVisible },
                     )
                 },
         ) {
@@ -334,7 +337,7 @@ fun VideoPlayerScreen(
                     )
                     .pointerInput(Unit) {
                         var mode = VideoGestureMode.UNDECIDED
-                        var wasPlaying = false
+                        var resumeAfterSeek = false
                         var accumX = 0f
                         var accumY = 0f
                         var baseMs = 0L
@@ -349,7 +352,7 @@ fun VideoPlayerScreen(
                                     scrubLabel = null
                                     // Frame mode exists to inspect a chosen frame — stay on it
                                     // instead of resuming playback over it.
-                                    if (wasPlaying && !frameMode) player.play()
+                                    if (resumeAfterSeek && !frameMode) player.play()
                                 }
                                 VideoGestureMode.VOLUME -> volumeAdjusting = false
                                 else -> Unit
@@ -384,7 +387,7 @@ fun VideoPlayerScreen(
                                     when (mode) {
                                         VideoGestureMode.HORIZONTAL_SEEK -> {
                                             scrubbing = true
-                                            wasPlaying = player.isPlaying
+                                            resumeAfterSeek = player.playWhenReady
                                             player.pause()
                                             baseMs = anchorMs()
                                             baseFrame = frameOf(baseMs)
@@ -558,15 +561,17 @@ fun VideoPlayerScreen(
                                 CircleShape,
                             ),
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // "≈" flags an untrustworthy rate: missing entirely, or a
-                        // non-standard average — MP4 rates are often synthesized as
-                        // frameCount/duration, which is meaningless for VFR screen
-                        // recordings that only encode a frame when the screen changes.
-                        val approx = if (fps > 0f && isStandardFps(fps)) "" else "≈"
-                        val total = totalFramesNow()
-                        val modeColor = if (frameMode) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface
+                    // Keep the readouts above the scrubber so the timeline can use the
+                    // full width of the control card instead of being squeezed between labels.
+                    val approx = if (fps > 0f && isStandardFps(fps)) "" else "≈"
+                    val total = totalFramesNow()
+                    val modeColor = if (frameMode) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         ModeToggleText(
                             text = if (frameMode) {
                                 "$approx${(frameOf(positionMs).coerceIn(0L, (total - 1).coerceAtLeast(0L))) + 1}"
@@ -579,31 +584,6 @@ fun VideoPlayerScreen(
                                 frameMode = !frameMode
                                 interactionTick++
                             },
-                        )
-                        Slider(
-                            value = sliderPos
-                                ?: if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
-                            onValueChange = { v ->
-                                if (durationMs > 0) {
-                                    if (sliderPos == null) {
-                                        // Pause while scrubbing: playback racing the
-                                        // thumb fights the user, and a video ending
-                                        // mid-drag would auto-advance under the finger.
-                                        sliderWasPlaying = player.isPlaying
-                                        player.pause()
-                                    }
-                                    sliderPos = v
-                                    seekGate.request((v * durationMs).toLong())
-                                }
-                            },
-                            onValueChangeFinished = {
-                                sliderPos?.let { seekGate.request((it * durationMs).toLong()) }
-                                sliderPos = null
-                                if (sliderWasPlaying && !frameMode) player.play()
-                                sliderWasPlaying = false
-                                interactionTick++
-                            },
-                            modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
                         )
                         ModeToggleText(
                             text = if (frameMode) {
@@ -619,6 +599,31 @@ fun VideoPlayerScreen(
                             },
                         )
                     }
+                    Slider(
+                        value = sliderPos
+                            ?: if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
+                        onValueChange = { v ->
+                            if (durationMs > 0) {
+                                if (sliderPos == null) {
+                                    // Pause while scrubbing: playback racing the
+                                    // thumb fights the user, and a video ending
+                                    // mid-drag would auto-advance under the finger.
+                                    sliderWasPlaying = player.playWhenReady
+                                    player.pause()
+                                }
+                                sliderPos = v
+                                seekGate.request((v * durationMs).toLong())
+                            }
+                        },
+                        onValueChangeFinished = {
+                            sliderPos?.let { seekGate.request((it * durationMs).toLong()) }
+                            sliderPos = null
+                            if (sliderWasPlaying && !frameMode) player.play()
+                            sliderWasPlaying = false
+                            interactionTick++
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
@@ -824,6 +829,7 @@ private const val FRAME_SWIPE_DP = 8f // one frame per this much horizontal trav
 private const val EDGE_GUARD_DP = 24 // scrub dead zone at screen edges (back gesture)
 private const val TIME_SWIPE_MS_PER_DP = 100L // a full-width swipe covers roughly 40 s
 private const val DOUBLE_TAP_SEEK_SECONDS = 10
+private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f
 private const val DOUBLE_TAP_LABEL_MS = 700L
 private const val VOLUME_REGION_START_FRACTION = 0.5f // right half of the video
 private const val VOLUME_FULL_SCALE_FRACTION = 0.7f // 70% screen-height drag spans 0..max

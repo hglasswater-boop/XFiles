@@ -4,15 +4,15 @@
 
 # XFiles
 
-**An offline, open-source Android file manager with X-plore's workflow** — dual-pane
-tree browsing, archive-as-folder, app manager, APK/AAB/XAPK install, root & Shizuku
-access — on the latest Android stack with a Material 3 Expressive UI.
+**An open-source Android file manager with X-plore's workflow** — dual-pane tree
+browsing, archive-as-folder, app manager, APK/AAB/XAPK install, root & Shizuku access,
+and SMB2/3 network shares — on the latest Android stack with a Material 3 Expressive UI.
 
-[![Release](https://img.shields.io/github/v/release/Local1stDotApp/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/Local1stDotApp/XFiles/releases)
+[![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-3DDC84?logo=android&logoColor=white)](#build--run)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?logo=kotlin&logoColor=white)](#tech-stack)
-[![No network](https://img.shields.io/badge/network-none-success)](#permissions--privacy)
+[![Network](https://img.shields.io/badge/network-SMB2%2F3%20only-informational)](#permissions--privacy)
 
 English · [简体中文](README.zh-CN.md)
 
@@ -24,16 +24,100 @@ English · [简体中文](README.zh-CN.md)
 
 ---
 
+## This fork
+
+This repository is a personal fork of
+[Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles). The upstream project
+is kept as the base, while this fork adds the following customizations for day-to-day
+use:
+
+### SMB2/3 network shares
+
+- Added a native **SMB2/SMB3 filesystem** using SMBJ and exposed saved servers directly
+  in the normal XFiles tree.
+- SMB connections support a display name, host, share, optional start path, username,
+  password, domain and custom port.
+- Saved SMB passwords are protected with the **Android Keystore** instead of being kept
+  as plain text.
+- Servers can be **added, tested, edited, duplicated and deleted** from the browser UI.
+  The configured server name is also used in breadcrumbs.
+- SMB folders participate in normal XFiles operations and can be used as copy/move
+  destinations.
+- Remote images and videos get thumbnails. Video thumbnail extraction uses seekable SMB
+  access, avoids black first frames where possible, and prefers embedded cover art when
+  available.
+- Media can be played **directly from SMB** through Media3 without first downloading the
+  entire file. Random-access reads, readahead and seek handling were tuned for remote
+  playback.
+
+### Per-folder sorting
+
+- Sort settings can be saved **per folder** instead of relying only on one global sort
+  order.
+- A long-press on the breadcrumb opens the folder sort dialog.
+- Each override stores the sort key, direction and folders-first behavior, and falls
+  back to the global setting when no override exists.
+
+### Browser display customization
+
+- Added browser display settings for **thumbnail size**, filename wrapping and maximum
+  visible tree depth.
+- Filename display supports compact multi-line modes, including **three-line wrapping**.
+- Tree guides were adjusted for variable-height rows and deep hierarchies.
+- Folder rows show their direct child counts using separate **folder and file icons with
+  counts**, rather than a combined text label.
+- Browser rows were made denser so more files fit on screen while keeping thumbnails
+  usable.
+
+### Copy / move destination confirmation
+
+- Copy and move from a selection no longer start immediately when the toolbar action is tapped.
+- The destination picker can jump to either the **source pane's current folder** or the
+  **other pane's current folder**, then browse deeper before committing the operation.
+- The transfer starts only after tapping **Copy here** / **Move here**, which prevents accidental
+  transfers to the wrong pane or folder.
+
+### Video player improvements
+
+- Double-tap the left/right half of the video to seek **-10 / +10 seconds**.
+- Vertical swipe on the right half adjusts media volume without opening the Android
+  system volume panel.
+- SMB playback uses faster seek/read behavior to make large remote videos more usable.
+
+### Portable settings backup
+
+- Added **Settings export / import** for moving this fork's configuration between
+  devices.
+- Backups include normal app settings, favorites, browser display options, per-folder
+  sort overrides, file associations and **saved SMB connections including passwords**.
+- The backup is password-protected using **AES-256-GCM** with a key derived using
+  **PBKDF2-HMAC-SHA256 (200,000 iterations)**.
+- On import, SMB passwords are written back through the destination device's Android
+  Keystore protection.
+
+### Build and CI changes
+
+- Added a reusable **Debug CI** workflow that runs on pushes to any branch and can also
+  be started manually.
+- Debug APKs use the configured stable signing key, so test builds can update an
+  installed copy instead of behaving like unrelated debug apps.
+- Release builds run on GitHub-hosted runners and stale builds are cancelled when a
+  newer push supersedes them.
+
+These changes intentionally diverge from upstream behavior. When comparing bugs or
+features with the original project, check whether the behavior is listed above first.
+
 ## Why
 
 - **X-plore broke on [Waydroid](https://waydro.id)** over the past half-year; I needed a replacement.
 - **It's the LLM era** — if a tool doesn't fit, build your own.
-- **Software with dangerous root powers should be open-source, fully offline, and
-  collect nothing.** XFiles has no `INTERNET` permission and no analytics.
+- **Software with dangerous root powers should be open-source and collect nothing.**
+  This fork has no analytics, accounts or ads. Network access is used for SMB shares
+  explicitly configured by the user.
 
 ## Download
 
-Grab an APK from [**Releases**](https://github.com/Local1stDotApp/XFiles/releases):
+Grab an APK from [**Releases**](https://github.com/hglasswater-boop/XFiles/releases):
 
 - **`vX.Y`** — stable, cut whenever `versionName` is bumped.
 - **`nightly`** — a single rolling prerelease, refreshed on every push to `main`.
@@ -53,11 +137,19 @@ the hidden pane's folder visible and switches to that pane when tapped.
 Archives sit in the tree like any other folder — the breadcrumb descends straight into
 `project.zip`.
 
+### SMB2/3 network shares
+
+Saved SMB servers appear alongside local storage in the tree. Browse shares, use a
+configured subdirectory as the starting point, copy files to/from remote folders, show
+remote media thumbnails, and stream video directly through the built-in Media3 player.
+Connection passwords are stored with Android Keystore protection.
+
 ### Thumbnails in the tree
 
-Images and video poster frames render inline. Video frames are extracted once at
-thumbnail size and disk-cached, so they are instant after a restart, with a play badge
-and an icon fallback while loading.
+Images and video poster frames render inline for local files and SMB shares. Video
+frames are extracted at thumbnail size and cached, with a play badge and an icon
+fallback while loading. When media contains embedded cover art, the fork prefers it as
+the thumbnail.
 
 ### File operations
 
@@ -136,7 +228,8 @@ list `/` and browse what the adb shell can see (`/system`, `/proc`, `/storage`,
 `Android/data`). `/data` and `/data/data` stay closed until superuser is granted.
 
 The settings screen carries the rest of the preferences too — theme, dynamic color,
-hidden files, folders-first, sort key and direction.
+hidden files, folders-first, sort key and direction, browser display configuration and
+portable settings backup/restore.
 
 ### Viewers
 
@@ -147,6 +240,8 @@ on-demand paging, an audio player, and a custom video player (Media3/ExoPlayer) 
 Tap the time readout to swap it for a frame counter — current frame, total, and the real
 frame rate — then step ±1 frame, swipe on the picture to scrub by time or frames with
 live preview, drag the compact control card out of the way, or go fullscreen immersive.
+This fork also adds left/right **double-tap ±10-second seeking** and a right-side
+vertical swipe for media volume.
 
 ### Search
 
@@ -175,8 +270,9 @@ Polish, Portuguese (Brazil), Russian, Spanish, Turkish and Vietnamese.
 
 ## Permissions & privacy
 
-No network permission, no telemetry, no accounts, no ads. Every permission the app
-declares, and why:
+No telemetry, no accounts and no ads. This fork requests network access only because it
+supports SMB2/SMB3 shares configured by the user. Every permission the app declares,
+and why:
 
 | Permission | Why |
 |---|---|
@@ -189,9 +285,13 @@ declares, and why:
 | `POST_NOTIFICATIONS` | Show the progress notification for long operations |
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` | Keep a copy/move or install running when backgrounded |
 | `WAKE_LOCK` | Don't sleep mid-operation |
-| **`INTERNET`** | **Not requested.** The app cannot talk to the network at all |
+| **`INTERNET`** | Connect to SMB2/SMB3 servers explicitly configured by the user |
 
-That last row is enforced by the OS, not by policy — verify it yourself in
+SMB credentials stay on the device and saved passwords are protected using Android
+Keystore-backed encryption. Settings backup files can include SMB credentials, but the
+entire export is password-encrypted before it is written.
+
+Verify the declared permissions yourself in
 [`AndroidManifest.xml`](app/src/main/AndroidManifest.xml) or with
 `aapt dump permissions` on the APK.
 
@@ -202,11 +302,13 @@ That last row is enforced by the OS, not by policy — verify it yourself in
 | Language / UI | Kotlin, Jetpack Compose (BOM 2026.06.01), material3 **1.5.0-alpha23** (Expressive APIs) |
 | Build | AGP 9.2.1 (built-in Kotlin, no KGP), Gradle 9.4.1, compileSdk 37 / target 37 / min 26 |
 | Architecture | MVVM + StateFlow, manual DI composition root (`di/Graph`); app module + a shaded bundletool vendor module |
-| Persistence | DataStore Preferences |
-| Media/Images | Coil 3 (GIF, custom fetchers: app icons, disk-cached video thumbnails), Media3 ExoPlayer |
+| Persistence | DataStore Preferences; Android Keystore-backed SMB secrets |
+| Network shares | SMBJ, SMB2/SMB3, seekable random access for remote media |
+| Media/Images | Coil 3 (GIF, local/SMB image fetchers, disk-cached video thumbnails), Media3 ExoPlayer |
 | Archives | java.util.zip, commons-compress (+xz), junrar |
 | Privileged access | Shizuku 13.1.5 (user service, real fds) · `su` shell |
 | Package install | PackageInstaller sessions · vendored bundletool 1.18.3 · ARSCLib (in-process aapt2) · minimal self-signed signer |
+| Settings backup | AES-256-GCM · PBKDF2-HMAC-SHA256 (200,000 iterations) |
 
 Note: material3 is pinned to `1.5.0-alpha23` because the Expressive APIs are
 `internal` in the 1.4.0 stable release.
@@ -217,32 +319,36 @@ Note: material3 is pinned to `1.5.0-alpha23` because the Expressive APIs are
 app/src/main/java/app/local1st/files/
 ├── core/
 │   ├── fs/        XEntry model, XId id scheme, XFileSystem + FsRegistry,
-│   │   │          Local/Archive/Apps/Root filesystems, storage roots, legacy SAF writes
+│   │   │          Local/Archive/Apps/Root/SMB filesystems, storage roots,
+│   │   │          SMB random access, legacy SAF writes
 │   │   └── priv/  privileged transports — su shell & Shizuku user service (real fds)
 │   ├── ops/       OperationEngine (copy/move/delete/compress + conflicts), OpsService
 │   ├── search/    recursive SearchEngine
-│   ├── prefs/     DataStore settings
-│   ├── thumb/     Coil fetchers: app icons, disk-cached video thumbnails
+│   ├── prefs/     DataStore settings, per-folder sorting, SMB connections,
+│   │              encrypted settings backup
+│   ├── thumb/     Coil fetchers: app icons, local/SMB images and video thumbnails
 │   └── util/      formatters, mime/category mapping, intents; package install —
 │                  PackageInstaller sessions, AAB→APKs (bundletool), XAPK/OBB,
 │                  in-process aapt2 (ARSCLib), self-signed signing
 ├── di/            Graph (composition root) + GraphInit wiring
 └── ui/
-    ├── browser/   PaneController (tree state machine), PaneView, EntryRow
+    ├── browser/   PaneController (tree state machine), PaneView, EntryRow,
+    │              breadcrumb folder sorting and child-count badges
     ├── components/ shared Compose bits (tooltips, predictive back)
     ├── main/      MainViewModel, MainScreen (dual pane + floating toolbar), PermissionGate
-    ├── dialogs/   rename/new-folder/delete/zip/details, ops progress + conflicts
-    ├── viewer/    image / text / hex viewers, audio player, frame-accurate video player
+    ├── dialogs/   rename/new-folder/delete/zip/details/SMB, ops progress + conflicts
+    ├── viewer/    image / text / hex viewers, audio player, frame-accurate video player,
+    │              SMB Media3 data source
     ├── search/    search overlay
-    ├── settings/  settings screen
+    ├── settings/  settings screen + browser display / backup controls
     ├── appinfo/   app details overlay
     └── theme/     MaterialExpressiveTheme setup
 
 vendor/bundletool-shaded/   Gradle module shading bundletool 1.18.3 + its pinned deps
 ```
 
-Entry ids are URI-like strings: `file:///abs/path`,
-`zip:///abs/archive.zip!/inner/path`, `apps://package.name`, `root:///abs/path`.
+Entry ids are URI-like strings for local files, archives, apps, root access and SMB
+connections.
 
 ## Build & run
 
@@ -256,15 +362,18 @@ Requires JDK 17+ and an Android SDK with platform 37. On first launch grant
 
 ## Releases
 
-A **self-hosted** GitHub Actions workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml))
-builds a signed APK on every push to `main`:
+A **GitHub-hosted** GitHub Actions workflow
+([`.github/workflows/release.yml`](.github/workflows/release.yml)) builds a signed APK
+on every push to `main`:
 
 - The build number (`versionCode`) increments each run (`github.run_number`).
 - `versionName` lives in `version.properties`. While it's unchanged, each push just
   refreshes a single rolling **`nightly`** prerelease with the latest build. Bump
   `versionName` to cut a new stable `vX.Y` release.
 - Signing keys/passwords come from repo secrets: `KEYSTORE_BASE64`,
-  `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. The runner needs the Android SDK.
+  `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+- [`.github/workflows/personal-fork-ci.yml`](.github/workflows/personal-fork-ci.yml)
+  provides a signed Debug CI build for feature branches and manual test builds.
 
 ## License
 

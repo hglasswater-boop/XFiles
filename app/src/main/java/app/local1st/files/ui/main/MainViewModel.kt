@@ -113,9 +113,7 @@ class MainViewModel : ViewModel() {
         navigation.navigate(AppScreen.Viewer(request), replaceTop = replacingViewer)
     }
 
-    private fun showDestinationPicker(transfer: PendingTransfer) {
-        navigation.navigate(AppScreen.DestinationPicker(transfer))
-    }
+    val pendingTransfer = MutableStateFlow<PendingTransfer?>(null)
 
     val snackbar = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
@@ -706,38 +704,47 @@ class MainViewModel : ViewModel() {
 
     // ---- file operations ----
 
-    /** Copies or moves the active pane's selection directly into the other pane's folder. */
-    fun copySelection(move: Boolean, sources: List<XEntry> = activeCtrl.selectionEntries()) {
-        if (sources.isEmpty()) return
-        val destDir = validDestinationOrNotify(otherPaneDestination()) ?: return
-        Graph.opEngine.submit(FileOp.Copy(sources, destDir, move))
-        activeCtrl.clearSelection()
-    }
+    /** Copy/move starts destination-selection mode without leaving the browser. */
+fun copySelection(move: Boolean, sources: List<XEntry> = activeCtrl.selectionEntries()) {
+    chooseTransferDestination(move = move, sources = sources)
+}
 
-    /** Secondary one-item workflow: choose a destination instead of using the other pane. */
-    fun chooseTransferDestination(
-        move: Boolean,
-        sources: List<XEntry> = activeCtrl.selectionEntries(),
-    ) {
-        if (sources.isEmpty()) return
-        showDestinationPicker(
-            PendingTransfer(
-                sources = sources,
-                move = move,
-                startDirId = inactiveCtrl.state.value.focusedDirId,
-            ),
-        )
-    }
+fun chooseTransferDestination(
+    move: Boolean,
+    sources: List<XEntry> = activeCtrl.selectionEntries(),
+) {
+    if (sources.isEmpty()) return
+    val sourcePane = activePane.value
+    pendingTransfer.value = PendingTransfer(
+        sources = sources,
+        move = move,
+        startDirId = panes[1 - sourcePane].state.value.focusedDirId,
+        sourcePane = sourcePane,
+    )
+}
 
-    /** Called by the picker once the user confirms a destination folder. */
-    fun confirmTransfer(destDir: XEntry) {
-        val current = screenBackStack.last()
-        val transfer = (current.screen as? AppScreen.DestinationPicker)?.transfer ?: return
-        navigateBack(current.id)
-        val validDest = validDestinationOrNotify(destDir) ?: return
-        Graph.opEngine.submit(FileOp.Copy(transfer.sources, validDest, transfer.move))
-        activeCtrl.clearSelection()
+fun cancelTransferDestination() {
+    val transfer = pendingTransfer.value ?: return
+    pendingTransfer.value = null
+    activePane.value = transfer.sourcePane
+}
+
+fun confirmTransferCurrentDestination() {
+    val dest = activeCtrl.focusedDirEntry()
+    if (dest == null) {
+        validDestinationOrNotify(null)
+        return
     }
+    confirmTransfer(dest)
+}
+
+fun confirmTransfer(destDir: XEntry) {
+    val transfer = pendingTransfer.value ?: return
+    val validDest = validDestinationOrNotify(destDir) ?: return
+    Graph.opEngine.submit(FileOp.Copy(transfer.sources, validDest, transfer.move))
+    pendingTransfer.value = null
+    panes[transfer.sourcePane].clearSelection()
+}
 
     fun requestDelete(entries: List<XEntry> = activeCtrl.selectionEntries()) {
         if (entries.isEmpty()) return
@@ -911,9 +918,10 @@ internal fun isFileOperationDestination(dest: XEntry?): Boolean =
             dest.scheme == XId.SCHEME_ROOT ||
             dest.scheme == XId.SCHEME_SMB)
 
-/** A copy or move whose non-pane destination is being chosen. */
+/** A copy or move waiting for explicit confirmation in the browser. */
 data class PendingTransfer(
     val sources: List<XEntry>,
     val move: Boolean,
     val startDirId: String?,
+    val sourcePane: Int = 0,
 )

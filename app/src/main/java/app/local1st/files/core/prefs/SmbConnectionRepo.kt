@@ -34,6 +34,12 @@ data class SmbConnectionConfig(
         get() = "\\\\$host\\${sharePath.replace('/', '\\')}"
 }
 
+/** One saved SMB definition plus the decrypted password used only during a backup restore. */
+data class SmbConnectionRestore(
+    val config: SmbConnectionConfig,
+    val password: String,
+)
+
 /**
  * Normalizes the value entered in the "share" field.
  *
@@ -161,6 +167,26 @@ class SmbConnectionRepo(context: Context) {
         val updated = _connections.value.filterNot { it.id == id }
         secrets.remove(id)
         persist(updated)
+    }
+
+    /**
+     * Replaces all saved SMB definitions while preserving the ids stored in the backup.
+     * Passwords are immediately re-encrypted with this device's Android Keystore key.
+     */
+    fun replaceAll(values: List<SmbConnectionRestore>) {
+        val ids = HashSet<String>()
+        values.forEach { value ->
+            require(value.config.id.isNotBlank() && ids.add(value.config.id)) {
+                "Duplicate or blank SMB connection id"
+            }
+        }
+
+        _connections.value.asSequence()
+            .map { it.id }
+            .filterNot { it in ids }
+            .forEach(secrets::remove)
+        values.forEach { value -> secrets.put(value.config.id, value.password) }
+        persist(values.map { it.config })
     }
 
     fun find(id: String): SmbConnectionConfig? = _connections.value.firstOrNull { it.id == id }
