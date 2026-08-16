@@ -69,6 +69,7 @@ internal fun BrowserDisplaySettingsSection() {
                 options = listOf(
                     FilenameDisplayMode.SINGLE_LINE to "1行",
                     FilenameDisplayMode.TWO_LINES to "2行",
+                    FilenameDisplayMode.THREE_LINES to "3行",
                     FilenameDisplayMode.FULL to "全文",
                 ),
                 selected = config.filenameMode,
