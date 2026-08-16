@@ -23,72 +23,57 @@ jobs:
 
       - name: Merge main and resolve known overlaps
         run: |
-          set -eu
+          set -u
           git fetch origin main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git merge --no-commit --no-ff origin/main || true
+          git merge --no-commit --no-ff origin/main || echo "::notice::Resolving expected merge conflicts"
 
-          # Keep the reusable Debug CI from this branch.
-          git checkout HEAD -- .github/workflows/personal-fork-ci.yml
+          git checkout HEAD -- .github/workflows/personal-fork-ci.yml || {
+            echo "::error::Failed to keep branch Debug CI"; exit 1;
+          }
+          git checkout origin/main -- app/src/main/java/app/local1st/files/ui/browser/EntryRow.kt || {
+            echo "::error::Failed to keep main EntryRow"; exit 1;
+          }
+          git checkout HEAD -- app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt || {
+            echo "::error::Failed to restore branch Dialogs"; exit 1;
+          }
 
-          # Keep main's newer, shared video-metadata thumbnail implementation.
-          git checkout origin/main -- app/src/main/java/app/local1st/files/ui/browser/EntryRow.kt
-
-          # Start from the settings/context-menu dialog implementation and add main's video details.
-          git checkout HEAD -- app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path('app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt')
           text = path.read_text()
 
-          old_imports = '''import app.local1st.files.core.fs.XId
-          import app.local1st.files.core.prefs.ContextMenuOrderSettings
-          '''
-          new_imports = '''import app.local1st.files.core.fs.XId
-          import app.local1st.files.core.media.VideoMetadata
+          anchor = 'import app.local1st.files.core.fs.XId\n'
+          media = '''import app.local1st.files.core.media.VideoMetadata
           import app.local1st.files.core.media.VideoMetadataReader
           import app.local1st.files.core.media.formatVideoBitrate
           import app.local1st.files.core.media.formatVideoDuration
           import app.local1st.files.core.media.formatVideoFrameRate
-          import app.local1st.files.core.prefs.ContextMenuOrderSettings
           '''
-          if text.count(old_imports) != 1:
-              raise SystemExit(f'media import anchor count={text.count(old_imports)}')
-          text = text.replace(old_imports, new_imports, 1)
+          if text.count(anchor) != 1:
+              print(f'::error::XId import anchor count={text.count(anchor)}')
+              raise SystemExit(1)
+          text = text.replace(anchor, anchor + media, 1)
 
-          old_category_imports = '''import app.local1st.files.core.util.ComponentType
-          import app.local1st.files.core.util.FileTypes
-          '''
-          new_category_imports = '''import app.local1st.files.core.util.ComponentType
-          import app.local1st.files.core.util.FileCategory
-          import app.local1st.files.core.util.FileTypes
-          '''
-          if text.count(old_category_imports) != 1:
-              raise SystemExit(f'category import anchor count={text.count(old_category_imports)}')
-          text = text.replace(old_category_imports, new_category_imports, 1)
+          anchor = 'import app.local1st.files.core.util.ComponentType\n'
+          category = 'import app.local1st.files.core.util.FileCategory\n'
+          if text.count(anchor) != 1:
+              print(f'::error::ComponentType import anchor count={text.count(anchor)}')
+              raise SystemExit(1)
+          text = text.replace(anchor, anchor + category, 1)
 
-          old_details = '''        is DialogRequest.Details -> AlertDialog(
-              onDismissRequest = dismiss,
-              title = { Text(req.entry.name) },
-              text = {
-                  Column {
-                      Text(stringResource(R.string.location, req.entry.id))
-                      if (!req.entry.isDir) {
-                          Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
-                      }
-                      Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
-                      req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
-                  }
-              },
-              confirmButton = {
-                  TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
-              },
-          )
-          '''
-          new_details = '''        is DialogRequest.Details -> {
+          start_marker = '        is DialogRequest.Details -> AlertDialog('
+          end_marker = '\n\n        is DialogRequest.FolderSort ->'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              print(f'::error::Details markers missing start={start} end={end}')
+              raise SystemExit(1)
+
+          details = '''        is DialogRequest.Details -> {
               val isVideo = FileTypes.categoryOf(req.entry.name, req.entry.mime) == FileCategory.VIDEO
               val videoMetadata by produceState<VideoMetadata?>(
                   initialValue = null,
@@ -152,24 +137,28 @@ jobs:
                       TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
                   },
               )
-          }
-          '''
-          if text.count(old_details) != 1:
-              raise SystemExit(f'details block anchor count={text.count(old_details)}')
-          text = text.replace(old_details, new_details, 1)
+          }'''
+          text = text[:start] + details + text[end:]
           path.write_text(text)
           PY
+          rc=$?
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
 
-          # This helper workflow is temporary and must not land in main.
-          git rm .github/workflows/integrate-settings-main.yml
+          git rm .github/workflows/integrate-settings-main.yml || {
+            echo "::error::Failed to remove temporary workflow"; exit 1;
+          }
           git add -A
 
-          if git ls-files -u | grep -q .; then
-            echo "Unresolved merge conflicts remain:"
-            git ls-files -u
+          unresolved=$(git diff --name-only --diff-filter=U)
+          if [ -n "$unresolved" ]; then
+            echo "::error::Unresolved merge conflicts: $unresolved"
             exit 1
           fi
-          git diff --cached --check
+
+          if ! git diff --cached --check >/tmp/diff-check.txt 2>&1; then
+            echo "::error::git diff --check failed: $(cat /tmp/diff-check.txt)"
+            exit 1
+          fi
 
       - uses: actions/setup-java@v4
         with:
