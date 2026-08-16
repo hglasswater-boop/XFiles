@@ -18,7 +18,7 @@ internal data class FolderDirectCounts(
     val folders: Int,
     val files: Int,
 ) {
-    override fun toString(): String = "$folders フォルダ · $files"
+    override fun toString(): String = "📁 $folders   📄 $files"
 }
 
 /**
