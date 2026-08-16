@@ -16,6 +16,7 @@ enum class ThumbnailSize(val widthDp: Int, val heightDp: Int) {
 enum class FilenameDisplayMode {
     SINGLE_LINE,
     TWO_LINES,
+    THREE_LINES,
     FULL,
 }
 
