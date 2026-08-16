@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_resolution">解像度: %1$s</string>
+    <string name="video_frame_rate">フレームレート: %1$s fps</string>
+    <string name="video_duration">再生時間: %1$s</string>
+    <string name="video_codec">動画コーデック: %1$s</string>
+    <string name="video_bitrate">ビットレート: %1$s</string>
+</resources>
