@@ -55,19 +55,21 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.media.VideoMetadata
+import app.local1st.files.core.media.VideoMetadataReader
+import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
-import app.local1st.files.core.prefs.ThumbnailSize
 import app.local1st.files.core.prefs.FilenameDisplayMode
 import app.local1st.files.core.thumb.AppIcon
 import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
 import app.local1st.files.core.thumb.RemoteVideoThumb
-import app.local1st.files.core.thumb.VideoDurationResolver
 import app.local1st.files.core.thumb.VideoThumb
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
@@ -76,7 +78,6 @@ import app.local1st.files.di.Graph
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import java.io.File
-import java.util.Locale
 
 // One visible tree level. Deeper paths are visually compressed according to the display setting;
 // the breadcrumb still carries the full path, so the list does not need unlimited indentation.
@@ -486,30 +487,27 @@ private fun StartupEntryRow(
 /**
  * Thumbnail with a vector-icon fallback: the icon shows until the image actually arrives
  * (video frame extraction can take seconds on a cold cache) and stays if loading fails,
- * so the slot is never blank. Videos additionally get a small play badge.
+ * so the slot is never blank. Videos additionally get a small play badge and their duration
+ * overlaid at the lower-right corner.
  */
 @Composable
 private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
-    val showDuration = isVideo && (
-        display.thumbnailSize == ThumbnailSize.LARGE ||
-            display.thumbnailSize == ThumbnailSize.EXTRA_LARGE
-        )
-    val durationMs by produceState<Long?>(
+    val videoMetadata by produceState<VideoMetadata?>(
         initialValue = null,
         entry.id,
         entry.mtime,
         entry.size,
-        showDuration,
-        loaded,
+        isVideo,
     ) {
-        value = if (showDuration && loaded) VideoDurationResolver.durationMs(entry) else null
+        if (isVideo) value = VideoMetadataReader.read(entry)
     }
     val width = display.thumbnailSize.widthDp.dp
     val height = display.thumbnailSize.heightDp.dp
     val playBadge = if (display.thumbnailSize.widthDp >= 80) 20.dp else 16.dp
     val playIcon = if (display.thumbnailSize.widthDp >= 80) 15.dp else 12.dp
+    val durationFontSize = if (display.thumbnailSize.widthDp >= 80) 10.sp else 8.sp
 
     Box(
         modifier = Modifier
@@ -560,35 +558,28 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
                     modifier = Modifier.size(playIcon),
                 )
             }
+            videoMetadata?.durationMs?.takeIf { it > 0L }?.let { durationMs ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(3.dp)
+                        .background(
+                            Color.Black.copy(alpha = 0.68f),
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 3.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        text = formatVideoDuration(durationMs),
+                        color = Color.White,
+                        fontSize = durationFontSize,
+                        lineHeight = durationFontSize,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
-    if (showDuration && loaded) {
-        durationMs?.let { duration ->
-            Text(
-                text = formatVideoDuration(duration),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(4.dp)
-                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
-            )
-        }
-    }
-
-    }
-}
-
-private fun formatVideoDuration(durationMs: Long): String {
-    val totalSeconds = (durationMs / 1000L).coerceAtLeast(0L)
-    val hours = totalSeconds / 3600L
-    val minutes = (totalSeconds % 3600L) / 60L
-    val seconds = totalSeconds % 60L
-    return if (hours > 0L) {
-        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format(Locale.US, "%d:%02d", minutes, seconds)
     }
 }
 
