@@ -1,7 +1,7 @@
 package app.local1st.files.core.prefs
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFailsWith
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class SmbConnectionConfigTest {
@@ -56,7 +56,7 @@ class SmbConnectionConfigTest {
 
     @Test
     fun `dot navigation is rejected`() {
-        assertFailsWith<IllegalArgumentException> {
+        assertThrows(IllegalArgumentException::class.java) {
             smbConnectionFromInput(
                 id = "test",
                 name = "",
