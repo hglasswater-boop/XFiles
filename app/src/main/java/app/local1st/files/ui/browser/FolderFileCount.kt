@@ -13,15 +13,24 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
+/** Direct child counts for a folder. String form is used by the existing row details formatter. */
+internal data class FolderDirectCounts(
+    val folders: Int,
+    val files: Int,
+) {
+    override fun toString(): String = "$folders フォルダ · $files"
+}
+
 /**
- * Counts direct files for a visible ordinary folder. Counts are lazy and bounded so a directory
- * full of subfolders does not turn into an SMB request storm just because its parent was opened.
+ * Counts direct folders and files for a visible ordinary folder. Counts are lazy and bounded so a
+ * directory full of subfolders does not turn into an SMB request storm just because its parent was
+ * opened. This is intentionally non-recursive.
  */
 @Composable
-internal fun rememberFolderFileCount(entry: XEntry): Int? {
+internal fun rememberFolderFileCount(entry: XEntry): FolderDirectCounts? {
     if (entry.kind != EntryKind.DIR || isSmbConnectionRoot(entry)) return null
     val key = "${entry.id}|${entry.mtime}"
-    val count by produceState<Int?>(FolderFileCountCache.peek(key), key) {
+    val count by produceState<FolderDirectCounts?>(FolderFileCountCache.peek(key), key) {
         if (value == null) value = FolderFileCountCache.load(key, entry)
     }
     return count
@@ -32,16 +41,21 @@ private fun isSmbConnectionRoot(entry: XEntry): Boolean =
 
 private object FolderFileCountCache {
     private const val MAX_ENTRIES = 2048
-    private val counts = ConcurrentHashMap<String, Int>()
+    private val counts = ConcurrentHashMap<String, FolderDirectCounts>()
     private val reads = Semaphore(4)
 
-    fun peek(key: String): Int? = counts[key]
+    fun peek(key: String): FolderDirectCounts? = counts[key]
 
-    suspend fun load(key: String, entry: XEntry): Int? = reads.withPermit {
+    suspend fun load(key: String, entry: XEntry): FolderDirectCounts? = reads.withPermit {
         counts[key]?.let { return@withPermit it }
         val count = withContext(Dispatchers.IO) {
             runCatching {
-                Graph.fsRegistry.forEntry(entry).list(entry).count { !it.isDir }
+                var folders = 0
+                var files = 0
+                Graph.fsRegistry.forEntry(entry).list(entry).forEach { child ->
+                    if (child.isDir) folders++ else files++
+                }
+                FolderDirectCounts(folders = folders, files = files)
             }.getOrNull()
         } ?: return@withPermit null
         if (counts.size >= MAX_ENTRIES) counts.clear()
