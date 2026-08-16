@@ -1,5 +1,6 @@
 package app.local1st.files.ui.dialogs
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -34,6 +36,7 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.ContextMenuOrderSettings
 import app.local1st.files.core.prefs.FolderSortSpec
 import app.local1st.files.core.prefs.SortBy
 import app.local1st.files.core.util.AppComponents
@@ -323,6 +326,7 @@ private fun EntryMenuContent(
 ) {
     val entry = req.entry
     val context = Graph.appContext
+    val contextMenuOrder by ContextMenuOrderSettings.order(context).collectAsState()
     val clipboard = LocalClipboardManager.current
     val otherPaneDestination = vm.otherPaneDestination()
     val canUseOtherPane = isFileOperationDestination(otherPaneDestination)
@@ -339,7 +343,7 @@ private fun EntryMenuContent(
         ?.path
         ?.let(Graph.smbConnections::find)
 
-    Column(Modifier.padding(bottom = 24.dp)) {
+    ContextMenuColumn(contextMenuOrder, Modifier.padding(bottom = 24.dp)) {
         if (entry != null) {
             Text(
                 entry.name,
@@ -551,27 +555,87 @@ private fun EntryMenuContent(
 }
 
 @Composable
+private fun ContextMenuColumn(
+    order: List<String>,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    androidx.compose.ui.layout.Layout(
+        content = content,
+        modifier = modifier,
+    ) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints.copy(minHeight = 0)) }
+        val rank = order.withIndex().associate { it.value to it.index }
+        val orderablePositions = measurables.indices.filter { index ->
+            (measurables[index].layoutId as? String) in rank
+        }
+        val sortedIndices = orderablePositions
+            .map { index -> index to (measurables[index].layoutId as String) }
+            .sortedBy { (_, id) -> rank[id] ?: Int.MAX_VALUE }
+            .map { (index, _) -> index }
+        val visualOrder = measurables.indices.toMutableList()
+        orderablePositions.forEachIndexed { sortedPosition, originalPosition ->
+            visualOrder[originalPosition] = sortedIndices[sortedPosition]
+        }
+        val contentWidth = placeables.maxOfOrNull { it.width } ?: constraints.minWidth
+        val contentHeight = visualOrder.sumOf { placeables[it].height }
+        layout(
+            contentWidth.coerceIn(constraints.minWidth, constraints.maxWidth),
+            contentHeight.coerceIn(constraints.minHeight, constraints.maxHeight),
+        ) {
+            var y = 0
+            visualOrder.forEach { index ->
+                val placeable = placeables[index]
+                placeable.placeRelative(0, y)
+                y += placeable.height
+            }
+        }
+    }
+}
+
+@Composable
+private fun contextMenuOrderKey(label: String): String? = when (label) {
+    stringResource(R.string.details) -> ContextMenuOrderSettings.DETAILS
+    "このフォルダの並び順" -> ContextMenuOrderSettings.FOLDER_SORT
+    stringResource(R.string.new_text_file) -> ContextMenuOrderSettings.NEW_TEXT_FILE
+    stringResource(R.string.add_to_favorites), stringResource(R.string.remove_from_favorites) -> ContextMenuOrderSettings.FAVORITE
+    stringResource(R.string.open_with) -> ContextMenuOrderSettings.OPEN_WITH
+    stringResource(R.string.share) -> ContextMenuOrderSettings.SHARE
+    stringResource(R.string.copy_to) -> ContextMenuOrderSettings.COPY_TO
+    stringResource(R.string.move_to) -> ContextMenuOrderSettings.MOVE_TO
+    stringResource(R.string.zip) -> ContextMenuOrderSettings.ZIP
+    stringResource(R.string.extract_to_other_pane) -> ContextMenuOrderSettings.EXTRACT
+    stringResource(R.string.install) -> ContextMenuOrderSettings.INSTALL
+    stringResource(R.string.rename) -> ContextMenuOrderSettings.RENAME
+    stringResource(R.string.delete), "削除" -> ContextMenuOrderSettings.DELETE
+    else -> null
+}
+
+@Composable
 private fun MenuItem(
     label: String,
     enabled: Boolean = true,
     disabledReason: String? = null,
     onClick: () -> Unit,
 ) {
-    TextButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp),
+    val textColor = if (enabled) {
+        androidx.compose.material3.MaterialTheme.colorScheme.onSurface
+    } else {
+        androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    }
+    val orderKey = contextMenuOrderKey(label)
+    val orderModifier = if (orderKey != null) Modifier.layoutId(orderKey) else Modifier
+    Column(
+        orderModifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 6.dp),
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            Text(label)
-            if (!enabled && disabledReason != null) {
-                Text(
-                    disabledReason,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                )
-            }
+        Text(label, color = textColor)
+        if (!enabled && disabledReason != null) {
+            Text(
+                disabledReason,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                color = textColor,
+            )
         }
     }
 }

@@ -51,6 +51,10 @@ object SettingsBackup {
             .put("filenameMode", display.filenameMode.name)
             .put("treeLevels", display.treeLevels)
 
+        val contextMenuOrder = JSONArray().apply {
+            ContextMenuOrderSettings.current(context).forEach { id -> put(id) }
+        }
+
         val folderSorts = JSONArray().apply {
             Graph.folderSorts.sorts.value.forEach { (id, spec) ->
                 put(
@@ -92,6 +96,7 @@ object SettingsBackup {
             .put("settings", appSettings)
             .put("favorites", favorites)
             .put("browserDisplay", displayJson)
+            .put("contextMenuOrder", contextMenuOrder)
             .put("folderSorts", folderSorts)
             .put("fileAssociations", associations)
             .put("smbConnections", smb)
@@ -145,6 +150,16 @@ object SettingsBackup {
                 enumValueOrDefault(display.optString("filenameMode"), FilenameDisplayMode.TWO_LINES),
             )
             BrowserDisplaySettings.setTreeLevels(context, display.optInt("treeLevels", 4))
+        }
+
+        root.optJSONArray("contextMenuOrder")?.let { array ->
+            val restored = buildList {
+                for (index in 0 until array.length()) {
+                    val id = array.optString(index)
+                    if (id.isNotBlank()) add(id)
+                }
+            }
+            ContextMenuOrderSettings.set(context, restored)
         }
 
         val folderSortRepo = Graph.folderSorts

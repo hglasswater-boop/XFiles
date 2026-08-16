@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -22,6 +23,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -33,6 +35,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -58,6 +61,7 @@ import app.local1st.files.core.fs.priv.ShizukuGate
 import app.local1st.files.core.fs.priv.ShizukuState
 import app.local1st.files.core.fs.priv.TransportId
 import app.local1st.files.core.fs.priv.TransportPref
+import app.local1st.files.core.prefs.ContextMenuOrderSettings
 import app.local1st.files.core.prefs.DEFAULT_ROOT_ENABLED
 import app.local1st.files.core.prefs.SortBy
 import app.local1st.files.core.prefs.ThemeMode
@@ -170,6 +174,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                 SectionHeader(stringResource(R.string.browsing))
                 BrowserDisplaySettingsSection()
+                ContextMenuOrderSection()
                 SwitchRow(
                     title = stringResource(R.string.show_hidden),
                     subtitle = stringResource(R.string.show_hidden_summary),
@@ -353,6 +358,85 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun ContextMenuOrderSection() {
+    val context = LocalContext.current
+    val order by ContextMenuOrderSettings.order(context).collectAsState()
+    var showEditor by rememberSaveable { mutableStateOf(false) }
+
+    Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("コンテキストメニュー", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "ファイル／フォルダを長押ししたときの項目順を変更できます。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { showEditor = true }) { Text("並び順を編集") }
+        }
+    }
+
+    if (showEditor) {
+        AlertDialog(
+            onDismissRequest = { showEditor = false },
+            title = { Text("コンテキストメニューの並び順") },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    order.forEachIndexed { index, id ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                contextMenuOrderLabel(id),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            TextButton(
+                                enabled = index > 0,
+                                onClick = { ContextMenuOrderSettings.move(context, id, -1) },
+                            ) { Text("↑") }
+                            TextButton(
+                                enabled = index < order.lastIndex,
+                                onClick = { ContextMenuOrderSettings.move(context, id, 1) },
+                            ) { Text("↓") }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showEditor = false }) { Text("閉じる") } },
+            dismissButton = {
+                TextButton(onClick = { ContextMenuOrderSettings.reset(context) }) {
+                    Text("初期順に戻す")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun contextMenuOrderLabel(id: String): String = when (id) {
+    ContextMenuOrderSettings.DETAILS -> stringResource(R.string.details)
+    ContextMenuOrderSettings.FOLDER_SORT -> "このフォルダの並び順"
+    ContextMenuOrderSettings.NEW_TEXT_FILE -> stringResource(R.string.new_text_file)
+    ContextMenuOrderSettings.FAVORITE -> "お気に入りに追加／解除"
+    ContextMenuOrderSettings.OPEN_WITH -> stringResource(R.string.open_with)
+    ContextMenuOrderSettings.SHARE -> stringResource(R.string.share)
+    ContextMenuOrderSettings.COPY_TO -> stringResource(R.string.copy_to)
+    ContextMenuOrderSettings.MOVE_TO -> stringResource(R.string.move_to)
+    ContextMenuOrderSettings.ZIP -> stringResource(R.string.zip)
+    ContextMenuOrderSettings.EXTRACT -> stringResource(R.string.extract_to_other_pane)
+    ContextMenuOrderSettings.INSTALL -> stringResource(R.string.install)
+    ContextMenuOrderSettings.RENAME -> stringResource(R.string.rename)
+    ContextMenuOrderSettings.DELETE -> stringResource(R.string.delete)
+    else -> id
 }
 
 @StringRes
