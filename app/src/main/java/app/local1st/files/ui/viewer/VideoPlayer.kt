@@ -228,9 +228,8 @@ fun VideoPlayerScreen(
         if (fps <= 0f && probed != null) fps = probed
     }
 
-    // A destination preview is deliberately debounced. Native frame extraction is expensive and
-    // SMB random access has real network cost, so only ask for a frame after the thumb pauses for
-    // a moment. Targets are quantized below as well, avoiding redundant near-identical frames.
+    // Preview extraction is lightly debounced so fast thumb motion does not queue obsolete native
+    // decodes. The last successful bitmap stays visible while the next one is being fetched.
     LaunchedEffect(entry.id, seekPreviewTargetMs) {
         val target = seekPreviewTargetMs
         if (target < 0L) {
@@ -239,7 +238,7 @@ fun VideoPlayerScreen(
         }
         delay(SEEK_PREVIEW_DEBOUNCE_MS)
         val bitmap = SeekPreviewFrameLoader.load(entry, target)
-        if (seekPreviewTargetMs == target) seekPreviewBitmap = bitmap
+        if (seekPreviewTargetMs == target && bitmap != null) seekPreviewBitmap = bitmap
     }
 
     // NAS seeks are far faster when normal time scrubbing can land on the nearest sync frame.
@@ -694,20 +693,22 @@ fun VideoPlayerScreen(
                         onValueChange = { v ->
                             if (durationMs > 0) {
                                 if (sliderPos == null) {
-                                    // Pause while scrubbing: playback racing the
-                                    // thumb fights the user, and a video ending
-                                    // mid-drag would auto-advance under the finger.
+                                    // Freeze the actual video at its current frame while the thumb
+                                    // moves. Only the preview follows the drag; the real seek is
+                                    // committed once in onValueChangeFinished.
                                     sliderWasPlaying = player.playWhenReady
                                     player.pause()
                                 }
                                 sliderPos = v
                                 val target = (v * durationMs).toLong()
-                                seekGate.request(target)
-                                val previewTarget =
-                                    (target / SEEK_PREVIEW_BUCKET_MS) * SEEK_PREVIEW_BUCKET_MS
+                                val bucketMs = if (entry.scheme == XId.SCHEME_SMB) {
+                                    SMB_SEEK_PREVIEW_BUCKET_MS
+                                } else {
+                                    SEEK_PREVIEW_BUCKET_MS
+                                }
+                                val previewTarget = (target / bucketMs) * bucketMs
                                 if (previewTarget != seekPreviewTargetMs) {
                                     seekPreviewTargetMs = previewTarget
-                                    seekPreviewBitmap = null
                                 }
                             }
                         },
@@ -969,7 +970,8 @@ private const val FALLBACK_FPS = 30f
 private const val SEEK_THROTTLE_MS = 150L
 private const val SEEK_TARGET_HOLD_MS = 800L
 private const val SEEK_PREVIEW_BUCKET_MS = 500L
-private const val SEEK_PREVIEW_DEBOUNCE_MS = 120L
+private const val SMB_SEEK_PREVIEW_BUCKET_MS = 1_000L
+private const val SEEK_PREVIEW_DEBOUNCE_MS = 60L
 private const val FRAME_SWIPE_DP = 8f // one frame per this much horizontal travel
 private const val EDGE_GUARD_DP = 24 // scrub dead zone at screen edges (back gesture)
 private const val TIME_SWIPE_MS_PER_DP = 100L // a full-width swipe covers roughly 40 s
