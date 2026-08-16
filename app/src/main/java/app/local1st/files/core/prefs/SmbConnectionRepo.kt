@@ -41,20 +41,47 @@ class SmbConnectionRepo(context: Context) {
         domain: String,
         port: Int = 445,
     ): SmbConnectionConfig {
-        val config = SmbConnectionConfig(
+        val config = normalizedConfig(
             id = UUID.randomUUID().toString(),
-            name = name.trim().ifBlank { share.trim().ifBlank { host.trim() } },
-            host = host.trim(),
-            share = share.trim().trim('/').trim('\\'),
-            username = username.trim(),
-            domain = domain.trim(),
-            port = port.coerceIn(1, 65535),
+            name = name,
+            host = host,
+            share = share,
+            username = username,
+            domain = domain,
+            port = port,
         )
-        require(config.host.isNotBlank()) { "Host is required" }
-        require(config.share.isNotBlank()) { "Share is required" }
         secrets.put(config.id, password)
         val updated = _connections.value + config
         persist(updated)
+        return config
+    }
+
+    /**
+     * Updates a saved connection without changing its stable id.
+     * A null [password] keeps the existing encrypted password; a non-null value replaces it.
+     */
+    fun update(
+        id: String,
+        name: String,
+        host: String,
+        share: String,
+        username: String,
+        password: String?,
+        domain: String,
+        port: Int = 445,
+    ): SmbConnectionConfig {
+        require(find(id) != null) { "SMB connection not found" }
+        val config = normalizedConfig(
+            id = id,
+            name = name,
+            host = host,
+            share = share,
+            username = username,
+            domain = domain,
+            port = port,
+        )
+        if (password != null) secrets.put(id, password)
+        persist(_connections.value.map { if (it.id == id) config else it })
         return config
     }
 
@@ -67,6 +94,30 @@ class SmbConnectionRepo(context: Context) {
     fun find(id: String): SmbConnectionConfig? = _connections.value.firstOrNull { it.id == id }
 
     fun password(id: String): String = secrets.get(id).orEmpty()
+
+    private fun normalizedConfig(
+        id: String,
+        name: String,
+        host: String,
+        share: String,
+        username: String,
+        domain: String,
+        port: Int,
+    ): SmbConnectionConfig {
+        val normalizedHost = host.trim()
+        val normalizedShare = share.trim().trim('/').trim('\\')
+        require(normalizedHost.isNotBlank()) { "Host is required" }
+        require(normalizedShare.isNotBlank()) { "Share is required" }
+        return SmbConnectionConfig(
+            id = id,
+            name = name.trim().ifBlank { normalizedShare.ifBlank { normalizedHost } },
+            host = normalizedHost,
+            share = normalizedShare,
+            username = username.trim(),
+            domain = domain.trim(),
+            port = port.coerceIn(1, 65535),
+        )
+    }
 
     private fun persist(values: List<SmbConnectionConfig>) {
         _connections.value = values
