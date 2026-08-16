@@ -34,7 +34,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
@@ -49,8 +48,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.local1st.files.R
+import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.ui.dialogs.AddSmbConnectionDialog
 import kotlinx.coroutines.flow.first
 
 /**
@@ -116,6 +117,7 @@ fun PaneView(
     // browser entry so returning from Settings/Search does not replay the lightweight-row phase.
     var richRowsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
     var itemAnimationsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
+    var showAddSmbServer by rememberSaveable(controller) { mutableStateOf(false) }
 
     // A measured lightweight list is already a valid first frame. Remove the startup cover now;
     // thumbnail painters and animation nodes are enabled only after that frame is safely visible.
@@ -179,17 +181,20 @@ fun PaneView(
                         key = { state.nodes[it].key },
                     ) { index ->
                         val node = state.nodes[index]
+                        val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
                         EntryRow(
                             node = node,
                             selected = node.entry.id in state.selection,
                             focused = node.entry.id == state.focusedDirId,
                             onClick = {
                                 onActivate()
-                                onOpenEntry(node.entry)
+                                if (addSmbServer) showAddSmbServer = true
+                                else onOpenEntry(node.entry)
                             },
                             onLongClick = {
                                 onActivate()
-                                onEntryMenu(node.entry)
+                                if (addSmbServer) showAddSmbServer = true
+                                else onEntryMenu(node.entry)
                             },
                             onToggleSelect = {
                                 onActivate()
@@ -221,6 +226,10 @@ fun PaneView(
                 },
             )
         }
+    }
+
+    if (showAddSmbServer) {
+        AddSmbConnectionDialog(onDismiss = { showAddSmbServer = false })
     }
 }
 
