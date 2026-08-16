@@ -20,10 +20,59 @@ data class SmbConnectionConfig(
     val name: String,
     val host: String,
     val share: String,
+    val basePath: String = "",
     val username: String = "",
     val domain: String = "",
     val port: Int = 445,
-)
+) {
+    /** User-facing `share/path` form. */
+    val sharePath: String
+        get() = if (basePath.isBlank()) share else "$share/$basePath"
+
+    /** Full UNC location shown in the UI. */
+    val uncPath: String
+        get() = "\\\\$host\\${sharePath.replace('/', '\\')}"
+}
+
+/**
+ * Normalizes the value entered in the "share" field.
+ *
+ * `video_a/actress` means SMB share `video_a`, with `actress` as the starting directory.
+ * Backslashes are accepted too so pasted UNC-style subpaths behave naturally.
+ */
+fun smbConnectionFromInput(
+    id: String,
+    name: String,
+    host: String,
+    sharePath: String,
+    username: String,
+    domain: String,
+    port: Int = 445,
+): SmbConnectionConfig {
+    val normalizedHost = host.trim()
+    val normalizedPath = sharePath
+        .trim()
+        .replace('\\', '/')
+        .trim('/')
+    val parts = normalizedPath.split('/').filter { it.isNotBlank() }
+
+    require(normalizedHost.isNotBlank()) { "Host is required" }
+    require(parts.isNotEmpty()) { "Share is required" }
+    require(parts.none { it == "." || it == ".." }) { "Share path cannot contain . or .." }
+
+    val normalizedShare = parts.first()
+    val normalizedBasePath = parts.drop(1).joinToString("/")
+    return SmbConnectionConfig(
+        id = id,
+        name = name.trim().ifBlank { normalizedPath.ifBlank { normalizedHost } },
+        host = normalizedHost,
+        share = normalizedShare,
+        basePath = normalizedBasePath,
+        username = username.trim(),
+        domain = domain.trim(),
+        port = port.coerceIn(1, 65535),
+    )
+}
 
 class SmbConnectionRepo(context: Context) {
     private val appContext = context.applicationContext
@@ -41,11 +90,11 @@ class SmbConnectionRepo(context: Context) {
         domain: String,
         port: Int = 445,
     ): SmbConnectionConfig {
-        val config = normalizedConfig(
+        val config = smbConnectionFromInput(
             id = UUID.randomUUID().toString(),
             name = name,
             host = host,
-            share = share,
+            sharePath = share,
             username = username,
             domain = domain,
             port = port,
@@ -71,7 +120,7 @@ class SmbConnectionRepo(context: Context) {
         return add(
             name = copiedName,
             host = source.host,
-            share = source.share,
+            share = source.sharePath,
             username = source.username,
             password = password(source.id),
             domain = source.domain,
@@ -94,11 +143,11 @@ class SmbConnectionRepo(context: Context) {
         port: Int = 445,
     ): SmbConnectionConfig {
         require(find(id) != null) { "SMB connection not found" }
-        val config = normalizedConfig(
+        val config = smbConnectionFromInput(
             id = id,
             name = name,
             host = host,
-            share = share,
+            sharePath = share,
             username = username,
             domain = domain,
             port = port,
@@ -118,30 +167,6 @@ class SmbConnectionRepo(context: Context) {
 
     fun password(id: String): String = secrets.get(id).orEmpty()
 
-    private fun normalizedConfig(
-        id: String,
-        name: String,
-        host: String,
-        share: String,
-        username: String,
-        domain: String,
-        port: Int,
-    ): SmbConnectionConfig {
-        val normalizedHost = host.trim()
-        val normalizedShare = share.trim().trim('/').trim('\\')
-        require(normalizedHost.isNotBlank()) { "Host is required" }
-        require(normalizedShare.isNotBlank()) { "Share is required" }
-        return SmbConnectionConfig(
-            id = id,
-            name = name.trim().ifBlank { normalizedShare.ifBlank { normalizedHost } },
-            host = normalizedHost,
-            share = normalizedShare,
-            username = username.trim(),
-            domain = domain.trim(),
-            port = port.coerceIn(1, 65535),
-        )
-    }
-
     private fun persist(values: List<SmbConnectionConfig>) {
         _connections.value = values
         val array = JSONArray()
@@ -152,6 +177,7 @@ class SmbConnectionRepo(context: Context) {
                     .put("name", item.name)
                     .put("host", item.host)
                     .put("share", item.share)
+                    .put("basePath", item.basePath)
                     .put("username", item.username)
                     .put("domain", item.domain)
                     .put("port", item.port),
@@ -168,19 +194,31 @@ class SmbConnectionRepo(context: Context) {
                 val item = array.optJSONObject(i) ?: continue
                 val id = item.optString("id")
                 val host = item.optString("host")
-                val share = item.optString("share")
-                if (id.isBlank() || host.isBlank() || share.isBlank() || !seen.add(id)) continue
-                add(
-                    SmbConnectionConfig(
+                val rawShare = item.optString("share")
+                if (id.isBlank() || host.isBlank() || rawShare.isBlank() || !seen.add(id)) continue
+
+                // Older builds could persist `video_a/actress` entirely in `share`.
+                // Fold any new basePath field onto it, then normalize into share + basePath.
+                val storedBasePath = item.optString("basePath")
+                val combinedSharePath = buildString {
+                    append(rawShare)
+                    if (storedBasePath.isNotBlank()) {
+                        append('/')
+                        append(storedBasePath)
+                    }
+                }
+                val config = runCatching {
+                    smbConnectionFromInput(
                         id = id,
-                        name = item.optString("name").ifBlank { share },
+                        name = item.optString("name"),
                         host = host,
-                        share = share,
+                        sharePath = combinedSharePath,
                         username = item.optString("username"),
                         domain = item.optString("domain"),
-                        port = item.optInt("port", 445).coerceIn(1, 65535),
-                    ),
-                )
+                        port = item.optInt("port", 445),
+                    )
+                }.getOrNull() ?: continue
+                add(config)
             }
         }
     }.getOrDefault(emptyList())
