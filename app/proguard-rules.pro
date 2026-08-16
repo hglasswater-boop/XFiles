@@ -4,6 +4,12 @@
 -dontwarn com.github.junrar.**
 -keep class org.tukaani.xz.** { *; }
 
+# SMBJ contains optional JVM-only authentication/filter integrations that this Android app does
+# not use. The app authenticates with AuthenticationContext (NTLM/password or anonymous), not
+# Kerberos/GSS, and does not use mbassador EL filters.
+-dontwarn org.ietf.jgss.**
+-dontwarn javax.el.**
+
 # Shizuku's provider is instantiated by the framework, and P1 invokes the compiled AIDL
 # interfaces directly because Shizuku.newProcess is private in API 13.1.5.
 -keep class rikka.shizuku.ShizukuProvider { *; }
