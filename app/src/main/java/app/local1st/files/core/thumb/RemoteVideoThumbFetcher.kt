@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.di.Graph
 import coil3.ImageLoader
@@ -18,7 +19,6 @@ import coil3.fetch.SourceFetchResult
 import coil3.key.Keyer
 import coil3.request.Options
 import java.io.File
-import java.io.InputStream
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
@@ -27,7 +27,7 @@ import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
 
-/** Video poster-frame model for non-local XFileSystem entries such as SMB. */
+/** Video poster-frame model for SMB entries. */
 data class RemoteVideoThumb(val entry: XEntry)
 
 class RemoteVideoThumbFetcher(
@@ -79,18 +79,25 @@ class RemoteVideoThumbFetcher(
     private fun extractFrame(entry: XEntry): Bitmap? {
         if (entry.size <= 0L) return null
         val retriever = MediaMetadataRetriever()
-        val source = EntryMediaDataSource(entry)
+        val source = SmbMediaDataSource(entry)
         return try {
             retriever.setDataSource(source)
             if (Build.VERSION.SDK_INT >= 27) {
                 retriever.getScaledFrameAtTime(
-                    -1,
+                    0L,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    THUMB_SIZE,
+                    THUMB_SIZE,
+                ) ?: retriever.getScaledFrameAtTime(
+                    -1L,
                     MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
                     THUMB_SIZE,
                     THUMB_SIZE,
                 )
             } else {
-                retriever.getFrameAtTime(-1)?.let(::scaleDown)
+                retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    ?.let(::scaleDown)
+                    ?: retriever.getFrameAtTime(-1L)?.let(::scaleDown)
             }
         } catch (_: Exception) {
             null
@@ -124,69 +131,41 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb:$id:$mtime:$size"
+            "remote-video-thumb-v2:$id:$mtime:$size"
         }
     }
 
     companion object {
         private const val THUMB_SIZE = 256
-        private val semaphore = Semaphore(1)
+        private val semaphore = Semaphore(2)
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v2|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
     }
 }
 
-/**
- * Seek facade over an XFileSystem InputStream. SMBJ streams advance by offset, so forward seeks
- * are normally cheap; backward seeks reopen the stream. MediaMetadataRetriever then reads only
- * the ranges it needs instead of downloading a whole video just to draw a poster frame.
- */
-private class EntryMediaDataSource(private val entry: XEntry) : MediaDataSource() {
-    private var input: InputStream? = null
-    private var currentPosition = 0L
+/** True random-access bridge for MediaMetadataRetriever backed by SMBJ offset reads. */
+private class SmbMediaDataSource(private val entry: XEntry) : MediaDataSource() {
+    private var file: SmbRandomAccessFile? = null
 
     @Synchronized
     override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
         if (position < 0L || position >= entry.size || size <= 0) return -1
-        if (input == null || position < currentPosition) reopen()
-        val stream = input ?: return -1
-        var remaining = position - currentPosition
-        while (remaining > 0L) {
-            val skipped = stream.skip(remaining)
-            if (skipped > 0L) {
-                currentPosition += skipped
-                remaining -= skipped
-            } else {
-                if (stream.read() < 0) return -1
-                currentPosition++
-                remaining--
-            }
-        }
-        val available = (entry.size - currentPosition).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        val requested = minOf(size, available)
+        val requested = minOf(size.toLong(), entry.size - position).toInt()
         if (requested <= 0) return -1
-        val read = stream.read(buffer, offset, requested)
-        if (read > 0) currentPosition += read
-        return read
+        val handle = file ?: SmbRandomAccessFile.open(entry.id, Graph.smbConnections).also { file = it }
+        return handle.read(position, buffer, offset, requested)
     }
 
     override fun getSize(): Long = entry.size
 
     @Synchronized
     override fun close() {
-        runCatching { input?.close() }
-        input = null
-        currentPosition = 0L
-    }
-
-    private fun reopen() {
-        runCatching { input?.close() }
-        input = Graph.fsRegistry.forEntry(entry).openIn(entry)
-        currentPosition = 0L
+        runCatching { file?.close() }
+        file = null
     }
 }
