@@ -1,41 +1,21 @@
-name: Apply UI and CI customizations
+name: Debug CI
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: apply-ui-ci-${{ github.ref }}
+  group: debug-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-build-push:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Apply customizations
-        run: |
-          python3 .github/scripts/apply_context_menu_customizations.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt')
-          s = p.read_text()
-          s = s.replace(
-              'constraints.constrainWidth(contentWidth),',
-              'contentWidth.coerceIn(constraints.minWidth, constraints.maxWidth),',
-          )
-          s = s.replace(
-              'constraints.constrainHeight(contentHeight),',
-              'contentHeight.coerceIn(constraints.minHeight, constraints.maxHeight),',
-          )
-          p.write_text(s)
-          PY
-          git diff --check
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -76,20 +56,6 @@ jobs:
           APK_NAME="XFiles-${VERSION}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
-
-      - name: Commit validated source changes
-        run: |
-          set -eu
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            app/src/main/java/app/local1st/files/core/prefs/ContextMenuOrderSettings.kt \
-            app/src/main/java/app/local1st/files/core/prefs/SettingsBackup.kt \
-            app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt \
-            app/src/main/java/app/local1st/files/ui/settings/SettingsScreen.kt
-          git rm .github/scripts/apply_context_menu_customizations.py
-          git commit -m "Add configurable context menu ordering"
-          git push
 
       - name: Upload signed debug APK
         uses: actions/upload-artifact@v4
