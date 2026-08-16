@@ -9,8 +9,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -20,23 +21,36 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.local1st.files.R
 import app.local1st.files.di.Graph
 
-/** Connection editor opened directly from the synthetic row under the SMB tree root. */
+/** Connection editor opened directly from the SMB tree. */
 @Composable
-fun AddSmbConnectionDialog(
+fun SmbConnectionDialog(
+    connectionId: String? = null,
     onDismiss: () -> Unit,
     onSaved: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    var name by rememberSaveable { mutableStateOf("") }
-    var host by rememberSaveable { mutableStateOf("") }
-    var share by rememberSaveable { mutableStateOf("") }
-    var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var domain by rememberSaveable { mutableStateOf("") }
+    val existing = remember(connectionId) { connectionId?.let(Graph.smbConnections::find) }
+
+    if (connectionId != null && existing == null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("SMBサーバーが見つかりません") },
+            confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } },
+        )
+        return
+    }
+
+    val editing = existing != null
+    var name by rememberSaveable(connectionId) { mutableStateOf(existing?.name.orEmpty()) }
+    var host by rememberSaveable(connectionId) { mutableStateOf(existing?.host.orEmpty()) }
+    var share by rememberSaveable(connectionId) { mutableStateOf(existing?.share.orEmpty()) }
+    var username by rememberSaveable(connectionId) { mutableStateOf(existing?.username.orEmpty()) }
+    var password by rememberSaveable(connectionId) { mutableStateOf("") }
+    var domain by rememberSaveable(connectionId) { mutableStateOf(existing?.domain.orEmpty()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("SMBサーバーを追加") },
+        title = { Text(if (editing) "SMBサーバーを編集" else "SMBサーバーを追加") },
         text = {
             Column {
                 OutlinedTextField(
@@ -70,7 +84,12 @@ fun AddSmbConnectionDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("パスワード") },
+                    label = {
+                        Text(
+                            if (editing) "パスワード（空欄なら変更しない）"
+                            else "パスワード",
+                        )
+                    },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
@@ -89,14 +108,27 @@ fun AddSmbConnectionDialog(
                 enabled = host.isNotBlank() && share.isNotBlank(),
                 onClick = {
                     runCatching {
-                        Graph.smbConnections.add(
-                            name = name,
-                            host = host,
-                            share = share,
-                            username = username,
-                            password = password,
-                            domain = domain,
-                        )
+                        if (existing == null) {
+                            Graph.smbConnections.add(
+                                name = name,
+                                host = host,
+                                share = share,
+                                username = username,
+                                password = password,
+                                domain = domain,
+                            )
+                        } else {
+                            Graph.smbConnections.update(
+                                id = existing.id,
+                                name = name,
+                                host = host,
+                                share = share,
+                                username = username,
+                                password = password.takeIf { it.isNotEmpty() },
+                                domain = domain,
+                                port = existing.port,
+                            )
+                        }
                     }.onSuccess {
                         onSaved()
                         onDismiss()
@@ -115,3 +147,14 @@ fun AddSmbConnectionDialog(
         },
     )
 }
+
+/** Backward-compatible add-only entry point used by the synthetic add-server row. */
+@Composable
+fun AddSmbConnectionDialog(
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit = {},
+) = SmbConnectionDialog(
+    connectionId = null,
+    onDismiss = onDismiss,
+    onSaved = onSaved,
+)
