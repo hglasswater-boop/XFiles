@@ -1,12 +1,11 @@
-name: Personal Fork CI
+name: Debug CI
 
 on:
   push:
-    branches: [agent/smb-folder-sort]
   workflow_dispatch:
 
 concurrency:
-  group: personal-fork-ci-${{ github.ref }}
+  group: debug-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -53,7 +52,7 @@ jobs:
       - name: Upload signed debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: XFiles-SMB-signed-debug
+          name: XFiles-signed-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
