@@ -52,6 +52,8 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.BrowserDisplaySettings
+import app.local1st.files.di.Graph
 import app.local1st.files.ui.dialogs.AddSmbConnectionDialog
 import kotlinx.coroutines.flow.first
 
@@ -82,6 +84,7 @@ fun PaneView(
     modifier: Modifier = Modifier,
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
+    val display by BrowserDisplaySettings.state(Graph.appContext).collectAsStateWithLifecycle()
     val initialScrollIndex = state.initialScrollIndex
     var breadcrumbSortTarget by remember(controller) {
         mutableStateOf<Pair<String, String>?>(null)
@@ -123,6 +126,13 @@ fun PaneView(
         }
         return
     }
+
+    // Anchor the visible indentation window to the currently focused directory and its direct
+    // children. With a two-level setting, for example, the current folder remains one level in
+    // and its children two levels in; older ancestors collapse to the left instead of all deeper
+    // rows being flattened at the same absolute depth.
+    val focusedDepth = state.nodes.firstOrNull { it.entry.id == state.focusedDirId }?.depth ?: 0
+    val depthBase = (focusedDepth + 1 - display.treeLevels).coerceAtLeast(0)
 
     // This state is first created only after PaneController has published the fully restored tree.
     // LazyColumn therefore lays out the restored row on its first frame; there is no row-0 frame
@@ -196,7 +206,25 @@ fun PaneView(
                         count = state.nodes.size,
                         key = { state.nodes[it].key },
                     ) { index ->
-                        val node = state.nodes[index]
+                        val rawNode = state.nodes[index]
+                        val visualDepth = (rawNode.depth - depthBase).coerceIn(0, display.treeLevels)
+                        // Re-index the guide list to the same recent-ancestor window. Rows deeper
+                        // than the current direct children still keep their nearest visible guides.
+                        val guideBase = (rawNode.depth - visualDepth).coerceAtLeast(0)
+                        val visualGuides = if (visualDepth == rawNode.depth && guideBase == 0) {
+                            rawNode.guides
+                        } else {
+                            List(visualDepth + 1) { localDepth ->
+                                rawNode.guides.getOrNull(guideBase + localDepth) ?: false
+                            }
+                        }
+                        val node = if (
+                            visualDepth == rawNode.depth && visualGuides === rawNode.guides
+                        ) {
+                            rawNode
+                        } else {
+                            rawNode.copy(depth = visualDepth, guides = visualGuides)
+                        }
                         val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
                         EntryRow(
                             node = node,
