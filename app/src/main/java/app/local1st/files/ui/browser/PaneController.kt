@@ -3,6 +3,7 @@ package app.local1st.files.ui.browser
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.FolderSortSpec
 import app.local1st.files.core.prefs.SessionDirectory
 import app.local1st.files.core.prefs.SessionPane
 import app.local1st.files.core.prefs.SessionRenderNode
@@ -432,6 +433,8 @@ class PaneController(
         // first read. Startup does not expose the tree until this becomes non-null.
         .stateIn(scope, SharingStarted.Eagerly, null)
 
+    private val folderSorts: StateFlow<Map<String, FolderSortSpec>> = Graph.folderSorts.sorts
+
     // Flattening (filter + per-dir sort) depends only on tree state, not on selection/focus,
     // so it lives in its own flow computed off the main thread. Selection toggles then only
     // re-run the cheap outer combine instead of re-sorting the whole visible tree.
@@ -439,7 +442,8 @@ class PaneController(
         tree,
         flattenVersion,
         sortSpec,
-    ) { tree, version, sort ->
+        folderSorts,
+    ) { tree, version, sort, overrides ->
         FlattenedTree(
             version = version,
             nodes = flatten(
@@ -449,6 +453,7 @@ class PaneController(
                 tree.loading,
                 tree.errors,
                 sort ?: SortSpec(),
+                overrides,
             ),
         )
     }
@@ -1212,7 +1217,8 @@ class PaneController(
     fun siblings(entry: XEntry, category: FileCategory): List<XEntry> {
         val parentId = XId.parent(entry.id) ?: return listOf(entry)
         val kids = tree.value.children[parentId] ?: return listOf(entry)
-        val sorted = sortEntries(kids, sortSpec.value ?: SortSpec())
+        val global = sortSpec.value ?: SortSpec()
+        val sorted = sortEntries(kids, sortFor(parentId, global, folderSorts.value))
         return sorted.filter { !it.isDir && FileTypes.categoryOf(it.name, it.mime) == category }
             .ifEmpty { listOf(entry) }
     }
@@ -1225,6 +1231,18 @@ class PaneController(
         val spec: SortSpec,
         val visible: List<XEntry>,
     )
+
+    private fun sortFor(
+        dirId: String,
+        global: SortSpec,
+        overrides: Map<String, FolderSortSpec>,
+    ): SortSpec = overrides[dirId]?.let { override ->
+        global.copy(
+            by = override.by,
+            descending = override.descending,
+            dirsFirst = override.dirsFirst,
+        )
+    } ?: global
 
     // sortedListings is only touched from flatten(), which runs serially inside the
     // `nodes` flow. Without the cache every tree state change (a loading flag flip, one
@@ -1246,6 +1264,7 @@ class PaneController(
         loading: Set<String>,
         errors: Map<String, String>,
         sort: SortSpec,
+        overrides: Map<String, FolderSortSpec>,
     ): List<TreeNode> {
         sortedListings.keys.retainAll(children.keys)
         val out = ArrayList<TreeNode>(256)
@@ -1267,7 +1286,13 @@ class PaneController(
                 )
                 if (isExpanded) {
                     children[e.id]?.let { kids ->
-                        visit(sortedVisible(e.id, kids, sort), depth + 1, guides + !isLast, nodeKey)
+                        val effectiveSort = sortFor(e.id, sort, overrides)
+                        visit(
+                            sortedVisible(e.id, kids, effectiveSort),
+                            depth + 1,
+                            guides + !isLast,
+                            nodeKey,
+                        )
                     }
                 }
             }
