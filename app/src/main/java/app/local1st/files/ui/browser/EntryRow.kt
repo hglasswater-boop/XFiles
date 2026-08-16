@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -48,7 +50,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,10 +72,16 @@ import java.io.File
 private val IndentWidth = 12.dp
 private val RowHeight = 56.dp
 
+internal data class DirectChildCounts(
+    val folders: Int,
+    val files: Int,
+)
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun EntryRow(
     node: TreeNode,
+    childCounts: DirectChildCounts? = null,
     selected: Boolean,
     focused: Boolean,
     onClick: () -> Unit,
@@ -102,6 +109,7 @@ fun EntryRow(
     if (!richContent) {
         StartupEntryRow(
             node = node,
+            childCounts = childCounts,
             selected = selected,
             focused = focused,
             onClick = onClick,
@@ -228,17 +236,7 @@ fun EntryRow(
                 color = if (node.error != null) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurface,
             )
-            val details = node.error ?: entryDetails(node)
-            if (details.isNotEmpty()) {
-                Text(
-                    details,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (node.error != null) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EntrySecondaryInfo(node, childCounts)
             if (isVolume && entry.progress >= 0f) {
                 LinearProgressIndicator(
                     progress = { entry.progress },
@@ -326,6 +324,7 @@ private fun ExpandChevron(
 @Composable
 private fun StartupEntryRow(
     node: TreeNode,
+    childCounts: DirectChildCounts?,
     selected: Boolean,
     focused: Boolean,
     onClick: () -> Unit,
@@ -391,18 +390,10 @@ private fun StartupEntryRow(
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (node.error != null) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurface,
             )
-            val details = entryDetails(node)
-            if (details.isNotEmpty()) {
-                Text(
-                    details,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EntrySecondaryInfo(node, childCounts)
         }
         if (selectable) {
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
@@ -415,6 +406,67 @@ private fun StartupEntryRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun EntrySecondaryInfo(node: TreeNode, childCounts: DirectChildCounts?) {
+    val entry = node.entry
+    when {
+        node.error != null -> DetailText(node.error, MaterialTheme.colorScheme.error)
+        entry.badge != null -> DetailText(entry.badge, MaterialTheme.colorScheme.onSurfaceVariant)
+        entry.isDir && childCounts != null -> DirectoryCountInfo(childCounts)
+        !entry.isDir && entry.size >= 0 -> {
+            val date = Format.dateTime(entry.mtime)
+            val details = if (date.isEmpty()) Format.bytes(entry.size)
+            else "${Format.bytes(entry.size)} · $date"
+            DetailText(details, MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun DetailText(text: String, color: Color) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        color = color,
+    )
+}
+
+@Composable
+private fun DirectoryCountInfo(counts: DirectChildCounts) {
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Outlined.Folder,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(3.dp))
+        Text(
+            counts.folders.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            color = tint,
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(10.dp))
+        Icon(
+            Icons.AutoMirrored.Outlined.InsertDriveFile,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(3.dp))
+        Text(
+            counts.files.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            color = tint,
+            maxLines = 1,
+        )
     }
 }
 
@@ -469,22 +521,5 @@ private fun EntryThumbnail(entry: XEntry) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun entryDetails(node: TreeNode): String {
-    val entry = node.entry
-    return when {
-        entry.badge != null -> entry.badge
-        !entry.isDir && entry.size >= 0 -> {
-            val date = Format.dateTime(entry.mtime)
-            if (date.isEmpty()) Format.bytes(entry.size) else "${Format.bytes(entry.size)} · $date"
-        }
-        entry.isDir && entry.childCountHint >= 0 -> pluralStringResource(
-            R.plurals.item_count_plural, entry.childCountHint, entry.childCountHint,
-        )
-        // Folders otherwise show just their name — dropping the bare timestamp declutters the tree.
-        else -> ""
     }
 }
