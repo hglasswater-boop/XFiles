@@ -5,6 +5,10 @@ on:
     branches: [agent/smb-folder-sort]
   workflow_dispatch:
 
+concurrency:
+  group: personal-fork-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
