@@ -661,11 +661,12 @@ fun VideoPlayerScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
+                    Box(Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.align(Alignment.Center),
+                        ) {
                         if (hasPrevious || hasNext) {
                             TooltipIconButton(
                                 stringResource(R.string.previous_video),
@@ -734,14 +735,15 @@ fun VideoPlayerScreen(
                                 interactionTick++
                             }
                         }
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        VideoOrientationQuickControls(orientationController) {
-                            interactionTick++
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                        ) {
+                            VideoOrientationQuickControls(orientationController) {
+                                interactionTick++
+                            }
                         }
                     }
                 }
