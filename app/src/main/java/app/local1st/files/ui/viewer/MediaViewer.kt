@@ -1,5 +1,6 @@
 package app.local1st.files.ui.viewer
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,13 +55,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.fs.priv.PrivilegedAccess
+import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
 import app.local1st.files.ui.components.TooltipIconButton
@@ -145,17 +147,40 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 metadata = p.mediaMetadata
                 hasPrevious = p.hasPreviousMediaItem()
                 hasNext = p.hasNextMediaItem()
+
+                if (p.playbackState == Player.STATE_ENDED) {
+                    playable.getOrNull(p.currentMediaItemIndex)
+                        ?.takeIf(::isVideoEntry)
+                        ?.let { VideoResumeStore.clear(context, it.id) }
+                }
             }
         }
         player.addListener(listener)
         onDispose {
+            saveCurrentVideoResume(context, playable, player)
             player.removeListener(listener)
             player.release()
         }
     }
 
+    LaunchedEffect(player, currentIndex) {
+        val resumeEntry = playable.getOrNull(currentIndex) ?: return@LaunchedEffect
+        if (!isVideoEntry(resumeEntry)) return@LaunchedEffect
+
+        val resumeMs = VideoResumeStore.load(context, resumeEntry.id)
+        if (resumeMs > player.currentPosition + VIDEO_RESUME_RESTORE_TOLERANCE_MS) {
+            player.seekTo(resumeMs)
+        }
+
+        while (isActive) {
+            delay(VIDEO_RESUME_SAVE_INTERVAL_MS)
+            if (player.currentMediaItemIndex != currentIndex) break
+            saveVideoResume(context, resumeEntry, player)
+        }
+    }
+
     val currentEntry = playable[currentIndex.coerceIn(0, playable.lastIndex)]
-    val isVideo = FileTypes.categoryOf(currentEntry.name, currentEntry.mime) == FileCategory.VIDEO
+    val isVideo = isVideoEntry(currentEntry)
 
     if (isVideo) {
         VideoPlayerScreen(
@@ -186,6 +211,24 @@ private fun mediaUri(entry: XEntry) = when {
     entry.scheme == "content" -> entry.id.toUri()
     entry.scheme == XId.SCHEME_SMB -> entry.id.toUri()
     else -> null
+}
+
+private fun isVideoEntry(entry: XEntry): Boolean =
+    FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
+
+private fun saveCurrentVideoResume(context: Context, playable: List<XEntry>, player: Player) {
+    val currentEntry = playable.getOrNull(player.currentMediaItemIndex) ?: return
+    if (isVideoEntry(currentEntry)) saveVideoResume(context, currentEntry, player)
+}
+
+private fun saveVideoResume(context: Context, entry: XEntry, player: Player) {
+    val durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+    VideoResumeStore.save(
+        context = context,
+        mediaId = entry.id,
+        positionMs = player.currentPosition.coerceAtLeast(0L),
+        durationMs = durationMs,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -326,3 +369,6 @@ internal fun formatPlayTime(ms: Long): String {
         String.format(Locale.US, "%d:%02d", minutes, seconds)
     }
 }
+
+private const val VIDEO_RESUME_SAVE_INTERVAL_MS = 2_000L
+private const val VIDEO_RESUME_RESTORE_TOLERANCE_MS = 2_000L
