@@ -1,0 +1,252 @@
+name: One-shot stale delete patch
+
+on:
+  push:
+    branches:
+      - agent/search-full-filename
+    paths:
+      - .github/workflows/oneshot-fix-stale-delete.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch operation refresh
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f"{path}: expected {count} occurrence(s), found {actual}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, count))
+
+          op = "app/src/main/java/app/local1st/files/core/ops/OperationEngine.kt"
+          replace(
+              op,
+              '''data class OpEvent(
+              val message: String,
+              val success: Boolean,
+              /** Container ids whose contents changed and should be refreshed in the UI. */
+              val dirtyDirIds: Set<String> = emptySet(),
+          )''',
+              '''data class OpEvent(
+              val message: String,
+              val success: Boolean,
+              /** Container ids whose contents changed and should be refreshed in the UI. */
+              val dirtyDirIds: Set<String> = emptySet(),
+              /** Entry ids that were actually removed from their original location. */
+              val removedEntryIds: Set<String> = emptySet(),
+          )''',
+          )
+
+          engine = "app/src/main/java/app/local1st/files/core/ops/DefaultOperationEngine.kt"
+          replace(
+              engine,
+              '''        val dirty = LinkedHashSet<String>()
+                  try {
+                      val message = when (op) {
+                          is FileOp.Copy -> runCopy(op, running, dirty)
+                          is FileOp.Delete -> runDelete(op, running, dirty)
+                          is FileOp.Compress -> runCompress(op, running, dirty)
+                          is FileOp.Extract -> runExtract(op, running, dirty)
+                      }
+                      running.finish(OpState.DONE)
+                      _events.tryEmit(OpEvent(message, success = true, dirtyDirIds = dirty.toSet()))''',
+              '''        val dirty = LinkedHashSet<String>()
+                  val removed = LinkedHashSet<String>()
+                  try {
+                      val message = when (op) {
+                          is FileOp.Copy -> runCopy(op, running, dirty, removed)
+                          is FileOp.Delete -> runDelete(op, running, dirty, removed)
+                          is FileOp.Compress -> runCompress(op, running, dirty)
+                          is FileOp.Extract -> runExtract(op, running, dirty)
+                      }
+                      running.finish(OpState.DONE)
+                      _events.tryEmit(
+                          OpEvent(
+                              message,
+                              success = true,
+                              dirtyDirIds = dirty.toSet(),
+                              removedEntryIds = removed.toSet(),
+                          ),
+                      )''',
+          )
+          replace(
+              engine,
+              '''                OpEvent("${verbFor(op)} cancelled", success = false, dirtyDirIds = dirty.toSet()),''',
+              '''                OpEvent(
+                              "${verbFor(op)} cancelled",
+                              success = false,
+                              dirtyDirIds = dirty.toSet(),
+                              removedEntryIds = removed.toSet(),
+                          ),''',
+          )
+          replace(
+              engine,
+              '''                    dirtyDirIds = dirty.toSet(),
+                      ),''',
+              '''                    dirtyDirIds = dirty.toSet(),
+                          removedEntryIds = removed.toSet(),
+                      ),''',
+          )
+          replace(
+              engine,
+              '''    private suspend fun runCopy(
+                  op: FileOp.Copy,
+                  t: RunningOpImpl,
+                  dirty: MutableSet<String>,
+              ): String {''',
+              '''    private suspend fun runCopy(
+                  op: FileOp.Copy,
+                  t: RunningOpImpl,
+                  dirty: MutableSet<String>,
+                  removed: MutableSet<String>,
+              ): String {''',
+          )
+          replace(
+              engine,
+              '''            if (op.move && tryFastRename(src, destDir, destNames)) {
+                      movedFast++
+                      XId.parent(src.id)?.let(dirty::add)
+                  } else {''',
+              '''            if (op.move && tryFastRename(src, destDir, destNames)) {
+                      movedFast++
+                      removed += src.id
+                      XId.parent(src.id)?.let(dirty::add)
+                  } else {''',
+          )
+          replace(
+              engine,
+              '''            if (op.move && export == null) {
+                      registry.forScheme(src.scheme).delete(src)
+                      XId.parent(src.id)?.let(dirty::add)
+                  }''',
+              '''            if (op.move && export == null) {
+                      registry.forScheme(src.scheme).delete(src)
+                      removed += src.id
+                      XId.parent(src.id)?.let(dirty::add)
+                  }''',
+          )
+          replace(
+              engine,
+              '''    private fun runDelete(op: FileOp.Delete, t: RunningOpImpl, dirty: MutableSet<String>): String {''',
+              '''    private fun runDelete(
+                  op: FileOp.Delete,
+                  t: RunningOpImpl,
+                  dirty: MutableSet<String>,
+                  removed: MutableSet<String>,
+              ): String {''',
+          )
+          replace(
+              engine,
+              '''            registry.forScheme(src.scheme).delete(src)
+                  XId.parent(src.id)?.let(dirty::add)''',
+              '''            registry.forScheme(src.scheme).delete(src)
+                  removed += src.id
+                  XId.parent(src.id)?.let(dirty::add)''',
+          )
+
+          pane = "app/src/main/java/app/local1st/files/ui/browser/PaneController.kt"
+          marker = '''    // ---- refresh ----
+
+              fun refresh(dirId: String) {'''
+          replacement = '''    // ---- refresh ----
+
+              /**
+               * Removes entries that the operation engine has already confirmed were deleted or
+               * moved away. This makes the row disappear immediately instead of keeping stale
+               * cached children on screen while a local/SMB parent directory is being re-listed.
+               * [refreshDirty] still performs the authoritative filesystem read afterwards.
+               */
+              fun removeEntries(ids: Set<String>) {
+                  if (ids.isEmpty()) return
+                  finishStartupRestoreForInteraction()
+
+                  fun removed(id: String): Boolean = ids.any { removedId ->
+                      id == removedId || isAncestorOf(removedId, id)
+                  }
+
+                  tree.update { current ->
+                      current.copy(
+                          roots = current.roots.filterNot { removed(it.id) },
+                          expanded = current.expanded.filterNot(::removed).toSet(),
+                          children = current.children
+                              .filterKeys { !removed(it) }
+                              .mapValues { (_, kids) -> kids.filterNot { removed(it.id) } },
+                          loading = current.loading.filterNot(::removed).toSet(),
+                          errors = current.errors.filterKeys { !removed(it) },
+                      )
+                  }
+                  sessionExpanded.update { it.filterNot(::removed).toSet() }
+                  savedDirectoryHints.update { it.filterKeys { id -> !removed(id) } }
+                  selection.update { it.filterNot(::removed).toSet() }
+                  focusedDirId.update { focus ->
+                      if (focus == null || !removed(focus)) {
+                          focus
+                      } else {
+                          var candidate: String? = XId.parent(focus)
+                          while (candidate != null && removed(candidate)) {
+                              candidate = XId.parent(candidate)
+                          }
+                          candidate
+                      }
+                  }
+              }
+
+              fun refresh(dirId: String) {'''
+          replace(pane, marker, replacement)
+
+          main = "app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt"
+          replace(
+              main,
+              '''        viewModelScope.launch {
+                  Graph.opEngine.events.collect { event ->
+                      panes.forEach { it.refreshDirty(event.dirtyDirIds) }
+                      snackbar.tryEmit(event.message)
+                  }
+              }''',
+              '''        viewModelScope.launch {
+                  Graph.opEngine.events.collect { event ->
+                      panes.forEach { pane ->
+                          pane.removeEntries(event.removedEntryIds)
+                          pane.refreshDirty(event.dirtyDirIds)
+                      }
+                      snackbar.tryEmit(event.message)
+                  }
+              }''',
+          )
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/app/local1st/files/core/ops/OperationEngine.kt \
+            app/src/main/java/app/local1st/files/core/ops/DefaultOperationEngine.kt \
+            app/src/main/java/app/local1st/files/ui/browser/PaneController.kt \
+            app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/core/ops/OperationEngine.kt \
+            app/src/main/java/app/local1st/files/core/ops/DefaultOperationEngine.kt \
+            app/src/main/java/app/local1st/files/ui/browser/PaneController.kt \
+            app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt
+          git commit -m "Remove deleted entries from cached listings"
+          git push origin HEAD:agent/search-full-filename
