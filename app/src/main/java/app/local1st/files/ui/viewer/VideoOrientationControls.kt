@@ -83,7 +83,10 @@ internal fun rememberVideoOrientationController(): VideoOrientationController {
     return controller
 }
 
-/** Buttons shown in the playback controls panel. Orientation ownership lives in [controller]. */
+/**
+ * Compact orientation buttons overlaid at the right edge of the playback-button row.
+ * Orientation ownership lives in [controller], so hiding the controls never resets the mode.
+ */
 @Composable
 internal fun VideoOrientationQuickControls(
     controller: VideoOrientationController,
