@@ -1,7 +1,6 @@
 package app.local1st.files.ui.viewer
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.os.Build
@@ -14,7 +13,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -30,7 +28,6 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
@@ -39,7 +36,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,12 +79,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -106,7 +99,7 @@ import androidx.media3.ui.PlayerView
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.prefs.SeekPreviewSettings
+import app.local1st.files.core.prefs.VideoPlayerSettings
 import app.local1st.files.ui.components.TooltipIconButton
 import java.util.Locale
 import kotlin.math.abs
@@ -150,17 +143,12 @@ fun VideoPlayerScreen(
     var sliderPos by remember { mutableStateOf<Float?>(null) }
     var sliderWasPlaying by remember { mutableStateOf(false) }
     var cardDragging by remember { mutableStateOf(false) }
-    var seekPreviewTargetMs by remember { mutableLongStateOf(-1L) }
-    var seekPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var seekPreviewTrackWidthPx by remember { mutableIntStateOf(0) }
     var showPlayerSettings by remember { mutableStateOf(false) }
 
     SystemBarsHidden(hidden = !controlsVisible)
     val view = LocalView.current
-    val density = LocalDensity.current
     val context = LocalContext.current
-    val seekPreviewPrefetchMinutes by SeekPreviewSettings.prefetchMinutes(context).collectAsState()
-    val seekPreviewKeepAllBitmaps by SeekPreviewSettings.keepAllBitmaps(context).collectAsState()
+    val seekWhileDragging by VideoPlayerSettings.seekWhileDragging(context).collectAsState()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -210,33 +198,11 @@ fun VideoPlayerScreen(
         }
     }
     LaunchedEffect(entry.id) {
-        seekPreviewTargetMs = -1L
-        seekPreviewBitmap = null
         fps = 0f
         delay(1000L)
         if (fps > 0f) return@LaunchedEffect
         val probed = withContext(Dispatchers.IO) { probeFrameRate(entry.localPath) }
         if (fps <= 0f && probed != null) fps = probed
-    }
-
-    // An exact hot Bitmap can be swapped synchronously with no black/loading frame. Only cold
-    // targets fall back to the explicit loading state while IO/JPEG decode completes.
-    LaunchedEffect(entry.id, seekPreviewTargetMs) {
-        val target = seekPreviewTargetMs
-        if (target < 0L) {
-            seekPreviewBitmap = null
-            return@LaunchedEffect
-        }
-        val hot = SeekPreviewFrameLoader.peekHot(entry, target)
-        if (hot != null) {
-            seekPreviewBitmap = hot
-            SeekPreviewFrameLoader.load(entry, target)
-            return@LaunchedEffect
-        }
-        seekPreviewBitmap = null
-        delay(SEEK_PREVIEW_DEBOUNCE_MS)
-        val bitmap = SeekPreviewFrameLoader.load(entry, target)
-        if (seekPreviewTargetMs == target) seekPreviewBitmap = bitmap
     }
 
     LaunchedEffect(player, entry.scheme, frameMode) {
@@ -495,60 +461,38 @@ fun VideoPlayerScreen(
                         onDismissRequest = { showPlayerSettings = false },
                     ) {
                         Text(
-                            "シークサムネイル先読み",
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                        SeekPreviewSettings.PREFETCH_MINUTE_OPTIONS.forEach { minutes ->
-                            val label = if (minutes == 0) "なし" else "前後${minutes}分"
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (minutes == seekPreviewPrefetchMinutes) "✓  $label" else "　 $label",
-                                    )
-                                },
-                                onClick = {
-                                    SeekPreviewSettings.setPrefetchMinutes(context, minutes)
-                                    showPlayerSettings = false
-                                    interactionTick++
-                                },
-                            )
-                        }
-                        Text(
-                            "サムネイルキャッシュ",
+                            "シークバー",
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         )
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    if (!seekPreviewKeepAllBitmaps) {
-                                        "✓  省メモリ（JPEG＋近傍Bitmap）"
+                                    if (seekWhileDragging) {
+                                        "✓  ドラッグ中に映像を追従"
                                     } else {
-                                        "　 省メモリ（JPEG＋近傍Bitmap）"
+                                        "　 ドラッグ中に映像を追従"
                                     },
                                 )
                             },
                             onClick = {
-                                SeekPreviewSettings.setKeepAllBitmaps(context, false)
+                                VideoPlayerSettings.setSeekWhileDragging(context, true)
                                 showPlayerSettings = false
                                 interactionTick++
                             },
                         )
-                        val allBitmapMiB = seekPreviewBitmapMemoryMiB(seekPreviewPrefetchMinutes)
                         DropdownMenuItem(
                             text = {
-                                val detail = if (seekPreviewPrefetchMinutes > 0) {
-                                    "全部Bitmap（約${allBitmapMiB}MiB RAM）"
-                                } else {
-                                    "全部Bitmap（先読み範囲）"
-                                }
                                 Text(
-                                    if (seekPreviewKeepAllBitmaps) "✓  $detail" else "　 $detail",
+                                    if (!seekWhileDragging) {
+                                        "✓  指を離した時に移動"
+                                    } else {
+                                        "　 指を離した時に移動"
+                                    },
                                 )
                             },
                             onClick = {
-                                SeekPreviewSettings.setKeepAllBitmaps(context, true)
+                                VideoPlayerSettings.setSeekWhileDragging(context, false)
                                 showPlayerSettings = false
                                 interactionTick++
                             },
@@ -672,104 +616,27 @@ fun VideoPlayerScreen(
                         )
                     }
 
-                    sliderPos?.let { previewFraction ->
-                        val previewWidth = 160.dp
-                        val previewHeight = 90.dp
-                        val previewWidthPx = with(density) { previewWidth.roundToPx() }
-                        val previewMs = seekPreviewTargetMs.takeIf { it >= 0L }
-                            ?: (previewFraction * durationMs).toLong()
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(previewHeight + 8.dp)
-                                .onSizeChanged { seekPreviewTrackWidthPx = it.width },
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color.Black,
-                                shadowElevation = 6.dp,
-                                modifier = Modifier
-                                    .width(previewWidth)
-                                    .height(previewHeight)
-                                    .offset {
-                                        val travel =
-                                            (seekPreviewTrackWidthPx - previewWidthPx).coerceAtLeast(0)
-                                        IntOffset(
-                                            (travel * previewFraction.coerceIn(0f, 1f)).roundToInt(),
-                                            0,
-                                        )
-                                    },
-                            ) {
-                                Box(Modifier.fillMaxSize()) {
-                                    val bitmap = seekPreviewBitmap
-                                    if (bitmap != null) {
-                                        Image(
-                                            bitmap = bitmap.asImageBitmap(),
-                                            contentDescription = null,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    } else {
-                                        Text(
-                                            text = "読み込み中…",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.8f),
-                                            modifier = Modifier.align(Alignment.Center),
-                                        )
-                                    }
-                                    Text(
-                                        text = formatPlayTime(previewMs),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = Color.White,
-                                        modifier = Modifier
-                                            .align(Alignment.BottomCenter)
-                                            .padding(bottom = 4.dp)
-                                            .background(
-                                                Color.Black.copy(alpha = 0.68f),
-                                                RoundedCornerShape(5.dp),
-                                            )
-                                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
                     Slider(
                         value = sliderPos
                             ?: if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
                         onValueChange = { v ->
                             if (durationMs > 0) {
                                 if (sliderPos == null) {
-                                    // Freeze the actual video at its current frame while the thumb
-                                    // moves. Only the preview follows the drag; the real seek is
-                                    // committed once in onValueChangeFinished.
                                     sliderWasPlaying = player.playWhenReady
                                     player.pause()
                                 }
                                 sliderPos = v
-                                val target = (v * durationMs).toLong()
-                                val bucketMs = if (entry.scheme == XId.SCHEME_SMB) {
-                                    SMB_SEEK_PREVIEW_BUCKET_MS
-                                } else {
-                                    SEEK_PREVIEW_BUCKET_MS
-                                }
-                                val previewTarget = (target / bucketMs) * bucketMs
-                                if (previewTarget != seekPreviewTargetMs) {
-                                    seekPreviewTargetMs = previewTarget
-                                    seekPreviewBitmap = SeekPreviewFrameLoader.peekHot(entry, previewTarget)
+                                if (seekWhileDragging) {
+                                    seekGate.request(clampMs((v * durationMs).toLong()))
                                 }
                             }
                         },
                         onValueChangeFinished = {
                             sliderPos?.let {
-                                seekGate.request((it * durationMs).toLong())
+                                seekGate.request(clampMs((it * durationMs).toLong()))
                                 seekGate.flushLatest()
                             }
                             sliderPos = null
-                            seekPreviewTargetMs = -1L
-                            seekPreviewBitmap = null
                             if (sliderWasPlaying && !frameMode) player.play()
                             sliderWasPlaying = false
                             interactionTick++
@@ -981,12 +848,6 @@ private fun probeFrameRate(path: String?): Float? {
 
 private fun isStandardFps(f: Float): Boolean = STANDARD_FPS.any { abs(f - it) / it < 0.01f }
 
-private fun seekPreviewBitmapMemoryMiB(minutes: Int): Long {
-    if (minutes <= 0) return 0L
-    val frameCount = minutes.toLong() * 60L * 2L + 1L
-    return frameCount * 320L * 180L * 4L / (1024L * 1024L)
-}
-
 private enum class VideoGestureMode {
     UNDECIDED,
     HORIZONTAL_SEEK,
@@ -1000,9 +861,6 @@ private val STANDARD_FPS =
 private const val FALLBACK_FPS = 30f
 private const val SEEK_THROTTLE_MS = 150L
 private const val SEEK_TARGET_HOLD_MS = 800L
-private const val SEEK_PREVIEW_BUCKET_MS = 500L
-private const val SMB_SEEK_PREVIEW_BUCKET_MS = 1_000L
-private const val SEEK_PREVIEW_DEBOUNCE_MS = 60L
 private const val FRAME_SWIPE_DP = 8f
 private const val EDGE_GUARD_DP = 24
 private const val TIME_SWIPE_MS_PER_DP = 100L
