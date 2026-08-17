@@ -1,0 +1,103 @@
+name: Apply player transparency setting
+
+on:
+  push:
+    branches:
+      - agent/player-orientation-controls
+    paths:
+      - .github/workflows/apply-player-transparency-setting.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/player-orientation-controls
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Add persisted transparency setting
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          settings_path = Path('app/src/main/java/app/local1st/files/core/prefs/VideoPlayerSettings.kt')
+          s = settings_path.read_text()
+          s = s.replace(
+              '    const val DEFAULT_SEEK_WHILE_DRAGGING = true\n',
+              '    const val DEFAULT_SEEK_WHILE_DRAGGING = true\n'
+              '    const val DEFAULT_CONTROLS_TRANSPARENCY_PERCENT = 15\n'
+          )
+          s = s.replace(
+              '    private const val KEY_SEEK_WHILE_DRAGGING = "seek_while_dragging"\n',
+              '    private const val KEY_SEEK_WHILE_DRAGGING = "seek_while_dragging"\n'
+              '    private const val KEY_CONTROLS_TRANSPARENCY_PERCENT = "controls_transparency_percent"\n'
+          )
+          s = s.replace(
+              '    private val _seekWhileDragging = MutableStateFlow(DEFAULT_SEEK_WHILE_DRAGGING)\n',
+              '    private val _seekWhileDragging = MutableStateFlow(DEFAULT_SEEK_WHILE_DRAGGING)\n'
+              '    private val _controlsTransparencyPercent =\n'
+              '        MutableStateFlow(DEFAULT_CONTROLS_TRANSPARENCY_PERCENT)\n'
+          )
+          marker = '''    fun currentSeekWhileDragging(context: Context): Boolean {\n'''
+          addition = '''    fun controlsTransparencyPercent(context: Context): StateFlow<Int> {\n        ensureInitialized(context)\n        return _controlsTransparencyPercent.asStateFlow()\n    }\n\n    fun setControlsTransparencyPercent(context: Context, percent: Int) {\n        ensureInitialized(context)\n        val clamped = percent.coerceIn(0, 60)\n        context.applicationContext\n            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)\n            .edit()\n            .putInt(KEY_CONTROLS_TRANSPARENCY_PERCENT, clamped)\n            .apply()\n        _controlsTransparencyPercent.value = clamped\n    }\n\n'''
+          if addition not in s:
+              s = s.replace(marker, addition + marker)
+          old_init = '''        _seekWhileDragging.value = context.applicationContext\n            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)\n            .getBoolean(KEY_SEEK_WHILE_DRAGGING, DEFAULT_SEEK_WHILE_DRAGGING)\n        initialized = true\n'''
+          new_init = '''        val prefs = context.applicationContext\n            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)\n        _seekWhileDragging.value =\n            prefs.getBoolean(KEY_SEEK_WHILE_DRAGGING, DEFAULT_SEEK_WHILE_DRAGGING)\n        _controlsTransparencyPercent.value = prefs\n            .getInt(KEY_CONTROLS_TRANSPARENCY_PERCENT, DEFAULT_CONTROLS_TRANSPARENCY_PERCENT)\n            .coerceIn(0, 60)\n        initialized = true\n'''
+          if old_init not in s:
+              raise SystemExit('VideoPlayerSettings init marker not found')
+          s = s.replace(old_init, new_init)
+          settings_path.write_text(s)
+
+          player_path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          p = player_path.read_text()
+          collect_marker = '''    val seekWhileDragging by VideoPlayerSettings.seekWhileDragging(context).collectAsState()\n'''
+          collect_new = collect_marker + '''    val controlsTransparencyPercent by\n        VideoPlayerSettings.controlsTransparencyPercent(context).collectAsState()\n'''
+          if collect_marker not in p:
+              raise SystemExit('collect marker not found')
+          p = p.replace(collect_marker, collect_new, 1)
+
+          alpha_old = '                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),\n'
+          alpha_new = '''                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(\n                    alpha = 1f - controlsTransparencyPercent / 100f,\n                ),\n'''
+          if alpha_old not in p:
+              raise SystemExit('alpha marker not found')
+          p = p.replace(alpha_old, alpha_new, 1)
+
+          seek_false = '                                VideoPlayerSettings.setSeekWhileDragging(context, false)\n'
+          start = p.find(seek_false)
+          if start < 0:
+              raise SystemExit('seek false setting marker not found')
+          end_marker = '                        )\n'
+          end = p.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('seek false menu end not found')
+          end += len(end_marker)
+          transparency_ui = '''                        Text(\n                            "操作パネル透過率 $controlsTransparencyPercent%",\n                            style = MaterialTheme.typography.labelMedium,\n                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),\n                        )\n                        Slider(\n                            value = controlsTransparencyPercent.toFloat(),\n                            onValueChange = { value ->\n                                VideoPlayerSettings.setControlsTransparencyPercent(\n                                    context,\n                                    (value / 5f).roundToInt() * 5,\n                                )\n                                interactionTick++\n                            },\n                            valueRange = 0f..60f,\n                            steps = 11,\n                            modifier = Modifier.padding(horizontal = 12.dp),\n                        )\n'''
+          if transparency_ui not in p:
+              p = p[:end] + transparency_ui + p[end:]
+          player_path.write_text(p)
+          PY
+
+      - name: Verify build and tests
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest --stacktrace
+
+      - name: Remove one-shot workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/apply-player-transparency-setting.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/core/prefs/VideoPlayerSettings.kt app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt .github/workflows/apply-player-transparency-setting.yml
+          git commit -m "Add adjustable player controls transparency"
+          git push origin HEAD:agent/player-orientation-controls
