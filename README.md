@@ -14,7 +14,7 @@ and SMB2/3 network shares — on the latest Android stack with a Material 3 Expr
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?logo=kotlin&logoColor=white)](#tech-stack)
 [![Network](https://img.shields.io/badge/network-SMB2%2F3%20only-informational)](#permissions--privacy)
 
-English · [简体中文](README.zh-CN.md)
+English · [日本語](README.ja.md) · [简体中文](README.zh-CN.md)
 
 <img src="docs/assets/demo.gif" width="300" alt="One tour on a OnePlus 7 Pro: copy files, inspect an installed app's components and APK splits, then browse the root-only directories under /data">
 
