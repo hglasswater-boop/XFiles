@@ -416,6 +416,9 @@ private fun EntryMenuContent(
             MenuItem("編集") {
                 vm.dialog.value = DialogRequest.EditSmbConnection(smbConnection.id)
             }
+            MenuItem("このフォルダの並び順") {
+                vm.dialog.value = DialogRequest.FolderSort(entry)
+            }
             MenuItem("コピー") {
                 Graph.smbConnections.duplicate(smbConnection.id)
                 dismiss()
