@@ -27,7 +27,7 @@ private enum class PlayerOrientationMode {
  * Player-only orientation controls.
  *
  * Video playback follows the device sensor by default, independent of the system rotation lock.
- * The user can lock the currently displayed orientation or force a stable landscape orientation.
+ * The user can lock the currently displayed orientation or switch to a landscape-only sensor mode.
  * When the player leaves composition the Activity's previous orientation request is restored so
  * browsing outside the player keeps the app's original behaviour.
  */
@@ -54,7 +54,7 @@ internal fun VideoOrientationQuickControls(
         activity?.requestedOrientation = when (newMode) {
             PlayerOrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
             PlayerOrientationMode.LOCKED -> ActivityInfo.SCREEN_ORIENTATION_LOCKED
-            PlayerOrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            PlayerOrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
         onInteraction()
     }
@@ -77,7 +77,7 @@ internal fun VideoOrientationQuickControls(
     }
 
     TooltipIconButton(
-        if (mode == PlayerOrientationMode.LANDSCAPE) "自動回転に戻す" else "横向きに固定",
+        if (mode == PlayerOrientationMode.LANDSCAPE) "自動回転に戻す" else "横向きにする",
         if (mode == PlayerOrientationMode.LANDSCAPE) {
             Icons.Outlined.ScreenRotation
         } else {
