@@ -13,13 +13,11 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-/** Direct child counts for a folder. String form is used by the existing row details formatter. */
+/** Direct child folder/file counts for a directory. */
 internal data class FolderDirectCounts(
     val folders: Int,
     val files: Int,
-) {
-    override fun toString(): String = "📁 $folders   📄 $files"
-}
+)
 
 /**
  * Counts direct folders and files for a visible ordinary folder. Counts are lazy and bounded so a

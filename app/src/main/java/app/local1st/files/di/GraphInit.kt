@@ -29,6 +29,7 @@ fun initGraph(graph: Graph) {
         Graph.appContext,
         favorites = { Graph.favorites.value.orEmpty() },
         statById = { id -> Graph.fsRegistry.forId(id).stat(id) },
+        smbConnections = graph.smbConnections,
     )
     graph.opEngine = DefaultOperationEngine(Graph.appScope, graph.fsRegistry, Graph.appContext.cacheDir)
     graph.searchEngine = DefaultSearchEngine(graph.fsRegistry)

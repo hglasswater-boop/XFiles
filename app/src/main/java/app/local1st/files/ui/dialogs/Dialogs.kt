@@ -135,7 +135,12 @@ fun MainDialogs(vm: MainViewModel) {
         title = { Text(req.entry.name) },
         text = {
             Column {
-                Text(stringResource(R.string.location, req.entry.id))
+                val displayLocation = when (req.entry.scheme) {
+                    XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
+                    XId.SCHEME_ROOT -> "root:${req.entry.path}"
+                    else -> req.entry.path
+                }
+                Text(stringResource(R.string.location, displayLocation))
                 if (!req.entry.isDir) {
                     Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
                 }

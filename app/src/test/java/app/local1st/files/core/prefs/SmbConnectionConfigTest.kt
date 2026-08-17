@@ -11,16 +11,16 @@ class SmbConnectionConfigTest {
             id = "test",
             name = "",
             host = "192.168.1.10",
-            sharePath = "video_a/actress",
+            sharePath = "share/folder",
             username = "user",
             domain = "",
         )
 
-        assertEquals("video_a", config.share)
-        assertEquals("actress", config.basePath)
-        assertEquals("video_a/actress", config.sharePath)
-        assertEquals("video_a/actress", config.name)
-        assertEquals("\\\\192.168.1.10\\video_a\\actress", config.uncPath)
+        assertEquals("share", config.share)
+        assertEquals("folder", config.basePath)
+        assertEquals("share/folder", config.sharePath)
+        assertEquals("share/folder", config.name)
+        assertEquals("\\\\192.168.1.10\\share\\folder", config.uncPath)
     }
 
     @Test
@@ -29,13 +29,13 @@ class SmbConnectionConfigTest {
             id = "test",
             name = "NAS",
             host = "nas.local",
-            sharePath = "\\video_a\\actress\\works\\",
+            sharePath = "\\share\\folder\\subfolder\\",
             username = "",
             domain = "",
         )
 
-        assertEquals("video_a", config.share)
-        assertEquals("actress/works", config.basePath)
+        assertEquals("share", config.share)
+        assertEquals("folder/subfolder", config.basePath)
         assertEquals("NAS", config.name)
     }
 
@@ -45,12 +45,12 @@ class SmbConnectionConfigTest {
             id = "test",
             name = "",
             host = "nas.local",
-            sharePath = "video_a",
+            sharePath = "share",
             username = "",
             domain = "",
         )
 
-        assertEquals("video_a", config.share)
+        assertEquals("share", config.share)
         assertEquals("", config.basePath)
     }
 
@@ -61,10 +61,29 @@ class SmbConnectionConfigTest {
                 id = "test",
                 name = "",
                 host = "nas.local",
-                sharePath = "video_a/../secret",
+                sharePath = "share/../secret",
                 username = "",
                 domain = "",
             )
         }
+    }
+
+    @Test
+    fun `friendly SMB paths never expose connection id`() {
+        val config = smbConnectionFromInput(
+            id = "123e4567-e89b-12d3-a456-426614174000",
+            name = "Home NAS",
+            host = "nas.local",
+            sharePath = "share/start",
+            username = "",
+            domain = "",
+        )
+        val lookup: (String) -> SmbConnectionConfig? = { if (it == config.id) config else null }
+        val id = "smb://${config.id}/photos/2026"
+
+        assertEquals("\\\\nas.local\\share\\start\\photos\\2026", smbDisplayPath(id, lookup))
+        assertEquals("Home NAS / photos/2026", smbDisplayLabelPath(id, lookup))
+        assertEquals("SMB / photos/2026", smbDisplayLabelPath("smb://missing/photos/2026") { null })
+        assertEquals("SMB\\photos\\2026", smbDisplayPath("smb://missing/photos/2026") { null })
     }
 }
