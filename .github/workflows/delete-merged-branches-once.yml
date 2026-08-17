@@ -1,0 +1,26 @@
+name: Delete merged branches once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/delete-merged-branches-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  delete-merged-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Delete integrated branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin --delete \
+            agent/integrate-all-branches \
+            agent/japanese-readme \
+            agent/material3-folder-file-icons \
+            agent/player-orientation-controls
