@@ -90,7 +90,7 @@ internal fun VideoOrientationQuickControls(
 
     TooltipIconButton(
         if (locked) "向きロックを解除" else "現在の向きでロック",
-        if (locked) Icons.Outlined.ScreenRotation else Icons.Outlined.ScreenLockRotation,
+        if (locked) Icons.Outlined.ScreenLockRotation else Icons.Outlined.ScreenRotation,
         selected = locked,
     ) {
         controller.selectMode(
