@@ -24,6 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -420,8 +422,9 @@ class PaneController(
     // during construction, so everything flatten touches must already be initialized.
     private val sortedListings = HashMap<String, SortedListing>()
 
-    /** A row the pane list should bring on screen (consumed by the UI). */
-    val scrollTo = MutableSharedFlow<ScrollRequest>(extraBufferCapacity = 1)
+    /** A row the pane list should bring on screen. Keep the latest request while the UI is off-screen. */
+    private val scrollRequests = Channel<ScrollRequest>(Channel.CONFLATED)
+    val scrollTo = scrollRequests.receiveAsFlow()
 
     private val sortSpec: StateFlow<SortSpec?> = combine(
         Graph.settings.sortBy,
@@ -1013,7 +1016,7 @@ class PaneController(
         finishStartupRestoreForInteraction()
         scope.launch {
             revealPathNow(id)
-            scrollTo.tryEmit(ScrollRequest(id, animate))
+            scrollRequests.trySend(ScrollRequest(id, animate))
         }
     }
 
@@ -1052,7 +1055,7 @@ class PaneController(
             markExpanded(apk.id)
             loadNow(apk)
             focusedDirId.value = apk.id
-            scrollTo.tryEmit(ScrollRequest(apk.id, animate = true))
+            scrollRequests.trySend(ScrollRequest(apk.id, animate = true))
         }
     }
 
