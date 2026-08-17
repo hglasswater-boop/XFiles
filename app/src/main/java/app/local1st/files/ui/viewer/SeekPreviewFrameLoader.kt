@@ -29,10 +29,10 @@ import kotlinx.coroutines.withContext
 /**
  * Extracts the small frame shown above the video seek bar.
  *
- * Two cache tiers are used while scrubbing:
- * - a hot LRU of decoded Bitmaps around the active position for zero-flicker 1-second moves;
- * - a wider JPEG cache for the configured prefetch range so several minutes do not consume
- *   Bitmap-sized heap.
+ * Two cache modes are available while scrubbing:
+ * - hybrid: a hot LRU of decoded Bitmaps around the active position plus a wider JPEG cache;
+ * - all-Bitmap: every frame in the configured prefetch window stays decoded in RAM and JPEG
+ *   compression/decompression is skipped entirely.
  *
  * The retriever and SMB random-access source stay alive while the same video is being scrubbed, so
  * the container is not reparsed and the NAS file is not reopened for every position.
@@ -43,6 +43,7 @@ internal object SeekPreviewFrameLoader {
     private var prefetchJob: Job? = null
     private var prefetchCenterMs = Long.MIN_VALUE
     private var prefetchRadiusMinutes = -1
+    private var prefetchKeepAllBitmaps = false
     private var prefetchSessionKey: String? = null
     private var session: PreviewSession? = null
 
@@ -56,12 +57,18 @@ internal object SeekPreviewFrameLoader {
 
     suspend fun load(entry: XEntry, targetMs: Long): Bitmap? {
         val normalizedTarget = normalizeTarget(targetMs)
+        val keepAllBitmaps = SeekPreviewSettings.currentKeepAllBitmaps(Graph.appContext)
         val bitmap = semaphore.withPermit {
             withContext(Dispatchers.IO) {
                 val active = sessionFor(entry) ?: return@withContext null
                 active.cached(normalizedTarget, promoteHot = true)?.let { return@withContext it }
                 active.extract(normalizedTarget)?.also {
-                    active.cache(normalizedTarget, it, keepHot = true)
+                    active.cache(
+                        normalizedTarget,
+                        it,
+                        keepHot = true,
+                        storeCompressed = !keepAllBitmaps,
+                    )
                 }
             }
         }
@@ -77,6 +84,7 @@ internal object SeekPreviewFrameLoader {
      */
     private fun schedulePrefetch(entry: XEntry, centerMs: Long) {
         val radiusMinutes = SeekPreviewSettings.currentPrefetchMinutes(Graph.appContext)
+        val keepAllBitmaps = SeekPreviewSettings.currentKeepAllBitmaps(Graph.appContext)
         if (radiusMinutes <= 0) {
             prefetchJob?.cancel()
             resetPrefetchWindow()
@@ -88,6 +96,7 @@ internal object SeekPreviewFrameLoader {
         val recenterThresholdMs = maxOf(PREVIEW_BUCKET_MS * 2, radiusMs / 2)
         val sameWindow = prefetchSessionKey == key &&
             prefetchRadiusMinutes == radiusMinutes &&
+            prefetchKeepAllBitmaps == keepAllBitmaps &&
             prefetchCenterMs != Long.MIN_VALUE &&
             abs(centerMs - prefetchCenterMs) <= recenterThresholdMs
         if (sameWindow) return
@@ -95,6 +104,7 @@ internal object SeekPreviewFrameLoader {
         prefetchJob?.cancel()
         prefetchCenterMs = centerMs
         prefetchRadiusMinutes = radiusMinutes
+        prefetchKeepAllBitmaps = keepAllBitmaps
         prefetchSessionKey = key
         prefetchJob = prefetchScope.launch {
             val durationMs = semaphore.withPermit {
@@ -105,53 +115,79 @@ internal object SeekPreviewFrameLoader {
                 centerMs = centerMs,
                 durationMs = durationMs,
                 radiusMinutes = radiusMinutes,
+                keepAllBitmaps = keepAllBitmaps,
             )
         }
     }
 
     /**
-     * Fills the configured range nearest-first. The closest ~30 seconds stay decoded as Bitmaps;
-     * farther frames are retained only as JPEG bytes. Cancellation is checked between every frame
-     * so a distant thumb movement immediately takes priority over obsolete background work.
+     * Fills the configured range nearest-first. In hybrid mode the closest ~30 seconds stay decoded
+     * as Bitmaps and farther frames are retained as JPEG bytes. In all-Bitmap mode every prefetched
+     * second stays decoded, avoiding both JPEG work and black/loading flashes for cached positions.
      */
     private suspend fun prefetchAround(
         entry: XEntry,
         centerMs: Long,
         durationMs: Long,
         radiusMinutes: Int,
+        keepAllBitmaps: Boolean,
     ) {
         if (radiusMinutes <= 0) return
         val center = normalizeTarget(centerMs)
         val radiusSeconds = radiusMinutes.coerceIn(0, MAX_PREFETCH_MINUTES) * 60
         for (step in 1..radiusSeconds) {
             currentCoroutineContext().ensureActive()
-            val keepHot = step <= HOT_PREFETCH_SECONDS
+            val keepHot = keepAllBitmaps || step <= HOT_PREFETCH_SECONDS
+            val storeCompressed = !keepAllBitmaps
             val delta = step * PREVIEW_BUCKET_MS
             val before = center - delta
-            if (before >= 0L) prefetchOne(entry, before, keepHot)
+            if (before >= 0L) {
+                prefetchOne(
+                    entry = entry,
+                    targetMs = before,
+                    keepHot = keepHot,
+                    storeCompressed = storeCompressed,
+                )
+            }
 
             currentCoroutineContext().ensureActive()
             val after = center + delta
-            if (durationMs <= 0L || after <= durationMs) prefetchOne(entry, after, keepHot)
+            if (durationMs <= 0L || after <= durationMs) {
+                prefetchOne(
+                    entry = entry,
+                    targetMs = after,
+                    keepHot = keepHot,
+                    storeCompressed = storeCompressed,
+                )
+            }
         }
     }
 
-    private suspend fun prefetchOne(entry: XEntry, targetMs: Long, keepHot: Boolean) =
-        semaphore.withPermit {
-            withContext(Dispatchers.IO) {
-                val active = sessionFor(entry) ?: return@withContext
-                val target = normalizeTarget(targetMs)
-                if (active.hasHot(target)) return@withContext
-                if (active.hasCompressed(target)) {
-                    if (keepHot) active.cached(target, promoteHot = true)
-                    return@withContext
-                }
-                active.extract(target)?.let { bitmap ->
-                    active.cache(target, bitmap, keepHot = keepHot)
-                    if (!keepHot) bitmap.recycle()
-                }
+    private suspend fun prefetchOne(
+        entry: XEntry,
+        targetMs: Long,
+        keepHot: Boolean,
+        storeCompressed: Boolean,
+    ) = semaphore.withPermit {
+        withContext(Dispatchers.IO) {
+            val active = sessionFor(entry) ?: return@withContext
+            val target = normalizeTarget(targetMs)
+            if (active.hasHot(target)) return@withContext
+            if (active.hasCompressed(target)) {
+                if (keepHot) active.cached(target, promoteHot = true)
+                return@withContext
+            }
+            active.extract(target)?.let { bitmap ->
+                active.cache(
+                    targetMs = target,
+                    bitmap = bitmap,
+                    keepHot = keepHot,
+                    storeCompressed = storeCompressed,
+                )
+                if (!keepHot) bitmap.recycle()
             }
         }
+    }
 
     /** Close the previous video's resources when another video starts being previewed. */
     @Synchronized
@@ -170,12 +206,21 @@ internal object SeekPreviewFrameLoader {
     private fun resetPrefetchWindow() {
         prefetchCenterMs = Long.MIN_VALUE
         prefetchRadiusMinutes = -1
+        prefetchKeepAllBitmaps = false
         prefetchSessionKey = null
     }
 
     private fun normalizeTarget(targetMs: Long): Long {
         val safe = targetMs.coerceAtLeast(0L)
         return (safe / PREVIEW_BUCKET_MS) * PREVIEW_BUCKET_MS
+    }
+
+    private fun hotBitmapLimit(): Int {
+        if (!SeekPreviewSettings.currentKeepAllBitmaps(Graph.appContext)) return MAX_HOT_BITMAPS
+        val radiusMinutes = SeekPreviewSettings.currentPrefetchMinutes(Graph.appContext)
+            .coerceIn(0, MAX_PREFETCH_MINUTES)
+        if (radiusMinutes <= 0) return MAX_HOT_BITMAPS
+        return radiusMinutes * 60 * 2 + 1
     }
 
     private fun sessionKey(entry: XEntry): String = "${entry.id}|${entry.mtime}|${entry.size}"
@@ -197,10 +242,7 @@ internal object SeekPreviewFrameLoader {
         private val smbSource: SeekPreviewSmbDataSource?,
     ) {
         private val frames = LinkedHashMap<Long, ByteArray>(256, 0.75f, true)
-        private val hotFrames = object : LinkedHashMap<Long, Bitmap>(MAX_HOT_BITMAPS, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?): Boolean =
-                size > MAX_HOT_BITMAPS
-        }
+        private val hotFrames = LinkedHashMap<Long, Bitmap>(256, 0.75f, true)
         private var cachedBytes = 0
 
         @Synchronized
@@ -217,26 +259,51 @@ internal object SeekPreviewFrameLoader {
             hotFrames[targetMs]?.let { return it }
             val encoded = frames[targetMs] ?: return null
             val bitmap = BitmapFactory.decodeByteArray(encoded, 0, encoded.size) ?: return null
-            if (promoteHot) hotFrames[targetMs] = bitmap
+            if (promoteHot) {
+                hotFrames[targetMs] = bitmap
+                trimHotCache()
+            }
             return bitmap
         }
 
         @Synchronized
-        fun cache(targetMs: Long, bitmap: Bitmap, keepHot: Boolean) {
-            val output = ByteArrayOutputStream()
-            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) return
-            val encoded = output.toByteArray()
-            frames.put(targetMs, encoded)?.let { cachedBytes -= it.size }
-            cachedBytes += encoded.size
-            if (keepHot) hotFrames[targetMs] = bitmap
-            trimCache()
+        fun cache(
+            targetMs: Long,
+            bitmap: Bitmap,
+            keepHot: Boolean,
+            storeCompressed: Boolean,
+        ) {
+            if (storeCompressed) {
+                val output = ByteArrayOutputStream()
+                if (bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
+                    val encoded = output.toByteArray()
+                    frames.put(targetMs, encoded)?.let { cachedBytes -= it.size }
+                    cachedBytes += encoded.size
+                    trimCompressedCache()
+                }
+            }
+            if (keepHot) {
+                hotFrames[targetMs] = bitmap
+                trimHotCache()
+            }
         }
 
-        private fun trimCache() {
+        private fun trimCompressedCache() {
             val iterator = frames.entries.iterator()
             while (cachedBytes > MAX_COMPRESSED_CACHE_BYTES && iterator.hasNext()) {
                 val eldest = iterator.next()
                 cachedBytes -= eldest.value.size
+                iterator.remove()
+            }
+        }
+
+        private fun trimHotCache() {
+            val limit = hotBitmapLimit()
+            val iterator = hotFrames.entries.iterator()
+            while (hotFrames.size > limit && iterator.hasNext()) {
+                iterator.next()
+                // Do not recycle here: Compose may still be presenting the just-evicted Bitmap.
+                // Dropping the map reference lets Android reclaim it safely once the UI lets go.
                 iterator.remove()
             }
         }
