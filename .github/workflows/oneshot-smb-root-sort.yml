@@ -24,20 +24,15 @@ jobs:
           from pathlib import Path
           p = Path('app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt')
           text = p.read_text()
-          old = '''            MenuItem("編集") {
-                vm.dialog.value = DialogRequest.EditSmbConnection(smbConnection.id)
-            }
-            MenuItem("コピー") {'''
-          new = '''            MenuItem("編集") {
-                vm.dialog.value = DialogRequest.EditSmbConnection(smbConnection.id)
-            }
-            MenuItem("このフォルダの並び順") {
-                vm.dialog.value = DialogRequest.FolderSort(entry)
-            }
-            MenuItem("コピー") {'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one SMB menu block, found {text.count(old)}')
-          p.write_text(text.replace(old, new, 1))
+          needle = '            MenuItem("コピー") {'
+          if text.count(needle) != 1:
+              raise SystemExit(f'expected one SMB copy menu line, found {text.count(needle)}')
+          insert = (
+              '            MenuItem("このフォルダの並び順") {\n'
+              '                vm.dialog.value = DialogRequest.FolderSort(entry)\n'
+              '            }\n'
+          )
+          p.write_text(text.replace(needle, insert + needle, 1))
           PY
           git diff --check
           git diff -- app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt
