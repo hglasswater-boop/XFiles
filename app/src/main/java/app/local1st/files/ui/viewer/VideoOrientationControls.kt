@@ -7,7 +7,6 @@ import android.content.pm.ActivityInfo
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ScreenLockRotation
 import androidx.compose.material.icons.outlined.ScreenRotation
-import androidx.compose.material.icons.outlined.StayCurrentLandscape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -20,7 +19,6 @@ import app.local1st.files.ui.components.TooltipIconButton
 internal enum class PlayerOrientationMode {
     AUTO,
     LOCKED,
-    LANDSCAPE,
 }
 
 /**
@@ -52,7 +50,6 @@ internal class VideoOrientationController(
         activity?.requestedOrientation = when (mode) {
             PlayerOrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
             PlayerOrientationMode.LOCKED -> ActivityInfo.SCREEN_ORIENTATION_LOCKED
-            PlayerOrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
     }
 }
@@ -61,7 +58,7 @@ internal class VideoOrientationController(
  * Player-lifetime orientation controller.
  *
  * Video playback follows the device sensor by default, independent of the system rotation lock.
- * The chosen mode remains active even while the playback controls are hidden. Only leaving the
+ * Locking keeps the current orientation even while the playback controls are hidden. Leaving the
  * player restores the Activity's previous orientation request.
  */
 @Composable
@@ -83,54 +80,23 @@ internal fun rememberVideoOrientationController(): VideoOrientationController {
     return controller
 }
 
-/**
- * Compact orientation buttons overlaid at the right edge of the playback-button row.
- * Orientation ownership lives in [controller], so hiding the controls never resets the mode.
- */
+/** Single orientation-lock toggle shown at the right edge of the playback-button row. */
 @Composable
 internal fun VideoOrientationQuickControls(
     controller: VideoOrientationController,
     onInteraction: () -> Unit,
 ) {
-    val mode = controller.mode
+    val locked = controller.mode == PlayerOrientationMode.LOCKED
 
-    fun applyMode(newMode: PlayerOrientationMode) {
-        controller.selectMode(newMode)
+    TooltipIconButton(
+        if (locked) "向きロックを解除" else "現在の向きでロック",
+        if (locked) Icons.Outlined.ScreenRotation else Icons.Outlined.ScreenLockRotation,
+        selected = locked,
+    ) {
+        controller.selectMode(
+            if (locked) PlayerOrientationMode.AUTO else PlayerOrientationMode.LOCKED,
+        )
         onInteraction()
-    }
-
-    TooltipIconButton(
-        if (mode == PlayerOrientationMode.LOCKED) "向きロックを解除" else "現在の向きでロック",
-        if (mode == PlayerOrientationMode.LOCKED) {
-            Icons.Outlined.ScreenRotation
-        } else {
-            Icons.Outlined.ScreenLockRotation
-        },
-    ) {
-        applyMode(
-            if (mode == PlayerOrientationMode.LOCKED) {
-                PlayerOrientationMode.AUTO
-            } else {
-                PlayerOrientationMode.LOCKED
-            },
-        )
-    }
-
-    TooltipIconButton(
-        if (mode == PlayerOrientationMode.LANDSCAPE) "自動回転に戻す" else "横向きにする",
-        if (mode == PlayerOrientationMode.LANDSCAPE) {
-            Icons.Outlined.ScreenRotation
-        } else {
-            Icons.Outlined.StayCurrentLandscape
-        },
-    ) {
-        applyMode(
-            if (mode == PlayerOrientationMode.LANDSCAPE) {
-                PlayerOrientationMode.AUTO
-            } else {
-                PlayerOrientationMode.LANDSCAPE
-            },
-        )
     }
 }
 
