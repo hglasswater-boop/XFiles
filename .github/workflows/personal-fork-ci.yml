@@ -9,14 +9,82 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  apply-player-runtime-fixes:
+    name: Apply player runtime fixes
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Keep orientation and PiP logic alive outside auto-hidden controls
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          text = path.read_text()
+
+          state_needle = '    var showPlayerSettings by remember { mutableStateOf(false) }\n\n    SystemBarsHidden(hidden = !controlsVisible)'
+          state_replacement = '''    var showPlayerSettings by remember { mutableStateOf(false) }
+
+    // These controllers belong to the player screen itself, not the auto-hiding controls panel.
+    // Hiding the controls must never dispose orientation lock or PiP eligibility.
+    val orientationController = rememberVideoOrientationController()
+    VideoPictureInPicture(
+        player = player,
+        playing = playing,
+        title = entry.name,
+        onModeChanged = { inPip ->
+            if (inPip) {
+                controlsVisible = false
+                showPlayerSettings = false
+            }
+        },
+    )
+
+    SystemBarsHidden(hidden = !controlsVisible)'''
+          if text.count(state_needle) != 1:
+              raise SystemExit('VideoPlayer state insertion point not found exactly once')
+          text = text.replace(state_needle, state_replacement)
+
+          controls_needle = '                        VideoOrientationQuickControls {\n'
+          controls_replacement = '                        VideoOrientationQuickControls(orientationController) {\n'
+          if text.count(controls_needle) != 1:
+              raise SystemExit('Orientation controls call not found exactly once')
+          text = text.replace(controls_needle, controls_replacement)
+
+          path.write_text(text)
+          PY
+
+      - name: Restore normal CI workflow before committing
+        run: git checkout origin/main -- .github/workflows/personal-fork-ci.yml
+
+      - name: Commit runtime fixes
+        id: commit
+        run: |
+          set -eu
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt .github/workflows/personal-fork-ci.yml
+          if ! git diff --cached --quiet; then
+            git commit -m "Keep player rotation and PiP active when controls hide"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   apk:
     name: Build APK
+    needs: apply-player-runtime-fixes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.apply-player-runtime-fixes.outputs.sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -102,9 +170,12 @@ jobs:
 
   test:
     name: Unit tests
+    needs: apply-player-runtime-fixes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.apply-player-runtime-fixes.outputs.sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
