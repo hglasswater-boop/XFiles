@@ -1,0 +1,38 @@
+name: Apply SMB root selection cleanup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-hide-smb-root-selection.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/player-orientation-controls
+          fetch-depth: 0
+      - name: Hide selection control for SMB root
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/app/local1st/files/ui/browser/EntryRow.kt')
+          s = p.read_text()
+          old = '''    val selectable = !isVolume &&\n        entry.kind != EntryKind.APPS_ROOT &&\n        entry.kind != EntryKind.ROOT &&\n        entry.kind != EntryKind.APP_COMPONENT_GROUP &&\n        entry.kind != EntryKind.APP_COMPONENT\n'''
+          new = '''    val selectable = !isVolume &&\n        entry.id != "${XId.SCHEME_SMB}://" &&\n        entry.kind != EntryKind.APPS_ROOT &&\n        entry.kind != EntryKind.ROOT &&\n        entry.kind != EntryKind.APP_COMPONENT_GROUP &&\n        entry.kind != EntryKind.APP_COMPONENT\n'''
+          if old not in s:
+              raise SystemExit('target block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/apply-hide-smb-root-selection.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/browser/EntryRow.kt .github/workflows/apply-hide-smb-root-selection.yml
+          git commit -m "Hide selection control on SMB root"
+          git push origin HEAD:agent/player-orientation-controls
