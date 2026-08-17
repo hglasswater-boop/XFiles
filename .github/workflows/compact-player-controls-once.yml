@@ -2,10 +2,6 @@ name: Compact player controls once
 
 on:
   push:
-    branches:
-      - agent/player-orientation-controls
-    paths:
-      - .github/workflows/compact-player-controls-once.yml
 
 permissions:
   contents: write
@@ -18,41 +14,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: true
-
-      - name: Put rotation controls on playback row
+      - name: Patch player layout
         run: |
           python - <<'PY'
           from pathlib import Path
-
-          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
-          text = path.read_text()
-
-          old_open = '''                    Row(
+          p = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          s = p.read_text()
+          a = '''                    Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
 '''
-          new_open = '''                    Box(Modifier.fillMaxWidth()) {
+          b = '''                    Box(Modifier.fillMaxWidth()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
                             modifier = Modifier.align(Alignment.Center),
                         ) {
 '''
-          if old_open not in text:
-              raise SystemExit('playback row opening not found')
-          text = text.replace(old_open, new_open, 1)
-
-          old_tail = '''                    }
+          if a not in s:
+              raise SystemExit('playback row not found')
+          s = s.replace(a, b, 1)
+          a = '''                    }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.End,
@@ -63,7 +47,7 @@ jobs:
                         }
                     }
 '''
-          new_tail = '''                        }
+          b = '''                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.End,
@@ -75,22 +59,29 @@ jobs:
                         }
                     }
 '''
-          if old_tail not in text:
-              raise SystemExit('orientation row tail not found')
-          text = text.replace(old_tail, new_tail, 1)
-          path.write_text(text)
+          if a not in s:
+              raise SystemExit('orientation row not found')
+          p.write_text(s.replace(a, b, 1))
           PY
-
           rm .github/workflows/compact-player-controls-once.yml
           git diff --check
 
-      - name: Verify debug build
-        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
 
-      - name: Commit compact layout
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Build
+        run: ./gradlew :app:assembleDebug
+
+      - name: Commit
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git commit -m "Compact player controls"
-          git push origin HEAD:${{ github.ref_name }}
+          git push origin HEAD:agent/player-orientation-controls
