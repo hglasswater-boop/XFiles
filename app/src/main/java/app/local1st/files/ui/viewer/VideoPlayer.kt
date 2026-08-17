@@ -361,6 +361,10 @@ fun VideoPlayerScreen(
                                             player.pause()
                                             baseMs = anchorMs()
                                             baseFrame = frameOf(baseMs)
+                                            // Ignore the movement used to recognize the drag so
+                                            // seeking starts smoothly instead of jumping immediately.
+                                            accumX = 0f
+                                            accumY = 0f
                                         }
                                         VideoGestureMode.VOLUME -> {
                                             volumeAdjusting = true
@@ -717,6 +721,15 @@ fun VideoPlayerScreen(
                             }
                         }
                     }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        VideoOrientationQuickControls {
+                            interactionTick++
+                        }
+                    }
                 }
             }
         }
@@ -859,11 +872,11 @@ private val STANDARD_FPS =
     floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 48f, 50f, 59.94f, 60f, 90f, 120f)
 
 private const val FALLBACK_FPS = 30f
-private const val SEEK_THROTTLE_MS = 150L
+private const val SEEK_THROTTLE_MS = 80L
 private const val SEEK_TARGET_HOLD_MS = 800L
 private const val FRAME_SWIPE_DP = 8f
 private const val EDGE_GUARD_DP = 24
-private const val TIME_SWIPE_MS_PER_DP = 100L
+private const val TIME_SWIPE_MS_PER_DP = 40L
 private const val DOUBLE_TAP_SEEK_SECONDS = 10
 private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f
 private const val DOUBLE_TAP_LABEL_MS = 700L
