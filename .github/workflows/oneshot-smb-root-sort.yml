@@ -1,0 +1,51 @@
+name: One-shot SMB root sort patch
+
+on:
+  push:
+    branches:
+      - agent/search-full-filename
+    paths:
+      - .github/workflows/oneshot-smb-root-sort.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add SMB root sort menu
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt')
+          text = p.read_text()
+          old = '''            MenuItem("編集") {
+                vm.dialog.value = DialogRequest.EditSmbConnection(smbConnection.id)
+            }
+            MenuItem("コピー") {'''
+          new = '''            MenuItem("編集") {
+                vm.dialog.value = DialogRequest.EditSmbConnection(smbConnection.id)
+            }
+            MenuItem("このフォルダの並び順") {
+                vm.dialog.value = DialogRequest.FolderSort(entry)
+            }
+            MenuItem("コピー") {'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one SMB menu block, found {text.count(old)}')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt
+          git commit -m "Allow sorting SMB connection roots"
+          git push origin HEAD:agent/search-full-filename
