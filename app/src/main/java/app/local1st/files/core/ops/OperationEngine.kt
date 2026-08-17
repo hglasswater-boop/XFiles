@@ -34,4 +34,6 @@ data class OpEvent(
     val success: Boolean,
     /** Container ids whose contents changed and should be refreshed in the UI. */
     val dirtyDirIds: Set<String> = emptySet(),
+    /** Entry ids that were actually removed from their original location. */
+    val removedEntryIds: Set<String> = emptySet(),
 )

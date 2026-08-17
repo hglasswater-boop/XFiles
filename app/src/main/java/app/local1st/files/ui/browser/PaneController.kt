@@ -1085,6 +1085,47 @@ class PaneController(
 
     // ---- refresh ----
 
+    /**
+     * Removes entries that the operation engine has already confirmed were deleted or
+     * moved away. This makes the row disappear immediately instead of keeping stale
+     * cached children on screen while a local/SMB parent directory is being re-listed.
+     * [refreshDirty] still performs the authoritative filesystem read afterwards.
+     */
+    fun removeEntries(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        finishStartupRestoreForInteraction()
+
+        fun removed(id: String): Boolean = ids.any { removedId ->
+            id == removedId || isAncestorOf(removedId, id)
+        }
+
+        tree.update { current ->
+            current.copy(
+                roots = current.roots.filterNot { removed(it.id) },
+                expanded = current.expanded.filterNot(::removed).toSet(),
+                children = current.children
+                    .filterKeys { !removed(it) }
+                    .mapValues { (_, kids) -> kids.filterNot { removed(it.id) } },
+                loading = current.loading.filterNot(::removed).toSet(),
+                errors = current.errors.filterKeys { !removed(it) },
+            )
+        }
+        sessionExpanded.update { it.filterNot(::removed).toSet() }
+        savedDirectoryHints.update { it.filterKeys { id -> !removed(id) } }
+        selection.update { it.filterNot(::removed).toSet() }
+        focusedDirId.update { focus ->
+            if (focus == null || !removed(focus)) {
+                focus
+            } else {
+                var candidate: String? = XId.parent(focus)
+                while (candidate != null && removed(candidate)) {
+                    candidate = XId.parent(candidate)
+                }
+                candidate
+            }
+        }
+    }
+
     fun refresh(dirId: String) {
         finishStartupRestoreForInteraction()
         val entry = findEntry(dirId) ?: return
