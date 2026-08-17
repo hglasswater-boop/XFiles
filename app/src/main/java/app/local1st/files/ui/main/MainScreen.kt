@@ -78,6 +78,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.di.Graph
 import app.local1st.files.ui.browser.CrumbBarHeight
 import app.local1st.files.ui.browser.PaneView
 import app.local1st.files.ui.components.TooltipIconButton
@@ -541,6 +542,9 @@ private fun OtherPaneTargetChip(
 private fun paneLocationName(destination: XEntry?, focusedDirId: String?): String {
     destination?.name?.takeIf { it.isNotBlank() }?.let { return it }
     val id = focusedDirId ?: return "…"
+    if (id.startsWith("${XId.SCHEME_SMB}://")) {
+        return Graph.smbConnections.displayLabelPathForId(id).substringAfterLast(" / ")
+    }
     val raw = id.substringAfter("://")
     return when (raw) {
         "@user" -> stringResource(R.string.installed_apps)
@@ -556,5 +560,10 @@ private fun paneLocationName(destination: XEntry?, focusedDirId: String?): Strin
 private fun paneLocationPath(destination: XEntry?, focusedDirId: String?): String {
     val id = destination?.id ?: focusedDirId ?: return "…"
     val path = id.substringAfter("://")
-    return if (id.startsWith("${XId.SCHEME_ROOT}://")) "root:$path" else path.ifBlank { "/" }
+    return when {
+        id.startsWith("${XId.SCHEME_SMB}://") ->
+            Graph.smbConnections.displayLabelPathForId(id)
+        id.startsWith("${XId.SCHEME_ROOT}://") -> "root:$path"
+        else -> path.ifBlank { "/" }
+    }
 }

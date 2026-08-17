@@ -8,6 +8,7 @@ import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
 import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.prefs.Favorite
+import app.local1st.files.core.prefs.SmbConnectionRepo
 import app.local1st.files.core.util.Format
 import java.io.File
 
@@ -22,6 +23,7 @@ class DefaultRootsRepository(
     private val context: Context,
     private val favorites: () -> List<Favorite> = { emptyList() },
     private val statById: (String) -> XEntry? = { null },
+    private val smbConnections: SmbConnectionRepo? = null,
 ) : RootsRepository {
 
     override fun volumes(): List<Volume> {
@@ -78,12 +80,24 @@ class DefaultRootsRepository(
         for (fav in favorites()) {
             if (!taken.add(fav.id)) continue
             val stat = runCatching { statById(fav.id) }.getOrNull()
-            val fallbackName = fav.id.substringAfter("://").trimEnd('/')
-                .substringAfterLast('/').substringAfterLast(XId.ARCHIVE_SEP).ifEmpty { "/" }
+            val fallbackName = if (XId.schemeOf(fav.id) == XId.SCHEME_SMB) {
+                smbConnections?.displayLabelPathForId(fav.id)
+                    ?.substringAfterLast(" / ")
+                    ?.ifBlank { "SMB" } ?: "SMB"
+            } else {
+                fav.id.substringAfter("://").trimEnd('/')
+                    .substringAfterLast('/').substringAfterLast(XId.ARCHIVE_SEP).ifEmpty { "/" }
+            }
             val entry = (stat ?: XEntry(id = fav.id, name = fallbackName, isDir = fav.isDir, canWrite = false))
                 .copy(
                     pinned = true,
-                    badge = if (stat == null) "Not available" else fav.id.substringAfter("://"),
+                    badge = if (stat == null) {
+                        "Not available"
+                    } else if (XId.schemeOf(fav.id) == XId.SCHEME_SMB) {
+                        smbConnections?.displayPathForId(fav.id) ?: "SMB"
+                    } else {
+                        fav.id.substringAfter("://")
+                    },
                 )
             // A stat of "/" yields an empty name; a nameless pinned row is unusable.
             roots += if (entry.name.isEmpty()) entry.copy(name = fallbackName) else entry

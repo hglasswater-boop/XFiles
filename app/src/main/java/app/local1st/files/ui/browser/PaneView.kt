@@ -407,7 +407,7 @@ private fun crumbsFor(focusedDirId: String?): List<Pair<String, String>> {
         val name = when {
             id == "${XId.SCHEME_SMB}://" -> "SMB"
             id.startsWith("${XId.SCHEME_SMB}://") && raw.isNotBlank() && !raw.contains('/') ->
-                Graph.smbConnections.find(raw)?.name ?: raw
+                Graph.smbConnections.displayLabelPathForId(id)
             raw == "@user" -> stringResource(R.string.installed_apps)
             raw == "@system" -> stringResource(R.string.system_apps)
             else -> raw.trimEnd('/').substringAfterLast('/')
