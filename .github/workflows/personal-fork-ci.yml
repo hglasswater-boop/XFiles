@@ -45,9 +45,6 @@ jobs:
       - name: Warm incremental debug build
         run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
 
-      - name: Report incremental state size
-        run: du -sh .gradle app/build vendor/bundletool-shaded/build 2>/dev/null || true
-
       - name: Save incremental Android build state
         uses: actions/cache/save@v5
         with:
