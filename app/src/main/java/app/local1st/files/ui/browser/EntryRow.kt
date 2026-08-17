@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -462,7 +464,7 @@ private fun StartupEntryRow(
             if (entry.isDir && entry.badge == null) {
                 FolderDetailsRow(node = node, loadFolderCount = false)
             } else {
-                val details = entryDetails(node, loadFolderCount = false)
+                val details = entryDetails(node)
                 if (details.isNotEmpty()) {
                     Text(
                         details,
@@ -595,26 +597,38 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
 @Composable
 private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
     val entry = node.entry
-    val counts = entryDetails(node, loadFolderCount)
+    val directCounts = if (loadFolderCount) rememberFolderFileCount(entry) else null
+    val fallbackCount = if (directCounts == null && entry.childCountHint >= 0) {
+        pluralStringResource(
+            R.plurals.item_count_plural,
+            entry.childCountHint,
+            entry.childCountHint,
+        )
+    } else {
+        ""
+    }
     val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
     val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
-    if (counts.isEmpty() && created.isEmpty()) return
+    if (directCounts == null && fallbackCount.isEmpty() && created.isEmpty()) return
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        if (counts.isNotEmpty()) {
-            Text(
-                counts,
+        when {
+            directCounts != null -> FolderCountSummary(
+                counts = directCounts,
+                modifier = Modifier.weight(1f),
+            )
+            fallbackCount.isNotEmpty() -> Text(
+                fallbackCount,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-        } else {
-            Spacer(Modifier.weight(1f))
+            else -> Spacer(Modifier.weight(1f))
         }
         if (created.isNotEmpty()) {
             Text(
@@ -629,23 +643,53 @@ private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
 }
 
 @Composable
-private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {
+private fun FolderCountSummary(
+    counts: FolderDirectCounts,
+    modifier: Modifier = Modifier,
+) {
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier,
+    ) {
+        Icon(
+            Icons.Outlined.FolderOpen,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            counts.folders.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            color = tint,
+        )
+        Spacer(Modifier.width(10.dp))
+        Icon(
+            Icons.AutoMirrored.Outlined.InsertDriveFile,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            counts.files.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            color = tint,
+        )
+    }
+}
+
+@Composable
+private fun entryDetails(node: TreeNode): String {
     val entry = node.entry
     return when {
         entry.badge != null -> entry.badge
         !entry.isDir && entry.size >= 0 -> {
             val date = Format.dateTime(entry.mtime)
             if (date.isEmpty()) Format.bytes(entry.size) else "${Format.bytes(entry.size)} · $date"
-        }
-        entry.isDir && loadFolderCount -> {
-            rememberFolderFileCount(entry)?.let { "$it ファイル" }
-                ?: if (entry.childCountHint >= 0) {
-                    pluralStringResource(
-                        R.plurals.item_count_plural,
-                        entry.childCountHint,
-                        entry.childCountHint,
-                    )
-                } else ""
         }
         entry.isDir && entry.childCountHint >= 0 -> pluralStringResource(
             R.plurals.item_count_plural, entry.childCountHint, entry.childCountHint,
