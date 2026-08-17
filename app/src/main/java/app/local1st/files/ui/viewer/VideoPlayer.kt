@@ -145,6 +145,20 @@ fun VideoPlayerScreen(
     var cardDragging by remember { mutableStateOf(false) }
     var showPlayerSettings by remember { mutableStateOf(false) }
 
+    // Orientation and PiP belong to the player lifetime, not the auto-hidden controls panel.
+    val orientationController = rememberVideoOrientationController()
+    VideoPictureInPicture(
+        player = player,
+        playing = playing,
+        title = entry.name,
+        onModeChanged = { inPip ->
+            if (inPip) {
+                controlsVisible = false
+                showPlayerSettings = false
+            }
+        },
+    )
+
     SystemBarsHidden(hidden = !controlsVisible)
     val view = LocalView.current
     val context = LocalContext.current
@@ -726,7 +740,7 @@ fun VideoPlayerScreen(
                         horizontalArrangement = Arrangement.End,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        VideoOrientationQuickControls {
+                        VideoOrientationQuickControls(orientationController) {
                             interactionTick++
                         }
                     }
