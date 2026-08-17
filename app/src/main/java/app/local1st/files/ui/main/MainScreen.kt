@@ -154,7 +154,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             onActivate = { vm.setActivePane(index) },
                             onOpenEntry = { entry ->
                         if (pendingTransfer != null && entry.isContainer) {
-                            pane.expand(entry)
+                            pane.toggleExpand(entry)
                         } else if (pendingTransfer == null) {
                             vm.openEntry(pane, entry)
                         }
@@ -204,7 +204,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         onActivate = { vm.setActivePane(page) },
                         onOpenEntry = { entry ->
                         if (pendingTransfer != null && entry.isContainer) {
-                            pane.expand(entry)
+                            pane.toggleExpand(entry)
                         } else if (pendingTransfer == null) {
                             vm.openEntry(pane, entry)
                         }

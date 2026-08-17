@@ -143,7 +143,10 @@ class MainViewModel : ViewModel() {
         }
         viewModelScope.launch {
             Graph.opEngine.events.collect { event ->
-                panes.forEach { it.refreshDirty(event.dirtyDirIds) }
+                panes.forEach { pane ->
+                    pane.removeEntries(event.removedEntryIds)
+                    pane.refreshDirty(event.dirtyDirIds)
+                }
                 snackbar.tryEmit(event.message)
             }
         }

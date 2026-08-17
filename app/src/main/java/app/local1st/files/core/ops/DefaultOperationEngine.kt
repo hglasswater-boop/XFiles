@@ -82,15 +82,23 @@ class DefaultOperationEngine(
 
     private suspend fun execute(op: FileOp, running: RunningOpImpl) {
         val dirty = LinkedHashSet<String>()
+        val removed = LinkedHashSet<String>()
         try {
             val message = when (op) {
-                is FileOp.Copy -> runCopy(op, running, dirty)
-                is FileOp.Delete -> runDelete(op, running, dirty)
+                is FileOp.Copy -> runCopy(op, running, dirty, removed)
+                is FileOp.Delete -> runDelete(op, running, dirty, removed)
                 is FileOp.Compress -> runCompress(op, running, dirty)
                 is FileOp.Extract -> runExtract(op, running, dirty)
             }
             running.finish(OpState.DONE)
-            _events.tryEmit(OpEvent(message, success = true, dirtyDirIds = dirty.toSet()))
+            _events.tryEmit(
+                OpEvent(
+                    message,
+                    success = true,
+                    dirtyDirIds = dirty.toSet(),
+                    removedEntryIds = removed.toSet(),
+                ),
+            )
         } catch (e: CancellationException) {
             running.finish(OpState.CANCELLED)
             _events.tryEmit(
@@ -118,6 +126,7 @@ class DefaultOperationEngine(
         op: FileOp.Copy,
         t: RunningOpImpl,
         dirty: MutableSet<String>,
+        removed: MutableSet<String>,
     ): String {
         val destDir = op.destDir
         val destFs = registry.forEntry(destDir)
@@ -141,6 +150,7 @@ class DefaultOperationEngine(
         for (src in validSources) {
             if (op.move && tryFastRename(src, destDir, destNames)) {
                 movedFast++
+                removed += src.id
                 XId.parent(src.id)?.let(dirty::add)
             } else {
                 pending += src
@@ -206,6 +216,7 @@ class DefaultOperationEngine(
             // An app isn't a real file on a writable fs — there's nothing to remove after a "move".
             if (op.move && export == null) {
                 registry.forScheme(src.scheme).delete(src)
+                removed += src.id
                 XId.parent(src.id)?.let(dirty::add)
             }
             processed++
@@ -366,7 +377,12 @@ class DefaultOperationEngine(
 
     // ----------------------------------------------------------------- Delete
 
-    private fun runDelete(op: FileOp.Delete, t: RunningOpImpl, dirty: MutableSet<String>): String {
+    private fun runDelete(
+        op: FileOp.Delete,
+        t: RunningOpImpl,
+        dirty: MutableSet<String>,
+        removed: MutableSet<String>,
+    ): String {
         val perSource = op.sources.map { countTree(it, t) }
         t.setTotals(totalBytes = 0L, totalItems = perSource.sum())
         t.setState(OpState.RUNNING)
@@ -377,6 +393,7 @@ class DefaultOperationEngine(
             // fs.delete is recursive (leaf-first inside the fs); progress advances
             // per top-level source, scaled by the scanned subtree size.
             registry.forScheme(src.scheme).delete(src)
+            removed += src.id
             XId.parent(src.id)?.let(dirty::add)
             t.itemsDone(perSource[i])
             deleted += perSource[i]

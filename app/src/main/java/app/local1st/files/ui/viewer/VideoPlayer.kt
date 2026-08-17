@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
@@ -45,8 +47,11 @@ import androidx.compose.material.icons.outlined.Forward5
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Replay5
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -62,6 +67,7 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -93,6 +99,7 @@ import androidx.media3.ui.PlayerView
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.VideoPlayerSettings
 import app.local1st.files.ui.components.TooltipIconButton
 import java.util.Locale
 import kotlin.math.abs
@@ -122,9 +129,6 @@ fun VideoPlayerScreen(
     hasNext: Boolean,
     onClose: () -> Unit,
 ) {
-    // All of these are UNKEYED remembers on purpose: long-lived gesture closures
-    // (pointerInput below) capture the state objects once, and only an unkeyed
-    // remember keeps the same object alive across playlist item transitions.
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var fps by remember { mutableFloatStateOf(0f) }
@@ -139,14 +143,12 @@ fun VideoPlayerScreen(
     var sliderPos by remember { mutableStateOf<Float?>(null) }
     var sliderWasPlaying by remember { mutableStateOf(false) }
     var cardDragging by remember { mutableStateOf(false) }
+    var showPlayerSettings by remember { mutableStateOf(false) }
 
-    // The system bars belong to the same chrome as the close row and the control card: they go
-    // when it goes and come back with it, rather than being suppressed for the whole session.
-    // Scrubbing stays safe either way — the scrub layer below keeps clear of the back-gesture edge
-    // zones on its own, instead of relying on hidden bars to swallow the first edge swipe.
     SystemBarsHidden(hidden = !controlsVisible)
     val view = LocalView.current
     val context = LocalContext.current
+    val seekWhileDragging by VideoPlayerSettings.seekWhileDragging(context).collectAsState()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -167,15 +169,11 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Keep the panel lit while playing, and also while inspecting frames: frame work is
-    // long stretches of staring at a paused picture.
     DisposableEffect(view, playing, frameMode) {
         view.keepScreenOn = playing || frameMode
         onDispose { view.keepScreenOn = false }
     }
 
-    // Exact seeks can decode forward from an earlier keyframe. The gate paces issuance to actual
-    // render completion so rapid drag updates don't continuously cancel one another.
     val seekGate = remember(player) { SeekGate(player) }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -184,13 +182,14 @@ fun VideoPlayerScreen(
                 seekGate.reset()
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener) }
+        onDispose {
+            player.removeListener(listener)
+            seekGate.release()
+        }
     }
 
     LaunchedEffect(player, entry.id) {
         while (isActive) {
-            // Prefer the gate's queued target so the readout tracks the finger even
-            // while a seek is still decoding.
             positionMs = (seekGate.targetMs.takeIf { it >= 0 } ?: player.currentPosition)
                 .coerceAtLeast(0L)
             durationMs = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
@@ -199,8 +198,6 @@ fun VideoPlayerScreen(
         }
     }
     LaunchedEffect(entry.id) {
-        // New item: forget the previous stream's rate (the poll above refills it), then
-        // give the declared format a moment to surface before paying for a probe.
         fps = 0f
         delay(1000L)
         if (fps > 0f) return@LaunchedEffect
@@ -208,8 +205,6 @@ fun VideoPlayerScreen(
         if (fps <= 0f && probed != null) fps = probed
     }
 
-    // NAS seeks are far faster when normal time scrubbing can land on the nearest sync frame.
-    // Frame inspection still needs exact positioning, and local media keeps the original behavior.
     LaunchedEffect(player, entry.scheme, frameMode) {
         player.setSeekParameters(
             if (entry.scheme == XId.SCHEME_SMB && !frameMode) {
@@ -220,20 +215,14 @@ fun VideoPlayerScreen(
         )
     }
 
-    // Helper *functions*, not vals: gesture closures outlive many recompositions, and a
-    // function reading the state vars sees live values where a captured val would not.
     fun effFpsNow(): Float = if (fps > 0f) fps else FALLBACK_FPS
     fun totalFramesNow(): Long =
         if (durationMs > 0) floor(durationMs.toDouble() * effFpsNow() / 1000.0).toLong() else 0L
     fun clampMs(ms: Long) = if (durationMs > 0) ms.coerceIn(0L, durationMs) else ms.coerceAtLeast(0L)
     fun frameOf(ms: Long): Long = floor(ms.toDouble() * effFpsNow() / 1000.0).toLong()
-    // Rapid steps must chain off the queued target, not currentPosition, or taps that
-    // arrive while a seek is still decoding would all compute the same base.
     fun anchorMs(): Long = seekGate.targetMs.takeIf { it >= 0 } ?: player.currentPosition
     fun seekToFrame(frame: Long): Long {
         val target = frame.coerceIn(0L, (totalFramesNow() - 1).coerceAtLeast(0L))
-        // Aim mid-frame: a boundary timestamp rounded down to ms would resolve to the
-        // previous frame.
         seekGate.request(clampMs(((target + 0.5) * 1000.0 / effFpsNow()).toLong()))
         return target
     }
@@ -247,13 +236,9 @@ fun VideoPlayerScreen(
         interactionTick++
     }
 
-    // Pausing is when the controls matter, so surface them — except mid-swipe, where the
-    // pause is our own bookkeeping and chrome would defeat the gesture's purpose.
     LaunchedEffect(playing) {
         if (!playing && !scrubbing && sliderPos == null) controlsVisible = true
     }
-    // Auto-hide only while playing hands-free: a finger on the slider/card/volume gesture must
-    // never have the control it's holding vanish beneath it.
     val interacting = scrubbing || volumeAdjusting || cardDragging || sliderPos != null
     LaunchedEffect(controlsVisible, playing, interacting, interactionTick) {
         if (controlsVisible && playing && !interacting) {
@@ -262,9 +247,6 @@ fun VideoPlayerScreen(
         }
     }
 
-    // IgnoringVisibility: the bars come and go with this chrome, and chrome anchored to the
-    // live insets would collapse into the top/bottom edges as they leave (and jump when they
-    // or transient bars return). The close row keeps one status-bar height of clearance regardless.
     val statusBarsIns = WindowInsets.statusBarsIgnoringVisibility
     val navBarsIns = WindowInsets.navigationBarsIgnoringVisibility
     val cutout = WindowInsets.displayCutout
@@ -292,41 +274,33 @@ fun VideoPlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Single tap toggles chrome; double-tap seek is limited to the outer 30% on each side.
-        // Drag direction is resolved after touch slop: horizontal means seek, vertical on the
-        // right half means media volume. Keeping these on the same full-screen layer preserves
-        // all gestures without carving the video into mutually exclusive touch zones.
         Box(
             Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
-                  val xFraction = offset.x / size.width
-                  val deltaSeconds = when {
-                      xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
-                      xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
-                      else -> null
-                  }
-                  if (deltaSeconds != null) {
-                      val target = clampMs(anchorMs() + deltaSeconds * 1000L)
-                      seekGate.request(target)
-                      tapSeekLabel = if (deltaSeconds > 0) {
-                          "+${DOUBLE_TAP_SEEK_SECONDS}秒"
-                      } else {
-                          "-${DOUBLE_TAP_SEEK_SECONDS}秒"
-                      }
-                      interactionTick++
-                  }
-              },
-              onTap = { controlsVisible = !controlsVisible },
+                            val xFraction = offset.x / size.width
+                            val deltaSeconds = when {
+                                xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
+                                xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
+                                else -> null
+                            }
+                            if (deltaSeconds != null) {
+                                val target = clampMs(anchorMs() + deltaSeconds * 1000L)
+                                seekGate.request(target)
+                                tapSeekLabel = if (deltaSeconds > 0) {
+                                    "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                } else {
+                                    "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                }
+                                interactionTick++
+                            }
+                        },
+                        onTap = { controlsVisible = !controlsVisible },
                     )
                 },
         ) {
-            // The gesture layer stays clear of the system back-gesture edge zones
-            // (with a floor for devices that report none), so an edge swipe is never
-            // both a seek and a back navigation. Taps still work full-bleed via the
-            // parent layer above.
             Box(
                 Modifier
                     .fillMaxSize()
@@ -350,8 +324,6 @@ fun VideoPlayerScreen(
                                 VideoGestureMode.HORIZONTAL_SEEK -> {
                                     scrubbing = false
                                     scrubLabel = null
-                                    // Frame mode exists to inspect a chosen frame — stay on it
-                                    // instead of resuming playback over it.
                                     if (resumeAfterSeek && !frameMode) player.play()
                                 }
                                 VideoGestureMode.VOLUME -> volumeAdjusting = false
@@ -378,10 +350,8 @@ fun VideoPlayerScreen(
 
                                 if (mode == VideoGestureMode.UNDECIDED) {
                                     mode = when {
-                                        abs(accumX) >= abs(accumY) ->
-                                            VideoGestureMode.HORIZONTAL_SEEK
-                                        startX >= size.width * VOLUME_REGION_START_FRACTION ->
-                                            VideoGestureMode.VOLUME
+                                        abs(accumX) >= abs(accumY) -> VideoGestureMode.HORIZONTAL_SEEK
+                                        startX >= size.width * VOLUME_REGION_START_FRACTION -> VideoGestureMode.VOLUME
                                         else -> VideoGestureMode.IGNORED
                                     }
                                     when (mode) {
@@ -460,14 +430,12 @@ fun VideoPlayerScreen(
                             listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
                         ),
                     )
-                    // Status-bar height (visible or not) ∪ cutout: the close row keeps
-                    // its safe-area clearance in fullscreen and clears a landscape notch.
                     .windowInsetsPadding(
                         statusBarsIns.union(
                             cutout.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                         ),
                     )
-                    .padding(start = 4.dp, end = 16.dp, bottom = 8.dp),
+                    .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
             ) {
                 IconButton(onClick = onClose) {
                     Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
@@ -478,7 +446,59 @@ fun VideoPlayerScreen(
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                Box {
+                    IconButton(onClick = { showPlayerSettings = true }) {
+                        Icon(
+                            Icons.Outlined.Settings,
+                            contentDescription = "プレイヤー設定",
+                            tint = Color.White,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showPlayerSettings,
+                        onDismissRequest = { showPlayerSettings = false },
+                    ) {
+                        Text(
+                            "シークバー",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (seekWhileDragging) {
+                                        "✓  ドラッグ中に映像を追従"
+                                    } else {
+                                        "　 ドラッグ中に映像を追従"
+                                    },
+                                )
+                            },
+                            onClick = {
+                                VideoPlayerSettings.setSeekWhileDragging(context, true)
+                                showPlayerSettings = false
+                                interactionTick++
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (!seekWhileDragging) {
+                                        "✓  指を離した時に移動"
+                                    } else {
+                                        "　 指を離した時に移動"
+                                    },
+                                )
+                            },
+                            onClick = {
+                                VideoPlayerSettings.setSeekWhileDragging(context, false)
+                                showPlayerSettings = false
+                                interactionTick++
+                            },
+                        )
+                    }
+                }
             }
         }
 
@@ -514,8 +534,6 @@ fun VideoPlayerScreen(
                 )
                 .padding(horizontal = 12.dp)
                 .padding(bottom = 10.dp)
-                // Clamp at placement, not only at drag: rotation or an inset change can
-                // shrink the room, and this lambda re-runs on those size changes.
                 .offset {
                     val travel = (
                         parentHeightPx - cardHeightPx - statusBarsIns.getTop(this) -
@@ -561,8 +579,6 @@ fun VideoPlayerScreen(
                                 CircleShape,
                             ),
                     )
-                    // Keep the readouts above the scrubber so the timeline can use the
-                    // full width of the control card instead of being squeezed between labels.
                     val approx = if (fps > 0f && isStandardFps(fps)) "" else "≈"
                     val total = totalFramesNow()
                     val modeColor = if (frameMode) MaterialTheme.colorScheme.primary
@@ -599,24 +615,27 @@ fun VideoPlayerScreen(
                             },
                         )
                     }
+
                     Slider(
                         value = sliderPos
                             ?: if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
                         onValueChange = { v ->
                             if (durationMs > 0) {
                                 if (sliderPos == null) {
-                                    // Pause while scrubbing: playback racing the
-                                    // thumb fights the user, and a video ending
-                                    // mid-drag would auto-advance under the finger.
                                     sliderWasPlaying = player.playWhenReady
                                     player.pause()
                                 }
                                 sliderPos = v
-                                seekGate.request((v * durationMs).toLong())
+                                if (seekWhileDragging) {
+                                    seekGate.request(clampMs((v * durationMs).toLong()))
+                                }
                             }
                         },
                         onValueChangeFinished = {
-                            sliderPos?.let { seekGate.request((it * durationMs).toLong()) }
+                            sliderPos?.let {
+                                seekGate.request(clampMs((it * durationMs).toLong()))
+                                seekGate.flushLatest()
+                            }
                             sliderPos = null
                             if (sliderWasPlaying && !frameMode) player.play()
                             sliderWasPlaying = false
@@ -657,8 +676,6 @@ fun VideoPlayerScreen(
                                 onClick = {
                                     when {
                                         playing -> player.pause()
-                                        // play() alone is a no-op at ENDED/IDLE — the
-                                        // stock controller restarts/re-prepares, so do we.
                                         player.playbackState == Player.STATE_ENDED -> {
                                             player.seekToDefaultPosition()
                                             player.play()
@@ -706,10 +723,6 @@ fun VideoPlayerScreen(
     }
 }
 
-/**
- * Time/frame readout that toggles the display mode. Tooltip + padded hit target: a bare
- * clickable label would be an undiscoverable, sub-minimum touch target.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModeToggleText(
@@ -737,56 +750,79 @@ private fun ModeToggleText(
     }
 }
 
-/**
- * Serializes seeks so at most one is decoding at a time; the newest request replaces any
- * queued one and is issued when the in-flight seek's frame actually renders. Without
- * this, drag-speed seek streams keep aborting the keyframe-forward decode and no frame
- * appears until the gesture ends. All calls are main-thread (gestures + Player.Listener).
- */
 private class SeekGate(private val player: ExoPlayer) {
-    /** In-flight or queued seek target; -1 when idle. Anchors chained steps. */
     var targetMs = -1L
         private set
+
+    private val handler = Handler(Looper.getMainLooper())
     private var queuedMs = -1L
-    private var busySince = 0L
+    private var lastIssuedAt = 0L
+
+    private val flushQueuedRunnable = Runnable { flushQueued() }
+    private val clearTargetRunnable = Runnable {
+        if (queuedMs < 0) targetMs = -1L
+    }
 
     fun request(ms: Long) {
-        val now = SystemClock.uptimeMillis()
-        // The staleness escape covers a missed render callback (e.g. seek resolved to
-        // the already-shown frame on some codecs) so the gate can never wedge shut.
-        if (targetMs >= 0 && now - busySince < STALE_SEEK_MS) {
-            queuedMs = ms
-            targetMs = ms
-            return
-        }
         targetMs = ms
+        val now = SystemClock.uptimeMillis()
+        val waitMs = if (lastIssuedAt == 0L) {
+            0L
+        } else {
+            (lastIssuedAt + SEEK_THROTTLE_MS - now).coerceAtLeast(0L)
+        }
+
+        if (waitMs == 0L) {
+            issue(ms, now)
+        } else {
+            queuedMs = ms
+            handler.removeCallbacks(flushQueuedRunnable)
+            handler.postDelayed(flushQueuedRunnable, waitMs)
+        }
+    }
+
+    fun flushLatest() {
+        if (queuedMs < 0) return
+        handler.removeCallbacks(flushQueuedRunnable)
+        flushQueued()
+    }
+
+    private fun flushQueued() {
+        if (queuedMs < 0) return
+        val target = queuedMs
+        issue(target, SystemClock.uptimeMillis())
+    }
+
+    private fun issue(ms: Long, now: Long) {
         queuedMs = -1L
-        busySince = now
+        lastIssuedAt = now
         player.seekTo(ms)
+
+        handler.removeCallbacks(clearTargetRunnable)
+        handler.postDelayed(clearTargetRunnable, SEEK_TARGET_HOLD_MS)
     }
 
     fun onFrameRendered() {
         if (queuedMs >= 0) {
-            val t = queuedMs
-            queuedMs = -1L
-            busySince = SystemClock.uptimeMillis()
-            player.seekTo(t)
+            handler.removeCallbacks(flushQueuedRunnable)
+            flushQueued()
         } else {
+            handler.removeCallbacks(clearTargetRunnable)
             targetMs = -1L
         }
     }
 
-    /** A queued seek targets the old item's timeline; drop it on item transitions. */
     fun reset() {
+        handler.removeCallbacks(flushQueuedRunnable)
+        handler.removeCallbacks(clearTargetRunnable)
         targetMs = -1L
         queuedMs = -1L
+        lastIssuedAt = 0L
     }
+
+    fun release() = reset()
 }
 
-/**
- * Fallback frame rate for containers that don't declare one, derived from the stream's
- * total frame count. Null when that metadata is missing too.
- */
 private fun probeFrameRate(path: String?): Float? {
     if (path == null || Build.VERSION.SDK_INT < 28) return null
     val retriever = MediaMetadataRetriever()
@@ -810,7 +846,6 @@ private fun probeFrameRate(path: String?): Float? {
     }
 }
 
-/** Within 1% of a standard capture/broadcast rate; anything else smells of a VFR average. */
 private fun isStandardFps(f: Float): Boolean = STANDARD_FPS.any { abs(f - it) / it < 0.01f }
 
 private enum class VideoGestureMode {
@@ -824,15 +859,16 @@ private val STANDARD_FPS =
     floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 48f, 50f, 59.94f, 60f, 90f, 120f)
 
 private const val FALLBACK_FPS = 30f
-private const val STALE_SEEK_MS = 800L
-private const val FRAME_SWIPE_DP = 8f // one frame per this much horizontal travel
-private const val EDGE_GUARD_DP = 24 // scrub dead zone at screen edges (back gesture)
-private const val TIME_SWIPE_MS_PER_DP = 100L // a full-width swipe covers roughly 40 s
+private const val SEEK_THROTTLE_MS = 150L
+private const val SEEK_TARGET_HOLD_MS = 800L
+private const val FRAME_SWIPE_DP = 8f
+private const val EDGE_GUARD_DP = 24
+private const val TIME_SWIPE_MS_PER_DP = 100L
 private const val DOUBLE_TAP_SEEK_SECONDS = 10
 private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f
 private const val DOUBLE_TAP_LABEL_MS = 700L
-private const val VOLUME_REGION_START_FRACTION = 0.5f // right half of the video
-private const val VOLUME_FULL_SCALE_FRACTION = 0.7f // 70% screen-height drag spans 0..max
+private const val VOLUME_REGION_START_FRACTION = 0.5f
+private const val VOLUME_FULL_SCALE_FRACTION = 0.7f
 private const val VOLUME_LABEL_MS = 900L
 private const val AUTO_HIDE_MS = 4000L
 private const val STEP_SECONDS = 5

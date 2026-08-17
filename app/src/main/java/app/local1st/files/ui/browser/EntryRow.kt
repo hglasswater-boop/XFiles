@@ -262,7 +262,11 @@ fun EntryRow(
             if (details.isNotEmpty()) {
                 Text(
                     details,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = if (entry.isDir && node.error == null) {
+                        MaterialTheme.typography.labelSmall
+                    } else {
+                        MaterialTheme.typography.bodySmall
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = if (node.error != null) MaterialTheme.colorScheme.error
@@ -458,7 +462,11 @@ private fun StartupEntryRow(
             if (details.isNotEmpty()) {
                 Text(
                     details,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = if (entry.isDir) {
+                        MaterialTheme.typography.labelSmall
+                    } else {
+                        MaterialTheme.typography.bodySmall
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

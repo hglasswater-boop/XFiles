@@ -12,15 +12,47 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  apk:
+    name: Build APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Dependency/build-cache state from main is useful, but do not save Gradle home
+          # after the signed build because signing credentials are visible to Gradle then.
+          cache-read-only: true
+
+      # GitHub-hosted runners are disposable. Preserve the project-local state that Gradle and
+      # Kotlin need for true incremental compilation between personal debug builds. This cache is
+      # explicitly saved before any signing secret is exposed to Gradle.
+      - name: Restore incremental Android build state
+        id: incremental-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            .gradle
+            app/build
+            vendor/bundletool-shaded/build
+          key: xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-${{ github.run_id }}
+          restore-keys: |
+            xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-
+
+      - name: Warm incremental debug build
+        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
+
+      - name: Save incremental Android build state
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            .gradle
+            app/build
+            vendor/bundletool-shaded/build
+          key: ${{ steps.incremental-restore.outputs.cache-primary-key }}
 
       - name: Require stable signing secrets
         env:
@@ -40,13 +72,15 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
-      - name: Compile and test
+      # The warm build above does the expensive compilation without secrets. Reconfiguring with
+      # the stable key should only invalidate packaging/signing work; compiled code remains warm.
+      - name: Assemble stable-signed debug APK
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest -PbuildNumber=${{ github.run_number }} --no-daemon
+        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
 
       - name: Name debug APK
         id: apk_name
@@ -64,3 +98,19 @@ jobs:
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest -PbuildNumber=${{ github.run_number }}

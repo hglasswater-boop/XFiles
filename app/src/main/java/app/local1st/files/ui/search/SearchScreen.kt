@@ -1,5 +1,6 @@
 package app.local1st.files.ui.search
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -16,13 +19,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,30 +33,55 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
+import app.local1st.files.core.fs.XId
+import app.local1st.files.core.media.VideoMetadata
+import app.local1st.files.core.media.VideoMetadataReader
+import app.local1st.files.core.media.formatVideoDuration
+import app.local1st.files.core.prefs.BrowserDisplayConfig
+import app.local1st.files.core.prefs.BrowserDisplaySettings
+import app.local1st.files.core.prefs.SearchHistorySettings
 import app.local1st.files.core.search.SearchHit
+import app.local1st.files.core.thumb.PrivFile
+import app.local1st.files.core.thumb.RemoteFile
+import app.local1st.files.core.thumb.RemoteVideoThumb
+import app.local1st.files.core.thumb.VideoThumb
+import app.local1st.files.core.util.FileCategory
+import app.local1st.files.core.util.FileTypes
 import app.local1st.files.core.util.Format
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.browser.EntryIcon
+import app.local1st.files.ui.browser.EntryIcons
 import app.local1st.files.ui.components.TooltipIconButton
 import app.local1st.files.ui.main.MainViewModel
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -63,6 +91,9 @@ import kotlinx.coroutines.flow.flowOn
 
 private const val DEBOUNCE_MS = 400L
 private const val MIN_QUERY_LENGTH = 2
+private const val MAX_HISTORY_ITEMS = 20
+private const val HISTORY_VISIBLE_ITEMS = 6
+private const val HISTORY_ITEM_HEIGHT_DP = 44
 
 private enum class SearchPhase { IDLE, SEARCHING, DONE }
 
@@ -77,12 +108,25 @@ fun SearchScreen(
     val r = root
     val close = onBack
     val searchFailed = stringResource(R.string.search_failed)
+    val display by BrowserDisplaySettings.state(Graph.appContext).collectAsState()
+    val searchHistory by SearchHistorySettings.history(Graph.appContext).collectAsState()
 
     // Navigation 3 retains saveable entry state while another destination is on top.
     var query by rememberSaveable { mutableStateOf("") }
     val results = remember { mutableStateListOf<SearchHit>() }
     var phase by remember { mutableStateOf(SearchPhase.IDLE) }
     var error by remember { mutableStateOf<String?>(null) }
+    var historyVisible by remember { mutableStateOf(true) }
+
+    val historySuggestions = remember(searchHistory, query) {
+        val q = query.trim()
+        searchHistory
+            .asSequence()
+            .filterNot { it.equals(q, ignoreCase = true) }
+            .filter { q.isBlank() || it.contains(q, ignoreCase = true) }
+            .take(MAX_HISTORY_ITEMS)
+            .toList()
+    }
 
     LaunchedEffect(r.id) {
         snapshotFlow { query.trim() }
@@ -94,11 +138,13 @@ fun SearchScreen(
                     phase = SearchPhase.IDLE
                     return@collectLatest
                 }
+                historyVisible = false
                 phase = SearchPhase.SEARCHING
                 try {
                     Graph.searchEngine.search(r, q)
                         .flowOn(Dispatchers.IO)
                         .collect { results.add(it) }
+                    SearchHistorySettings.add(Graph.appContext, q)
                     phase = SearchPhase.DONE
                 } catch (e: IOException) {
                     error = e.message ?: searchFailed
@@ -119,11 +165,15 @@ fun SearchScreen(
         ) {
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = {
+                    query = it
+                    historyVisible = true
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .focusRequester(focusRequester),
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { historyVisible = it.isFocused },
                 placeholder = { Text(stringResource(R.string.search_files_hint)) },
                 leadingIcon = {
                     TooltipIconButton(
@@ -137,15 +187,65 @@ fun SearchScreen(
                         TooltipIconButton(
                             stringResource(R.string.clear_query),
                             Icons.Outlined.Close,
-                            onClick = { query = "" },
+                            onClick = {
+                                query = ""
+                                historyVisible = true
+                            },
                         )
                     }
                 },
                 singleLine = true,
                 shape = CircleShape,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        historyVisible = false
+                        keyboard?.hide()
+                    },
+                ),
             )
+
+            if (historyVisible && historySuggestions.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    tonalElevation = 2.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 8.dp),
+                ) {
+                    Column {
+                        Text(
+                            "検索履歴",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 2.dp),
+                        )
+                        LazyColumn(
+                            modifier = Modifier.heightIn(
+                                max = (HISTORY_ITEM_HEIGHT_DP * HISTORY_VISIBLE_ITEMS).dp,
+                            ),
+                        ) {
+                            items(historySuggestions, key = { it }) { historyItem ->
+                                Text(
+                                    historyItem,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            query = historyItem
+                                            historyVisible = false
+                                            keyboard?.hide()
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             Text(
                 stringResource(R.string.searching_in, r.name),
@@ -204,7 +304,11 @@ fun SearchScreen(
             } else {
                 LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                     items(results, key = { it.entry.id }) { hit ->
-                        SearchHitRow(hit, onClick = { vm.revealSearchHit(hit.entry.id) })
+                        SearchHitRow(
+                            hit = hit,
+                            display = display,
+                            onClick = { vm.revealSearchHit(hit.entry.id) },
+                        )
                     }
                 }
             }
@@ -213,50 +317,149 @@ fun SearchScreen(
 }
 
 @Composable
-private fun SearchHitRow(hit: SearchHit, onClick: () -> Unit) {
+private fun SearchHitRow(
+    hit: SearchHit,
+    display: BrowserDisplayConfig,
+    onClick: () -> Unit,
+) {
     val entry = hit.entry
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
-        EntryIcon(
-            entry,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(28.dp),
-        )
+        if (EntryIcons.wantsThumbnail(entry)) {
+            SearchThumbnail(entry, display)
+        } else {
+            EntryIcon(
+                entry,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
+            )
+        }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 entry.name,
                 style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                hit.parentId.substringAfter("://"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(horizontalAlignment = Alignment.End) {
+
             val size = Format.bytes(entry.size)
-            if (size.isNotEmpty()) {
-                Text(size, style = MaterialTheme.typography.labelSmall)
-            }
             val date = Format.dateTime(entry.mtime)
-            if (date.isNotEmpty()) {
+            val metadata = listOf(size, date).filter { it.isNotEmpty() }.joinToString(" · ")
+            if (metadata.isNotEmpty()) {
                 Text(
-                    date,
+                    metadata,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+
+            Text(
+                displayParentPath(hit.parentId),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+}
+
+/** Uses the same local/privileged/SMB thumbnail models as the normal browser rows. */
+@Composable
+private fun SearchThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
+    val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
+    var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    val videoMetadata by produceState<VideoMetadata?>(
+        initialValue = null,
+        entry.id,
+        entry.mtime,
+        entry.size,
+        isVideo,
+    ) {
+        if (isVideo) value = VideoMetadataReader.read(entry)
+    }
+    val width = display.thumbnailSize.widthDp.dp
+    val height = display.thumbnailSize.heightDp.dp
+    val durationFontSize = if (display.thumbnailSize.widthDp >= 80) 10.sp else 8.sp
+
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(height),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!loaded) {
+            EntryIcon(
+                entry,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        AsyncImage(
+            model = when {
+                entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(entry)
+                entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
+                isVideo -> VideoThumb(
+                    path = entry.localPath ?: entry.path,
+                    mtime = entry.mtime,
+                    size = entry.size,
+                    privileged = entry.localPath == null,
+                )
+                entry.localPath != null -> File(entry.localPath)
+                else -> PrivFile(entry.path, entry.mtime, entry.size)
+            },
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            onState = { loaded = it is AsyncImagePainter.State.Success },
+            modifier = Modifier
+                .width(width)
+                .height(height)
+                .clip(RoundedCornerShape(8.dp)),
+        )
+
+        if (isVideo) {
+            videoMetadata?.durationMs?.let { durationMs ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
+                        .background(
+                            Color.Black.copy(alpha = 0.72f),
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = formatVideoDuration(durationMs),
+                        color = Color.White,
+                        fontSize = durationFontSize,
+                        lineHeight = durationFontSize,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun displayParentPath(parentId: String): String {
+    if (XId.schemeOf(parentId) != XId.SCHEME_SMB) {
+        return parentId.substringAfter("://")
+    }
+    val raw = parentId.removePrefix("${XId.SCHEME_SMB}://").trim('/')
+    if (raw.isEmpty()) return "SMB"
+    val connectionId = raw.substringBefore('/')
+    val relativePath = raw.substringAfter('/', "")
+    val connection = Graph.smbConnections.find(connectionId)
+        ?: return relativePath.ifBlank { "SMB" }
+    return if (relativePath.isBlank()) {
+        connection.name
+    } else {
+        "${connection.name} / $relativePath"
     }
 }

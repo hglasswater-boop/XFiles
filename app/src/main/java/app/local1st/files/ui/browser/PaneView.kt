@@ -55,6 +55,7 @@ import app.local1st.files.core.fs.XId
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.dialogs.AddSmbConnectionDialog
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 
 /**
@@ -159,9 +160,14 @@ fun PaneView(
     }
 
     LaunchedEffect(controller, listState) {
-        controller.scrollTo.collect { request ->
-            val index = controller.state.value.nodes.indexOfFirst { it.entry.id == request.id }
-            if (index < 0) return@collect
+        controller.scrollTo.collectLatest { request ->
+            // Keep this request until the browser is visible again and the expanded path has
+            // propagated through the flattened tree.
+            val ready = controller.state.first { state ->
+                state.nodes.any { it.entry.id == request.id }
+            }
+            val index = ready.nodes.indexOfFirst { it.entry.id == request.id }
+            if (index < 0) return@collectLatest
             if (request.animate) listState.animateScrollToItem(index) else listState.scrollToItem(index)
         }
     }

@@ -24,6 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -420,8 +422,9 @@ class PaneController(
     // during construction, so everything flatten touches must already be initialized.
     private val sortedListings = HashMap<String, SortedListing>()
 
-    /** A row the pane list should bring on screen (consumed by the UI). */
-    val scrollTo = MutableSharedFlow<ScrollRequest>(extraBufferCapacity = 1)
+    /** A row the pane list should bring on screen. Keep the latest request while the UI is off-screen. */
+    private val scrollRequests = Channel<ScrollRequest>(Channel.CONFLATED)
+    val scrollTo = scrollRequests.receiveAsFlow()
 
     private val sortSpec: StateFlow<SortSpec?> = combine(
         Graph.settings.sortBy,
@@ -1013,7 +1016,7 @@ class PaneController(
         finishStartupRestoreForInteraction()
         scope.launch {
             revealPathNow(id)
-            scrollTo.tryEmit(ScrollRequest(id, animate))
+            scrollRequests.trySend(ScrollRequest(id, animate))
         }
     }
 
@@ -1052,7 +1055,7 @@ class PaneController(
             markExpanded(apk.id)
             loadNow(apk)
             focusedDirId.value = apk.id
-            scrollTo.tryEmit(ScrollRequest(apk.id, animate = true))
+            scrollRequests.trySend(ScrollRequest(apk.id, animate = true))
         }
     }
 
@@ -1084,6 +1087,47 @@ class PaneController(
     }
 
     // ---- refresh ----
+
+    /**
+     * Removes entries that the operation engine has already confirmed were deleted or
+     * moved away. This makes the row disappear immediately instead of keeping stale
+     * cached children on screen while a local/SMB parent directory is being re-listed.
+     * [refreshDirty] still performs the authoritative filesystem read afterwards.
+     */
+    fun removeEntries(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        finishStartupRestoreForInteraction()
+
+        fun removed(id: String): Boolean = ids.any { removedId ->
+            id == removedId || isAncestorOf(removedId, id)
+        }
+
+        tree.update { current ->
+            current.copy(
+                roots = current.roots.filterNot { removed(it.id) },
+                expanded = current.expanded.filterNot(::removed).toSet(),
+                children = current.children
+                    .filterKeys { !removed(it) }
+                    .mapValues { (_, kids) -> kids.filterNot { removed(it.id) } },
+                loading = current.loading.filterNot(::removed).toSet(),
+                errors = current.errors.filterKeys { !removed(it) },
+            )
+        }
+        sessionExpanded.update { it.filterNot(::removed).toSet() }
+        savedDirectoryHints.update { it.filterKeys { id -> !removed(id) } }
+        selection.update { it.filterNot(::removed).toSet() }
+        focusedDirId.update { focus ->
+            if (focus == null || !removed(focus)) {
+                focus
+            } else {
+                var candidate: String? = XId.parent(focus)
+                while (candidate != null && removed(candidate)) {
+                    candidate = XId.parent(candidate)
+                }
+                candidate
+            }
+        }
+    }
 
     fun refresh(dirId: String) {
         finishStartupRestoreForInteraction()
