@@ -562,7 +562,7 @@ fun VideoPlayerScreen(
         ) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
                 modifier = Modifier
                     .onSizeChanged { cardHeightPx = it.height }
                     .pointerInput(Unit) {
