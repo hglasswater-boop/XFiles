@@ -258,20 +258,20 @@ fun EntryRow(
                 color = if (node.error != null) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurface,
             )
-            val details = node.error ?: entryDetails(node)
-            if (details.isNotEmpty()) {
-                Text(
-                    details,
-                    style = if (entry.isDir && node.error == null) {
-                        MaterialTheme.typography.labelSmall
-                    } else {
-                        MaterialTheme.typography.bodySmall
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (node.error != null) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (entry.isDir && node.error == null && entry.badge == null) {
+                FolderDetailsRow(node = node, loadFolderCount = true)
+            } else {
+                val details = node.error ?: entryDetails(node)
+                if (details.isNotEmpty()) {
+                    Text(
+                        details,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (node.error != null) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (isVolume && entry.progress >= 0f) {
                 LinearProgressIndicator(
@@ -458,19 +458,19 @@ private fun StartupEntryRow(
                 overflow = nameOverflow,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            val details = entryDetails(node, loadFolderCount = false)
-            if (details.isNotEmpty()) {
-                Text(
-                    details,
-                    style = if (entry.isDir) {
-                        MaterialTheme.typography.labelSmall
-                    } else {
-                        MaterialTheme.typography.bodySmall
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (entry.isDir && entry.badge == null) {
+                FolderDetailsRow(node = node, loadFolderCount = false)
+            } else {
+                val details = entryDetails(node, loadFolderCount = false)
+                if (details.isNotEmpty()) {
+                    Text(
+                        details,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         if (selectable) {
@@ -587,6 +587,42 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
+    val entry = node.entry
+    val counts = entryDetails(node, loadFolderCount)
+    val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
+    val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
+    if (counts.isEmpty() && created.isEmpty()) return
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (counts.isNotEmpty()) {
+            Text(
+                counts,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        if (created.isNotEmpty()) {
+            Text(
+                created,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
     }
 }

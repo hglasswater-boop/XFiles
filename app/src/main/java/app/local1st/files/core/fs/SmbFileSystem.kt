@@ -48,6 +48,7 @@ open class SmbFileSystem(
                         isDir = isDir,
                         size = if (isDir) -1L else info.endOfFile,
                         mtime = info.lastWriteTime.toEpochMillis(),
+                        creationTime = info.creationTime.toEpochMillis(),
                         mime = if (isDir) null else FileTypes.mimeOf(info.fileName),
                         hidden = hidden || info.fileName.startsWith('.'),
                         canRead = true,

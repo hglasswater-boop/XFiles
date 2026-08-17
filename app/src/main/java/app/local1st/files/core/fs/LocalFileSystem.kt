@@ -256,6 +256,7 @@ class LocalFileSystem(
             isDir = isDir,
             size = if (isDir || attrs == null) -1L else attrs.size(),
             mtime = attrs?.lastModifiedTime()?.toMillis() ?: 0L,
+            creationTime = attrs?.creationTime()?.toMillis() ?: 0L,
             mime = if (isDir) null else FileTypes.mimeOf(name),
             hidden = name.startsWith("."),
             kind = when {

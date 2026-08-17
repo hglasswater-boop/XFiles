@@ -35,6 +35,8 @@ data class XEntry(
     val progress: Float = -1f,
     /** True for a favorite shown as a top-level shortcut root. */
     val pinned: Boolean = false,
+    /** Creation/birth time in epoch millis when the backing filesystem reports it. */
+    val creationTime: Long = 0L,
 ) {
     val scheme: String get() = id.substringBefore("://")
     val path: String get() = id.substringAfter("://")
