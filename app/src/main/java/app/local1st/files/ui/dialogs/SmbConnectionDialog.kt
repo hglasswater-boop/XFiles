@@ -129,7 +129,7 @@ fun SmbConnectionDialog(
                     onValueChange = { share = it; clearTestResult() },
                     label = { Text("共有名 / パス") },
                     supportingText = {
-                        Text("例: video_a/actress → video_a共有のactressから表示")
+                        Text("例: share/folder → share共有の folder から表示")
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
