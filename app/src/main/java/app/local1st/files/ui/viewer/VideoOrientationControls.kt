@@ -39,7 +39,7 @@ internal class VideoOrientationController(
         applyRequestedOrientation()
     }
 
-    fun setMode(newMode: PlayerOrientationMode) {
+    fun selectMode(newMode: PlayerOrientationMode) {
         mode = newMode
         applyRequestedOrientation()
     }
@@ -92,7 +92,7 @@ internal fun VideoOrientationQuickControls(
     val mode = controller.mode
 
     fun applyMode(newMode: PlayerOrientationMode) {
-        controller.setMode(newMode)
+        controller.selectMode(newMode)
         onInteraction()
     }
 
