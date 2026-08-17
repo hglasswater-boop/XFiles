@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -102,11 +101,15 @@ jobs:
               raise SystemExit('bottom controls block not found')
           text = text.replace(old, new, 1)
 
+          if 'private const val SEEK_THROTTLE_MS = 150L' not in text:
+              raise SystemExit('seek throttle constant not found')
           text = text.replace(
               'private const val SEEK_THROTTLE_MS = 150L',
               'private const val SEEK_THROTTLE_MS = 80L',
               1,
           )
+          if 'private const val TIME_SWIPE_MS_PER_DP = 100L' not in text:
+              raise SystemExit('swipe sensitivity constant not found')
           text = text.replace(
               'private const val TIME_SWIPE_MS_PER_DP = 100L',
               'private const val TIME_SWIPE_MS_PER_DP = 40L',
