@@ -163,6 +163,8 @@ fun VideoPlayerScreen(
     val view = LocalView.current
     val context = LocalContext.current
     val seekWhileDragging by VideoPlayerSettings.seekWhileDragging(context).collectAsState()
+    val controlsTransparencyPercent by
+        VideoPlayerSettings.controlsTransparencyPercent(context).collectAsState()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -515,6 +517,24 @@ fun VideoPlayerScreen(
                                 interactionTick++
                             },
                         )
+                        Text(
+                            "操作パネル透過率 $controlsTransparencyPercent%",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                        Slider(
+                            value = controlsTransparencyPercent.toFloat(),
+                            onValueChange = { value ->
+                                VideoPlayerSettings.setControlsTransparencyPercent(
+                                    context,
+                                    (value / 5f).roundToInt() * 5,
+                                )
+                                interactionTick++
+                            },
+                            valueRange = 0f..60f,
+                            steps = 11,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
                     }
                 }
             }
@@ -562,7 +582,9 @@ fun VideoPlayerScreen(
         ) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
+                    alpha = 1f - controlsTransparencyPercent / 100f,
+                ),
                 modifier = Modifier
                     .onSizeChanged { cardHeightPx = it.height }
                     .pointerInput(Unit) {
