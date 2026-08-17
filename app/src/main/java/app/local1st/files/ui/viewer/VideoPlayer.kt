@@ -160,6 +160,7 @@ fun VideoPlayerScreen(
     val density = LocalDensity.current
     val context = LocalContext.current
     val seekPreviewPrefetchMinutes by SeekPreviewSettings.prefetchMinutes(context).collectAsState()
+    val seekPreviewKeepAllBitmaps by SeekPreviewSettings.keepAllBitmaps(context).collectAsState()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -513,6 +514,45 @@ fun VideoPlayerScreen(
                                 },
                             )
                         }
+                        Text(
+                            "サムネイルキャッシュ",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (!seekPreviewKeepAllBitmaps) {
+                                        "✓  省メモリ（JPEG＋近傍Bitmap）"
+                                    } else {
+                                        "　 省メモリ（JPEG＋近傍Bitmap）"
+                                    },
+                                )
+                            },
+                            onClick = {
+                                SeekPreviewSettings.setKeepAllBitmaps(context, false)
+                                showPlayerSettings = false
+                                interactionTick++
+                            },
+                        )
+                        val allBitmapMiB = seekPreviewBitmapMemoryMiB(seekPreviewPrefetchMinutes)
+                        DropdownMenuItem(
+                            text = {
+                                val detail = if (seekPreviewPrefetchMinutes > 0) {
+                                    "全部Bitmap（約${allBitmapMiB}MiB RAM）"
+                                } else {
+                                    "全部Bitmap（先読み範囲）"
+                                }
+                                Text(
+                                    if (seekPreviewKeepAllBitmaps) "✓  $detail" else "　 $detail",
+                                )
+                            },
+                            onClick = {
+                                SeekPreviewSettings.setKeepAllBitmaps(context, true)
+                                showPlayerSettings = false
+                                interactionTick++
+                            },
+                        )
                     }
                 }
             }
@@ -940,6 +980,12 @@ private fun probeFrameRate(path: String?): Float? {
 }
 
 private fun isStandardFps(f: Float): Boolean = STANDARD_FPS.any { abs(f - it) / it < 0.01f }
+
+private fun seekPreviewBitmapMemoryMiB(minutes: Int): Long {
+    if (minutes <= 0) return 0L
+    val frameCount = minutes.toLong() * 60L * 2L + 1L
+    return frameCount * 320L * 180L * 4L / (1024L * 1024L)
+}
 
 private enum class VideoGestureMode {
     UNDECIDED,
