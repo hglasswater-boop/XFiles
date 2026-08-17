@@ -1,39 +1,31 @@
-name: Debug CI
+name: Apply player follow-up
 
 on:
   push:
-  workflow_dispatch:
-
-concurrency:
-  group: debug-ci-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  apply-player-runtime-fixes:
-    name: Apply player runtime fixes
+  apply_and_verify:
+    name: Apply and verify player follow-up
     runs-on: ubuntu-latest
-    outputs:
-      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Keep orientation and PiP logic alive outside auto-hidden controls
+
+      - name: Apply player and metadata cache fixes
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
-          text = path.read_text()
-
+          player_path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          player = player_path.read_text()
           state_needle = '    var showPlayerSettings by remember { mutableStateOf(false) }\n\n    SystemBarsHidden(hidden = !controlsVisible)'
           state_replacement = '''    var showPlayerSettings by remember { mutableStateOf(false) }
 
-    // These controllers belong to the player screen itself, not the auto-hiding controls panel.
-    // Hiding the controls must never dispose orientation lock or PiP eligibility.
+    // Orientation and PiP belong to the player lifetime, not the auto-hidden controls panel.
     val orientationController = rememberVideoOrientationController()
     VideoPictureInPicture(
         player = player,
@@ -48,79 +40,161 @@ jobs:
     )
 
     SystemBarsHidden(hidden = !controlsVisible)'''
-          if text.count(state_needle) != 1:
-              raise SystemExit('VideoPlayer state insertion point not found exactly once')
-          text = text.replace(state_needle, state_replacement)
+          if state_needle in player:
+              player = player.replace(state_needle, state_replacement, 1)
+          elif 'val orientationController = rememberVideoOrientationController()' not in player:
+              raise SystemExit('VideoPlayer state insertion point not found')
 
           controls_needle = '                        VideoOrientationQuickControls {\n'
           controls_replacement = '                        VideoOrientationQuickControls(orientationController) {\n'
-          if text.count(controls_needle) != 1:
-              raise SystemExit('Orientation controls call not found exactly once')
-          text = text.replace(controls_needle, controls_replacement)
+          if controls_needle in player:
+              player = player.replace(controls_needle, controls_replacement, 1)
+          elif 'VideoOrientationQuickControls(orientationController)' not in player:
+              raise SystemExit('VideoPlayer orientation controls call not found')
+          player_path.write_text(player)
 
-          path.write_text(text)
+          metadata_path = Path('app/src/main/java/app/local1st/files/core/media/VideoMetadata.kt')
+          metadata = metadata_path.read_text()
+          if 'video-metadata-v1' not in metadata:
+              metadata = metadata.replace(
+                  'import java.util.LinkedHashMap\nimport java.util.Locale\n',
+                  'import java.io.File\nimport java.security.MessageDigest\nimport java.util.LinkedHashMap\nimport java.util.Locale\nimport org.json.JSONObject\n',
+                  1,
+              )
+
+              old_read = '''            val metadata = withContext(Dispatchers.IO) { readBlocking(entry) }
+            synchronized(cache) { cache[key] = CacheValue(metadata) }
+            metadata
+'''
+              new_read = '''            val metadata = withContext(Dispatchers.IO) {
+                readPersistent(key) ?: readBlocking(entry)?.also { writePersistent(key, it) }
+            }
+            synchronized(cache) { cache[key] = CacheValue(metadata) }
+            metadata
+'''
+              if old_read not in metadata:
+                  raise SystemExit('VideoMetadata read block not found')
+              metadata = metadata.replace(old_read, new_read, 1)
+
+              insertion = '''    private fun cacheKey(entry: XEntry): String = "${entry.id}|${entry.mtime}|${entry.size}"
+
+'''
+              persistent = r'''    private fun cacheKey(entry: XEntry): String = "${entry.id}|${entry.mtime}|${entry.size}"
+
+    /**
+     * Process-independent metadata cache. The identity key already contains id + mtime + size,
+     * so replacing a video automatically creates a new entry instead of serving stale duration.
+     * Files live under cacheDir because this data is disposable and safe for Android to reclaim.
+     */
+    private fun readPersistent(key: String): VideoMetadata? {
+        val file = persistentFile(key)
+        if (!file.isFile || file.length() <= 0L) return null
+        return runCatching {
+            val json = JSONObject(file.readText())
+            if (json.optInt("version", 0) != PERSISTED_CACHE_VERSION) return@runCatching null
+            VideoMetadata(
+                width = json.intOrNull("width"),
+                height = json.intOrNull("height"),
+                frameRate = json.doubleOrNull("frameRate"),
+                durationMs = json.longOrNull("durationMs"),
+                codec = json.stringOrNull("codec"),
+                bitrate = json.longOrNull("bitrate"),
+            )
+        }.getOrElse {
+            file.delete()
+            null
+        }?.also {
+            // lastModified doubles as the persistent LRU timestamp.
+            file.setLastModified(System.currentTimeMillis())
+        }
+    }
+
+    private fun writePersistent(key: String, metadata: VideoMetadata) {
+        runCatching {
+            val target = persistentFile(key)
+            val dir = target.parentFile ?: return
+            prunePersistent(dir)
+            val json = JSONObject()
+                .put("version", PERSISTED_CACHE_VERSION)
+                .putNullable("width", metadata.width)
+                .putNullable("height", metadata.height)
+                .putNullable("frameRate", metadata.frameRate)
+                .putNullable("durationMs", metadata.durationMs)
+                .putNullable("codec", metadata.codec)
+                .putNullable("bitrate", metadata.bitrate)
+            val tmp = File.createTempFile("metadata-", ".tmp", dir)
+            tmp.writeText(json.toString())
+            if (!tmp.renameTo(target)) {
+                target.delete()
+                if (!tmp.renameTo(target)) tmp.delete()
+            }
+        }
+    }
+
+    private fun persistentFile(key: String): File {
+        val dir = File(Graph.appContext.cacheDir, PERSISTED_CACHE_DIR).apply { mkdirs() }
+        val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray(Charsets.UTF_8))
+        val name = digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return File(dir, "$name.json")
+    }
+
+    private fun prunePersistent(dir: File) {
+        val files = dir.listFiles { file -> file.isFile && file.extension == "json" } ?: return
+        if (files.size < MAX_PERSISTED_CACHE_ENTRIES) return
+        files.sortedBy { it.lastModified() }
+            .take((files.size - PERSISTED_CACHE_TARGET + 1).coerceAtLeast(1))
+            .forEach { it.delete() }
+    }
+
+    private fun JSONObject.putNullable(name: String, value: Any?): JSONObject =
+        put(name, value ?: JSONObject.NULL)
+
+    private fun JSONObject.intOrNull(name: String): Int? =
+        if (!has(name) || isNull(name)) null else runCatching { getInt(name) }.getOrNull()
+
+    private fun JSONObject.longOrNull(name: String): Long? =
+        if (!has(name) || isNull(name)) null else runCatching { getLong(name) }.getOrNull()
+
+    private fun JSONObject.doubleOrNull(name: String): Double? =
+        if (!has(name) || isNull(name)) null else runCatching { getDouble(name) }.getOrNull()
+
+    private fun JSONObject.stringOrNull(name: String): String? =
+        if (!has(name) || isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
+
+'''
+              if insertion not in metadata:
+                  raise SystemExit('VideoMetadata cacheKey insertion point not found')
+              metadata = metadata.replace(insertion, persistent, 1)
+
+              constants_needle = '    private const val MAX_CACHE_ENTRIES = 512\n'
+              constants_replacement = '''    private const val MAX_CACHE_ENTRIES = 512
+    private const val PERSISTED_CACHE_VERSION = 1
+    private const val PERSISTED_CACHE_DIR = "video-metadata-v1"
+    private const val MAX_PERSISTED_CACHE_ENTRIES = 1024
+    private const val PERSISTED_CACHE_TARGET = 896
+'''
+              if constants_needle not in metadata:
+                  raise SystemExit('VideoMetadata constants insertion point not found')
+              metadata = metadata.replace(constants_needle, constants_replacement, 1)
+              metadata_path.write_text(metadata)
           PY
 
-      - name: Restore normal CI workflow before committing
+      - name: Restore normal CI workflow
         run: git checkout origin/main -- .github/workflows/personal-fork-ci.yml
 
-      - name: Commit runtime fixes
-        id: commit
-        run: |
-          set -eu
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt .github/workflows/personal-fork-ci.yml
-          if ! git diff --cached --quiet; then
-            git commit -m "Keep player rotation and PiP active when controls hide"
-            git push origin HEAD:${{ github.ref_name }}
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Check patch
+        run: git diff --check
 
-  apk:
-    name: Build APK
-    needs: apply-player-runtime-fixes
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.apply-player-runtime-fixes.outputs.sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          # Dependency/build-cache state from main is useful, but do not save Gradle home
-          # after the signed build because signing credentials are visible to Gradle then.
           cache-read-only: true
 
-      # GitHub-hosted runners are disposable. Preserve the project-local state that Gradle and
-      # Kotlin need for true incremental compilation between personal debug builds. This cache is
-      # explicitly saved before any signing secret is exposed to Gradle.
-      - name: Restore incremental Android build state
-        id: incremental-restore
-        uses: actions/cache/restore@v5
-        with:
-          path: |
-            .gradle
-            app/build
-            vendor/bundletool-shaded/build
-          key: xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-${{ github.run_id }}
-          restore-keys: |
-            xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-
-
-      - name: Warm incremental debug build
-        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
-
-      - name: Save incremental Android build state
-        uses: actions/cache/save@v5
-        with:
-          path: |
-            .gradle
-            app/build
-            vendor/bundletool-shaded/build
-          key: ${{ steps.incremental-restore.outputs.cache-primary-key }}
+      - name: Compile and test
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest -PbuildNumber=${{ github.run_number }}
 
       - name: Require stable signing secrets
         env:
@@ -135,53 +209,39 @@ jobs:
           test -n "$KEY_ALIAS"
           test -n "$KEY_PASSWORD"
 
-      - name: Decode stable signing key
+      - name: Build stable-signed APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
-
-      # The warm build above does the expensive compilation without secrets. Reconfiguring with
-      # the stable key should only invalidate packaging/signing work; compiled code remains warm.
-      - name: Assemble stable-signed debug APK
-        env:
-          XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
+          XFILES_KEYSTORE="$RUNNER_TEMP/xfiles-personal.jks" ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
 
-      - name: Name debug APK
-        id: apk_name
+      - name: Commit verified fixes
         run: |
           set -eu
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt \
+                  app/src/main/java/app/local1st/files/core/media/VideoMetadata.kt \
+                  .github/workflows/personal-fork-ci.yml
+          git commit -m "Finish player PiP and persist video metadata cache"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Name APK
+        id: apk_name
+        run: |
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
           APK_NAME="XFiles-${BASE_VERSION}-b${{ github.run_number }}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Upload signed debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: XFiles-${{ github.run_number }}-signed-debug
           path: ${{ steps.apk_name.outputs.name }}
-          if-no-files-found: error
           retention-days: 30
           compression-level: 0
-
-  test:
-    name: Unit tests
-    needs: apply-player-runtime-fixes
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.apply-player-runtime-fixes.outputs.sha }}
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: true
-      - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest -PbuildNumber=${{ github.run_number }}
