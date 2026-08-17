@@ -95,11 +95,21 @@ jobs:
           )
           replace(
               engine,
-              '''                    dirtyDirIds = dirty.toSet(),
-                      ),''',
-              '''                    dirtyDirIds = dirty.toSet(),
+              '''            _events.tryEmit(
+                      OpEvent(
+                          "${verbFor(op)} failed: $reason",
+                          success = false,
+                          dirtyDirIds = dirty.toSet(),
+                      ),
+                  )''',
+              '''            _events.tryEmit(
+                      OpEvent(
+                          "${verbFor(op)} failed: $reason",
+                          success = false,
+                          dirtyDirIds = dirty.toSet(),
                           removedEntryIds = removed.toSet(),
-                      ),''',
+                      ),
+                  )''',
           )
           replace(
               engine,
