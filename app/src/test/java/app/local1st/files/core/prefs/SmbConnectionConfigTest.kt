@@ -67,6 +67,7 @@ class SmbConnectionConfigTest {
             )
         }
     }
+
     @Test
     fun `friendly SMB paths never expose connection id`() {
         val config = smbConnectionFromInput(
