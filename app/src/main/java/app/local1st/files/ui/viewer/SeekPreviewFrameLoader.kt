@@ -29,10 +29,13 @@ import kotlinx.coroutines.withContext
 /**
  * Extracts the small frame shown above the video seek bar.
  *
+ * Two cache tiers are used while scrubbing:
+ * - a hot LRU of decoded Bitmaps around the active position for zero-flicker 1-second moves;
+ * - a wider JPEG cache for the configured prefetch range so several minutes do not consume
+ *   Bitmap-sized heap.
+ *
  * The retriever and SMB random-access source stay alive while the same video is being scrubbed, so
- * the container is not reparsed and the NAS file is not reopened for every position. Preview frames
- * are stored as compressed JPEG bytes rather than live Bitmaps, allowing a few minutes around the
- * current target to be prefetched without consuming tens of megabytes of Bitmap heap.
+ * the container is not reparsed and the NAS file is not reopened for every position.
  */
 internal object SeekPreviewFrameLoader {
     private val semaphore = Semaphore(1)
@@ -43,13 +46,23 @@ internal object SeekPreviewFrameLoader {
     private var prefetchSessionKey: String? = null
     private var session: PreviewSession? = null
 
+    /** Main-thread-safe exact-frame lookup. No IO or JPEG decode is performed here. */
+    @Synchronized
+    fun peekHot(entry: XEntry, targetMs: Long): Bitmap? {
+        val active = session ?: return null
+        if (active.key != sessionKey(entry)) return null
+        return active.hotCached(normalizeTarget(targetMs))
+    }
+
     suspend fun load(entry: XEntry, targetMs: Long): Bitmap? {
         val normalizedTarget = normalizeTarget(targetMs)
         val bitmap = semaphore.withPermit {
             withContext(Dispatchers.IO) {
                 val active = sessionFor(entry) ?: return@withContext null
-                active.cached(normalizedTarget)?.let { return@withContext it }
-                active.extract(normalizedTarget)?.also { active.cache(normalizedTarget, it) }
+                active.cached(normalizedTarget, promoteHot = true)?.let { return@withContext it }
+                active.extract(normalizedTarget)?.also {
+                    active.cache(normalizedTarget, it, keepHot = true)
+                }
             }
         }
         schedulePrefetch(entry, normalizedTarget)
@@ -97,8 +110,9 @@ internal object SeekPreviewFrameLoader {
     }
 
     /**
-     * Fills the configured range nearest-first. Cancellation is checked between every frame so a new
-     * distant thumb position immediately takes priority over obsolete background prefetch work.
+     * Fills the configured range nearest-first. The closest ~30 seconds stay decoded as Bitmaps;
+     * farther frames are retained only as JPEG bytes. Cancellation is checked between every frame
+     * so a distant thumb movement immediately takes priority over obsolete background work.
      */
     private suspend fun prefetchAround(
         entry: XEntry,
@@ -111,29 +125,36 @@ internal object SeekPreviewFrameLoader {
         val radiusSeconds = radiusMinutes.coerceIn(0, MAX_PREFETCH_MINUTES) * 60
         for (step in 1..radiusSeconds) {
             currentCoroutineContext().ensureActive()
+            val keepHot = step <= HOT_PREFETCH_SECONDS
             val delta = step * PREVIEW_BUCKET_MS
             val before = center - delta
-            if (before >= 0L) prefetchOne(entry, before)
+            if (before >= 0L) prefetchOne(entry, before, keepHot)
 
             currentCoroutineContext().ensureActive()
             val after = center + delta
-            if (durationMs <= 0L || after <= durationMs) prefetchOne(entry, after)
+            if (durationMs <= 0L || after <= durationMs) prefetchOne(entry, after, keepHot)
         }
     }
 
-    private suspend fun prefetchOne(entry: XEntry, targetMs: Long) = semaphore.withPermit {
-        withContext(Dispatchers.IO) {
-            val active = sessionFor(entry) ?: return@withContext
-            val target = normalizeTarget(targetMs)
-            if (active.hasCached(target)) return@withContext
-            active.extract(target)?.let { bitmap ->
-                active.cache(target, bitmap)
-                bitmap.recycle()
+    private suspend fun prefetchOne(entry: XEntry, targetMs: Long, keepHot: Boolean) =
+        semaphore.withPermit {
+            withContext(Dispatchers.IO) {
+                val active = sessionFor(entry) ?: return@withContext
+                val target = normalizeTarget(targetMs)
+                if (active.hasHot(target)) return@withContext
+                if (active.hasCompressed(target)) {
+                    if (keepHot) active.cached(target, promoteHot = true)
+                    return@withContext
+                }
+                active.extract(target)?.let { bitmap ->
+                    active.cache(target, bitmap, keepHot = keepHot)
+                    if (!keepHot) bitmap.recycle()
+                }
             }
         }
-    }
 
     /** Close the previous video's resources when another video starts being previewed. */
+    @Synchronized
     private fun sessionFor(entry: XEntry): PreviewSession? {
         val key = sessionKey(entry)
         session?.let { current ->
@@ -165,6 +186,8 @@ internal object SeekPreviewFrameLoader {
     private const val JPEG_QUALITY = 72
     private const val MAX_COMPRESSED_CACHE_BYTES = 24 * 1024 * 1024
     private const val MAX_PREFETCH_MINUTES = 5
+    private const val HOT_PREFETCH_SECONDS = 30
+    private const val MAX_HOT_BITMAPS = 64
 
     private class PreviewSession private constructor(
         val key: String,
@@ -174,21 +197,38 @@ internal object SeekPreviewFrameLoader {
         private val smbSource: SeekPreviewSmbDataSource?,
     ) {
         private val frames = LinkedHashMap<Long, ByteArray>(256, 0.75f, true)
+        private val hotFrames = object : LinkedHashMap<Long, Bitmap>(MAX_HOT_BITMAPS, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?): Boolean =
+                size > MAX_HOT_BITMAPS
+        }
         private var cachedBytes = 0
 
-        fun hasCached(targetMs: Long): Boolean = frames.containsKey(targetMs)
+        @Synchronized
+        fun hasHot(targetMs: Long): Boolean = hotFrames.containsKey(targetMs)
 
-        fun cached(targetMs: Long): Bitmap? {
+        @Synchronized
+        fun hasCompressed(targetMs: Long): Boolean = frames.containsKey(targetMs)
+
+        @Synchronized
+        fun hotCached(targetMs: Long): Bitmap? = hotFrames[targetMs]
+
+        @Synchronized
+        fun cached(targetMs: Long, promoteHot: Boolean): Bitmap? {
+            hotFrames[targetMs]?.let { return it }
             val encoded = frames[targetMs] ?: return null
-            return BitmapFactory.decodeByteArray(encoded, 0, encoded.size)
+            val bitmap = BitmapFactory.decodeByteArray(encoded, 0, encoded.size) ?: return null
+            if (promoteHot) hotFrames[targetMs] = bitmap
+            return bitmap
         }
 
-        fun cache(targetMs: Long, bitmap: Bitmap) {
+        @Synchronized
+        fun cache(targetMs: Long, bitmap: Bitmap, keepHot: Boolean) {
             val output = ByteArrayOutputStream()
             if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) return
             val encoded = output.toByteArray()
             frames.put(targetMs, encoded)?.let { cachedBytes -= it.size }
             cachedBytes += encoded.size
+            if (keepHot) hotFrames[targetMs] = bitmap
             trimCache()
         }
 
@@ -220,8 +260,10 @@ internal object SeekPreviewFrameLoader {
             }
         }
 
+        @Synchronized
         fun close() {
             frames.clear()
+            hotFrames.clear()
             cachedBytes = 0
             runCatching { retriever.release() }
             runCatching { descriptor?.close() }
