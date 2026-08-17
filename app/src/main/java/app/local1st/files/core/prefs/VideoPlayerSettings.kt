@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** User-tunable behavior for the built-in video player. */
+/** Persisted user-tunable behavior and appearance for the built-in video player. */
 object VideoPlayerSettings {
     const val DEFAULT_SEEK_WHILE_DRAGGING = true
     const val DEFAULT_CONTROLS_TRANSPARENCY_PERCENT = 15
