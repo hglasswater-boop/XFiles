@@ -51,8 +51,11 @@ import androidx.compose.material.icons.outlined.Forward5
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Replay5
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -68,6 +71,7 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -102,6 +106,7 @@ import androidx.media3.ui.PlayerView
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.core.prefs.SeekPreviewSettings
 import app.local1st.files.ui.components.TooltipIconButton
 import java.util.Locale
 import kotlin.math.abs
@@ -148,11 +153,13 @@ fun VideoPlayerScreen(
     var seekPreviewTargetMs by remember { mutableLongStateOf(-1L) }
     var seekPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var seekPreviewTrackWidthPx by remember { mutableIntStateOf(0) }
+    var showPlayerSettings by remember { mutableStateOf(false) }
 
     SystemBarsHidden(hidden = !controlsVisible)
     val view = LocalView.current
     val density = LocalDensity.current
     val context = LocalContext.current
+    val seekPreviewPrefetchMinutes by SeekPreviewSettings.prefetchMinutes(context).collectAsState()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -211,12 +218,18 @@ fun VideoPlayerScreen(
         if (fps <= 0f && probed != null) fps = probed
     }
 
-    // Never show a frame from the previous target under a new timestamp. Clear immediately and
-    // make the loading state explicit until the exact target preview arrives.
+    // An exact hot Bitmap can be swapped synchronously with no black/loading frame. Only cold
+    // targets fall back to the explicit loading state while IO/JPEG decode completes.
     LaunchedEffect(entry.id, seekPreviewTargetMs) {
         val target = seekPreviewTargetMs
         if (target < 0L) {
             seekPreviewBitmap = null
+            return@LaunchedEffect
+        }
+        val hot = SeekPreviewFrameLoader.peekHot(entry, target)
+        if (hot != null) {
+            seekPreviewBitmap = hot
+            SeekPreviewFrameLoader.load(entry, target)
             return@LaunchedEffect
         }
         seekPreviewBitmap = null
@@ -455,7 +468,7 @@ fun VideoPlayerScreen(
                             cutout.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                         ),
                     )
-                    .padding(start = 4.dp, end = 16.dp, bottom = 8.dp),
+                    .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
             ) {
                 IconButton(onClick = onClose) {
                     Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
@@ -466,7 +479,42 @@ fun VideoPlayerScreen(
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                Box {
+                    IconButton(onClick = { showPlayerSettings = true }) {
+                        Icon(
+                            Icons.Outlined.Settings,
+                            contentDescription = "プレイヤー設定",
+                            tint = Color.White,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showPlayerSettings,
+                        onDismissRequest = { showPlayerSettings = false },
+                    ) {
+                        Text(
+                            "シークサムネイル先読み",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                        SeekPreviewSettings.PREFETCH_MINUTE_OPTIONS.forEach { minutes ->
+                            val label = if (minutes == 0) "なし" else "前後${minutes}分"
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (minutes == seekPreviewPrefetchMinutes) "✓  $label" else "　 $label",
+                                    )
+                                },
+                                onClick = {
+                                    SeekPreviewSettings.setPrefetchMinutes(context, minutes)
+                                    showPlayerSettings = false
+                                    interactionTick++
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -670,7 +718,7 @@ fun VideoPlayerScreen(
                                 val previewTarget = (target / bucketMs) * bucketMs
                                 if (previewTarget != seekPreviewTargetMs) {
                                     seekPreviewTargetMs = previewTarget
-                                    seekPreviewBitmap = null
+                                    seekPreviewBitmap = SeekPreviewFrameLoader.peekHot(entry, previewTarget)
                                 }
                             }
                         },
