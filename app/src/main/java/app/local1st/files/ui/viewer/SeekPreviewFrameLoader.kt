@@ -14,6 +14,7 @@ import app.local1st.files.core.prefs.SeekPreviewSettings
 import app.local1st.files.di.Graph
 import java.io.ByteArrayOutputStream
 import java.util.LinkedHashMap
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +38,9 @@ internal object SeekPreviewFrameLoader {
     private val semaphore = Semaphore(1)
     private val prefetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var prefetchJob: Job? = null
+    private var prefetchCenterMs = Long.MIN_VALUE
+    private var prefetchRadiusMinutes = -1
+    private var prefetchSessionKey: String? = null
     private var session: PreviewSession? = null
 
     suspend fun load(entry: XEntry, targetMs: Long): Bitmap? {
@@ -52,10 +56,33 @@ internal object SeekPreviewFrameLoader {
         return bitmap
     }
 
+    /**
+     * Keep a stable prefetch window while the finger jitters around the same timeline area.
+     * The center moves only after the requested frame leaves the inner half of the configured
+     * prefetch range. For example, a ±2 minute cache keeps the same center for ±1 minute of thumb
+     * movement, so tiny slider motion does not repeatedly cancel useful background work.
+     */
     private fun schedulePrefetch(entry: XEntry, centerMs: Long) {
-        prefetchJob?.cancel()
         val radiusMinutes = SeekPreviewSettings.currentPrefetchMinutes(Graph.appContext)
-        if (radiusMinutes <= 0) return
+        if (radiusMinutes <= 0) {
+            prefetchJob?.cancel()
+            resetPrefetchWindow()
+            return
+        }
+
+        val key = sessionKey(entry)
+        val radiusMs = radiusMinutes.toLong() * 60_000L
+        val recenterThresholdMs = maxOf(PREVIEW_BUCKET_MS * 2, radiusMs / 2)
+        val sameWindow = prefetchSessionKey == key &&
+            prefetchRadiusMinutes == radiusMinutes &&
+            prefetchCenterMs != Long.MIN_VALUE &&
+            abs(centerMs - prefetchCenterMs) <= recenterThresholdMs
+        if (sameWindow) return
+
+        prefetchJob?.cancel()
+        prefetchCenterMs = centerMs
+        prefetchRadiusMinutes = radiusMinutes
+        prefetchSessionKey = key
         prefetchJob = prefetchScope.launch {
             val durationMs = semaphore.withPermit {
                 sessionFor(entry)?.durationMs ?: 0L
@@ -71,7 +98,7 @@ internal object SeekPreviewFrameLoader {
 
     /**
      * Fills the configured range nearest-first. Cancellation is checked between every frame so a new
-     * thumb position immediately takes priority over obsolete background prefetch work.
+     * distant thumb position immediately takes priority over obsolete background prefetch work.
      */
     private suspend fun prefetchAround(
         entry: XEntry,
@@ -112,10 +139,17 @@ internal object SeekPreviewFrameLoader {
         session?.let { current ->
             if (current.key == key) return current
             prefetchJob?.cancel()
+            resetPrefetchWindow()
             current.close()
             session = null
         }
         return PreviewSession.create(entry, key)?.also { session = it }
+    }
+
+    private fun resetPrefetchWindow() {
+        prefetchCenterMs = Long.MIN_VALUE
+        prefetchRadiusMinutes = -1
+        prefetchSessionKey = null
     }
 
     private fun normalizeTarget(targetMs: Long): Long {
