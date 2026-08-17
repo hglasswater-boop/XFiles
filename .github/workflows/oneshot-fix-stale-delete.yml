@@ -85,34 +85,6 @@ jobs:
           )
           replace(
               engine,
-              '''                OpEvent("${verbFor(op)} cancelled", success = false, dirtyDirIds = dirty.toSet()),''',
-              '''                OpEvent(
-                              "${verbFor(op)} cancelled",
-                              success = false,
-                              dirtyDirIds = dirty.toSet(),
-                              removedEntryIds = removed.toSet(),
-                          ),''',
-          )
-          replace(
-              engine,
-              '''            _events.tryEmit(
-                      OpEvent(
-                          "${verbFor(op)} failed: $reason",
-                          success = false,
-                          dirtyDirIds = dirty.toSet(),
-                      ),
-                  )''',
-              '''            _events.tryEmit(
-                      OpEvent(
-                          "${verbFor(op)} failed: $reason",
-                          success = false,
-                          dirtyDirIds = dirty.toSet(),
-                          removedEntryIds = removed.toSet(),
-                      ),
-                  )''',
-          )
-          replace(
-              engine,
               '''    private suspend fun runCopy(
                   op: FileOp.Copy,
                   t: RunningOpImpl,
