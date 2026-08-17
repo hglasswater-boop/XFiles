@@ -111,6 +111,7 @@ fun EntryRow(
         entry.kind == EntryKind.VOLUME_SD ||
         entry.kind == EntryKind.VOLUME_USB
     val selectable = !isVolume &&
+        entry.id != "${XId.SCHEME_SMB}://" &&
         entry.kind != EntryKind.APPS_ROOT &&
         entry.kind != EntryKind.ROOT &&
         entry.kind != EntryKind.APP_COMPONENT_GROUP &&

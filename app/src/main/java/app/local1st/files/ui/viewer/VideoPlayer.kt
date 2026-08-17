@@ -145,10 +145,26 @@ fun VideoPlayerScreen(
     var cardDragging by remember { mutableStateOf(false) }
     var showPlayerSettings by remember { mutableStateOf(false) }
 
+    // Orientation and PiP belong to the player lifetime, not the auto-hidden controls panel.
+    val orientationController = rememberVideoOrientationController()
+    VideoPictureInPicture(
+        player = player,
+        playing = playing,
+        title = entry.name,
+        onModeChanged = { inPip ->
+            if (inPip) {
+                controlsVisible = false
+                showPlayerSettings = false
+            }
+        },
+    )
+
     SystemBarsHidden(hidden = !controlsVisible)
     val view = LocalView.current
     val context = LocalContext.current
     val seekWhileDragging by VideoPlayerSettings.seekWhileDragging(context).collectAsState()
+    val controlsTransparencyPercent by
+        VideoPlayerSettings.controlsTransparencyPercent(context).collectAsState()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -361,6 +377,10 @@ fun VideoPlayerScreen(
                                             player.pause()
                                             baseMs = anchorMs()
                                             baseFrame = frameOf(baseMs)
+                                            // Ignore the movement used to recognize the drag so
+                                            // seeking starts smoothly instead of jumping immediately.
+                                            accumX = 0f
+                                            accumY = 0f
                                         }
                                         VideoGestureMode.VOLUME -> {
                                             volumeAdjusting = true
@@ -497,6 +517,24 @@ fun VideoPlayerScreen(
                                 interactionTick++
                             },
                         )
+                        Text(
+                            "操作パネル透過率 $controlsTransparencyPercent%",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                        Slider(
+                            value = controlsTransparencyPercent.toFloat(),
+                            onValueChange = { value ->
+                                VideoPlayerSettings.setControlsTransparencyPercent(
+                                    context,
+                                    (value / 5f).roundToInt() * 5,
+                                )
+                                interactionTick++
+                            },
+                            valueRange = 0f..60f,
+                            steps = 11,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
                     }
                 }
             }
@@ -544,7 +582,9 @@ fun VideoPlayerScreen(
         ) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
+                    alpha = 1f - controlsTransparencyPercent / 100f,
+                ),
                 modifier = Modifier
                     .onSizeChanged { cardHeightPx = it.height }
                     .pointerInput(Unit) {
@@ -643,11 +683,12 @@ fun VideoPlayerScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
+                    Box(Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.align(Alignment.Center),
+                        ) {
                         if (hasPrevious || hasNext) {
                             TooltipIconButton(
                                 stringResource(R.string.previous_video),
@@ -713,6 +754,16 @@ fun VideoPlayerScreen(
                                 enabled = hasNext,
                             ) {
                                 player.seekToNextMediaItem()
+                                interactionTick++
+                            }
+                        }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                        ) {
+                            VideoOrientationQuickControls(orientationController) {
                                 interactionTick++
                             }
                         }
@@ -859,11 +910,11 @@ private val STANDARD_FPS =
     floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 48f, 50f, 59.94f, 60f, 90f, 120f)
 
 private const val FALLBACK_FPS = 30f
-private const val SEEK_THROTTLE_MS = 150L
+private const val SEEK_THROTTLE_MS = 80L
 private const val SEEK_TARGET_HOLD_MS = 800L
 private const val FRAME_SWIPE_DP = 8f
 private const val EDGE_GUARD_DP = 24
-private const val TIME_SWIPE_MS_PER_DP = 100L
+private const val TIME_SWIPE_MS_PER_DP = 40L
 private const val DOUBLE_TAP_SEEK_SECONDS = 10
 private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f
 private const val DOUBLE_TAP_LABEL_MS = 700L

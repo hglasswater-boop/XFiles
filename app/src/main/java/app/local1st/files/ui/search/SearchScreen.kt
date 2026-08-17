@@ -447,19 +447,9 @@ private fun SearchThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     }
 }
 
-private fun displayParentPath(parentId: String): String {
-    if (XId.schemeOf(parentId) != XId.SCHEME_SMB) {
-        return parentId.substringAfter("://")
-    }
-    val raw = parentId.removePrefix("${XId.SCHEME_SMB}://").trim('/')
-    if (raw.isEmpty()) return "SMB"
-    val connectionId = raw.substringBefore('/')
-    val relativePath = raw.substringAfter('/', "")
-    val connection = Graph.smbConnections.find(connectionId)
-        ?: return relativePath.ifBlank { "SMB" }
-    return if (relativePath.isBlank()) {
-        connection.name
+private fun displayParentPath(parentId: String): String =
+    if (XId.schemeOf(parentId) == XId.SCHEME_SMB) {
+        Graph.smbConnections.displayLabelPathForId(parentId)
     } else {
-        "${connection.name} / $relativePath"
+        parentId.substringAfter("://")
     }
-}

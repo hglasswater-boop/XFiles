@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import app.local1st.files.core.fs.XId
 import java.security.KeyStore
 import java.util.UUID
 import javax.crypto.Cipher
@@ -43,7 +44,7 @@ data class SmbConnectionRestore(
 /**
  * Normalizes the value entered in the "share" field.
  *
- * `video_a/actress` means SMB share `video_a`, with `actress` as the starting directory.
+ * `share/folder` means SMB share `share`, with `folder` as the starting directory.
  * Backslashes are accepted too so pasted UNC-style subpaths behave naturally.
  */
 fun smbConnectionFromInput(
@@ -78,6 +79,41 @@ fun smbConnectionFromInput(
         domain = domain.trim(),
         port = port.coerceIn(1, 65535),
     )
+}
+
+internal fun smbDisplayPath(
+    id: String,
+    findConnection: (String) -> SmbConnectionConfig?,
+): String {
+    if (XId.schemeOf(id) != XId.SCHEME_SMB) return id.substringAfter("://")
+    val raw = id.removePrefix("${XId.SCHEME_SMB}://").trim('/')
+    if (raw.isEmpty()) return "SMB"
+    val connectionId = raw.substringBefore('/')
+    val relativePath = raw.substringAfter('/', "")
+    val connection = findConnection(connectionId)
+    if (connection == null) {
+        return if (relativePath.isBlank()) "SMB"
+        else "SMB\\${relativePath.replace('/', '\\')}"
+    }
+    val base = connection.uncPath.trimEnd('\\')
+    return if (relativePath.isBlank()) base
+    else "$base\\${relativePath.replace('/', '\\')}"
+}
+
+internal fun smbDisplayLabelPath(
+    id: String,
+    findConnection: (String) -> SmbConnectionConfig?,
+): String {
+    if (XId.schemeOf(id) != XId.SCHEME_SMB) return id.substringAfter("://")
+    val raw = id.removePrefix("${XId.SCHEME_SMB}://").trim('/')
+    if (raw.isEmpty()) return "SMB"
+    val connectionId = raw.substringBefore('/')
+    val relativePath = raw.substringAfter('/', "")
+    val connection = findConnection(connectionId)
+    if (connection == null) {
+        return if (relativePath.isBlank()) "SMB" else "SMB / $relativePath"
+    }
+    return if (relativePath.isBlank()) connection.name else "${connection.name} / $relativePath"
 }
 
 class SmbConnectionRepo(context: Context) {
@@ -190,6 +226,12 @@ class SmbConnectionRepo(context: Context) {
     }
 
     fun find(id: String): SmbConnectionConfig? = _connections.value.firstOrNull { it.id == id }
+
+    /** Full user-facing UNC path. Internal connection UUIDs are never exposed. */
+    fun displayPathForId(id: String): String = smbDisplayPath(id, ::find)
+
+    /** Compact display-name path for breadcrumbs, search results and destination labels. */
+    fun displayLabelPathForId(id: String): String = smbDisplayLabelPath(id, ::find)
 
     fun password(id: String): String = secrets.get(id).orEmpty()
 

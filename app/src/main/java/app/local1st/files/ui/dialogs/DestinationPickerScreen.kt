@@ -289,6 +289,7 @@ private fun parentOf(dir: XEntry): XEntry? {
 }
 
 private fun pathLabel(dir: XEntry): String = when (dir.scheme) {
+    XId.SCHEME_SMB -> Graph.smbConnections.displayLabelPathForId(dir.id)
     XId.SCHEME_ROOT -> "root:" + dir.path
     else -> dir.path
 }
