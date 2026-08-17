@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.core.prefs.BrowserDisplayPreset
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
-import app.local1st.files.core.prefs.SeekPreviewSettings
 import app.local1st.files.core.prefs.ThumbnailSize
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -32,7 +31,6 @@ import app.local1st.files.core.prefs.ThumbnailSize
 internal fun BrowserDisplaySettingsSection() {
     val context = LocalContext.current
     val config by BrowserDisplaySettings.state(context).collectAsState()
-    val seekPreviewPrefetchMinutes by SeekPreviewSettings.prefetchMinutes(context).collectAsState()
     val preset = BrowserDisplayPreset.matching(config)
 
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -85,30 +83,6 @@ internal fun BrowserDisplaySettingsSection() {
             )
             Text(
                 "階層数は見た目のインデントだけを制限します。フォルダ構造や展開状態は変わりません。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            )
-        }
-    }
-
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Column(Modifier.padding(vertical = 10.dp)) {
-            Text(
-                "動画プレイヤー",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            DisplayRadioRow(
-                title = "シークサムネイル先読み",
-                options = SeekPreviewSettings.PREFETCH_MINUTE_OPTIONS.map { minutes ->
-                    minutes to if (minutes == 0) "なし" else "前後${minutes}分"
-                },
-                selected = seekPreviewPrefetchMinutes,
-                onSelect = { SeekPreviewSettings.setPrefetchMinutes(context, it) },
-            )
-            Text(
-                "シークした位置の前後を1秒間隔でバックグラウンド取得します。範囲が広いほどNASアクセスとキャッシュ使用量が増えます。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
