@@ -20,67 +20,8 @@ jobs:
       - name: Keep reveal scroll requests until browser is visible
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          pane = Path('app/src/main/java/app/local1st/files/ui/browser/PaneController.kt')
-          text = pane.read_text()
-
-          text = text.replace(
-              'import kotlinx.coroutines.cancel\n',
-              'import kotlinx.coroutines.cancel\nimport kotlinx.coroutines.channels.Channel\n',
-              1,
-          )
-          text = text.replace(
-              'import kotlinx.coroutines.flow.map\n',
-              'import kotlinx.coroutines.flow.map\nimport kotlinx.coroutines.flow.receiveAsFlow\n',
-              1,
-          )
-
-          old = '    /** A row the pane list should bring on screen (consumed by the UI). */\n    val scrollTo = MutableSharedFlow<ScrollRequest>(extraBufferCapacity = 1)'
-          new = '    /** A row the pane list should bring on screen. Keep the latest request while the UI is off-screen. */\n    private val scrollRequests = Channel<ScrollRequest>(Channel.CONFLATED)\n    val scrollTo = scrollRequests.receiveAsFlow()'
-          if old not in text:
-              raise SystemExit('scrollTo declaration not found')
-          text = text.replace(old, new, 1)
-
-          count = text.count('scrollTo.tryEmit(')
-          if count < 1:
-              raise SystemExit('no scrollTo.tryEmit calls found')
-          text = text.replace('scrollTo.tryEmit(', 'scrollRequests.trySend(')
-          pane.write_text(text)
-
-          view = Path('app/src/main/java/app/local1st/files/ui/browser/PaneView.kt')
-          text = view.read_text()
-          text = text.replace(
-              'import kotlinx.coroutines.flow.first\n',
-              'import kotlinx.coroutines.flow.collectLatest\nimport kotlinx.coroutines.flow.first\n',
-              1,
-          )
-          old = '''    LaunchedEffect(controller, listState) {
-        controller.scrollTo.collect { request ->
-            val index = controller.state.value.nodes.indexOfFirst { it.entry.id == request.id }
-            if (index < 0) return@collect
-            if (request.animate) listState.animateScrollToItem(index) else listState.scrollToItem(index)
-        }
-    }'''
-          new = '''    LaunchedEffect(controller, listState) {
-        controller.scrollTo.collectLatest { request ->
-            // A reveal can be requested while SearchScreen is still the composed destination.
-            // The channel preserves it until this PaneView exists again. Also wait until the
-            // expanded path has propagated through the flattened tree before calculating the row.
-            val ready = controller.state.first { state ->
-                state.nodes.any { it.entry.id == request.id }
-            }
-            val index = ready.nodes.indexOfFirst { it.entry.id == request.id }
-            if (index < 0) return@collectLatest
-            if (request.animate) listState.animateScrollToItem(index) else listState.scrollToItem(index)
-        }
-    }'''
-          if old not in text:
-              raise SystemExit('PaneView scroll collector not found')
-          text = text.replace(old, new, 1)
-          view.write_text(text)
-          PY
+          python3 -c "from pathlib import Path; p=Path('app/src/main/java/app/local1st/files/ui/browser/PaneController.kt'); s=p.read_text(); s=s.replace('import kotlinx.coroutines.cancel\\n','import kotlinx.coroutines.cancel\\nimport kotlinx.coroutines.channels.Channel\\n',1); s=s.replace('import kotlinx.coroutines.flow.map\\n','import kotlinx.coroutines.flow.map\\nimport kotlinx.coroutines.flow.receiveAsFlow\\n',1); old='    /** A row the pane list should bring on screen (consumed by the UI). */\\n    val scrollTo = MutableSharedFlow<ScrollRequest>(extraBufferCapacity = 1)'; new='    /** A row the pane list should bring on screen. Keep the latest request while the UI is off-screen. */\\n    private val scrollRequests = Channel<ScrollRequest>(Channel.CONFLATED)\\n    val scrollTo = scrollRequests.receiveAsFlow()'; assert old in s, 'scrollTo declaration not found'; s=s.replace(old,new,1); assert 'scrollTo.tryEmit(' in s, 'scrollTo.tryEmit not found'; s=s.replace('scrollTo.tryEmit(','scrollRequests.trySend('); p.write_text(s)"
+          python3 -c "from pathlib import Path; p=Path('app/src/main/java/app/local1st/files/ui/browser/PaneView.kt'); s=p.read_text(); s=s.replace('import kotlinx.coroutines.flow.first\\n','import kotlinx.coroutines.flow.collectLatest\\nimport kotlinx.coroutines.flow.first\\n',1); old='    LaunchedEffect(controller, listState) {\\n        controller.scrollTo.collect { request ->\\n            val index = controller.state.value.nodes.indexOfFirst { it.entry.id == request.id }\\n            if (index < 0) return@collect\\n            if (request.animate) listState.animateScrollToItem(index) else listState.scrollToItem(index)\\n        }\\n    }'; new='    LaunchedEffect(controller, listState) {\\n        controller.scrollTo.collectLatest { request ->\\n            // Keep this request until the browser is visible again and the expanded path has\\n            // propagated through the flattened tree.\\n            val ready = controller.state.first { state ->\\n                state.nodes.any { it.entry.id == request.id }\\n            }\\n            val index = ready.nodes.indexOfFirst { it.entry.id == request.id }\\n            if (index < 0) return@collectLatest\\n            if (request.animate) listState.animateScrollToItem(index) else listState.scrollToItem(index)\\n        }\\n    }'; assert old in s, 'PaneView scroll collector not found'; s=s.replace(old,new,1); p.write_text(s)"
           git diff --check
           git diff -- app/src/main/java/app/local1st/files/ui/browser/PaneController.kt app/src/main/java/app/local1st/files/ui/browser/PaneView.kt
       - name: Commit patch
