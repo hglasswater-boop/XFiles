@@ -26,6 +26,7 @@ import androidx.media3.common.VideoSize
  * Android 12+ uses system auto-enter for a smooth Home gesture transition; Android 8-11 enters
  * PiP from the Activity's user-leave callback. The ExoPlayer itself is deliberately not paused
  * when the Activity leaves the foreground, so playback continues in the floating window.
+ * This uses Android's system PiP and therefore needs no draw-over-other-apps permission.
  */
 @Composable
 internal fun VideoPictureInPicture(
