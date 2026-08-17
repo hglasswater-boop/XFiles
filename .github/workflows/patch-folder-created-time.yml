@@ -129,44 +129,46 @@ jobs:
           replace_once(entry_row, old_startup, new_startup)
 
           marker = "@Composable\nprivate fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {"
-          helper = """@Composable
-private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
-    val entry = node.entry
-    val counts = entryDetails(node, loadFolderCount)
-    val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
-    val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
-    if (counts.isEmpty() && created.isEmpty()) return
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        if (counts.isNotEmpty()) {
-            Text(
-                counts,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-        if (created.isNotEmpty()) {
-            Text(
-                created,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {"""
+          helper = "\n".join([
+              "@Composable",
+              "private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {",
+              "    val entry = node.entry",
+              "    val counts = entryDetails(node, loadFolderCount)",
+              "    val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime",
+              "    val created = if (timestamp > 0L) Format.dateTime(timestamp) else \"\"",
+              "    if (counts.isEmpty() && created.isEmpty()) return",
+              "",
+              "    Row(",
+              "        verticalAlignment = Alignment.CenterVertically,",
+              "        modifier = Modifier.fillMaxWidth(),",
+              "    ) {",
+              "        if (counts.isNotEmpty()) {",
+              "            Text(",
+              "                counts,",
+              "                style = MaterialTheme.typography.labelSmall,",
+              "                maxLines = 1,",
+              "                overflow = TextOverflow.Ellipsis,",
+              "                color = MaterialTheme.colorScheme.onSurfaceVariant,",
+              "                modifier = Modifier.weight(1f),",
+              "            )",
+              "        } else {",
+              "            Spacer(Modifier.weight(1f))",
+              "        }",
+              "        if (created.isNotEmpty()) {",
+              "            Text(",
+              "                created,",
+              "                style = MaterialTheme.typography.labelSmall,",
+              "                maxLines = 1,",
+              "                color = MaterialTheme.colorScheme.onSurfaceVariant,",
+              "                modifier = Modifier.padding(start = 8.dp),",
+              "            )",
+              "        }",
+              "    }",
+              "}",
+              "",
+              "@Composable",
+              "private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {",
+          ])
           replace_once(entry_row, marker, helper)
           PY
 
