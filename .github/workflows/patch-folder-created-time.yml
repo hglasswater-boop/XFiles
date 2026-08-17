@@ -25,147 +25,148 @@ jobs:
               p = Path(path)
               text = p.read_text()
               if old not in text:
-                  raise SystemExit(f"Expected block not found in {path}")
-              text2 = text.replace(old, new, 1)
-              p.write_text(text2)
+                  raise SystemExit(f"Expected block not found in {path}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1))
 
+          xentry = "app/src/main/java/app/local1st/files/core/fs/XEntry.kt"
           replace_once(
-              "app/src/main/java/app/local1st/files/core/fs/XEntry.kt",
-              '''    /** True for a favorite shown as a top-level shortcut root. */
-              val pinned: Boolean = false,
-          ) {''',
-              '''    /** True for a favorite shown as a top-level shortcut root. */
-              val pinned: Boolean = false,
-              /** Creation/birth time in epoch millis when the backing filesystem reports it. */
-              val creationTime: Long = 0L,
-          ) {''',
+              xentry,
+              "    val pinned: Boolean = false,\n) {",
+              "    val pinned: Boolean = false,\n"
+              "    /** Creation/birth time in epoch millis when the backing filesystem reports it. */\n"
+              "    val creationTime: Long = 0L,\n) {",
           )
 
+          local = "app/src/main/java/app/local1st/files/core/fs/LocalFileSystem.kt"
           replace_once(
-              "app/src/main/java/app/local1st/files/core/fs/LocalFileSystem.kt",
-              '''            mtime = attrs?.lastModifiedTime()?.toMillis() ?: 0L,
-              mime = if (isDir) null else FileTypes.mimeOf(name),''',
-              '''            mtime = attrs?.lastModifiedTime()?.toMillis() ?: 0L,
-              creationTime = attrs?.creationTime()?.toMillis() ?: 0L,
-              mime = if (isDir) null else FileTypes.mimeOf(name),''',
+              local,
+              "            mtime = attrs?.lastModifiedTime()?.toMillis() ?: 0L,\n"
+              "            mime = if (isDir) null else FileTypes.mimeOf(name),",
+              "            mtime = attrs?.lastModifiedTime()?.toMillis() ?: 0L,\n"
+              "            creationTime = attrs?.creationTime()?.toMillis() ?: 0L,\n"
+              "            mime = if (isDir) null else FileTypes.mimeOf(name),",
           )
 
+          smb = "app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt"
           replace_once(
-              "app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt",
-              '''                        mtime = info.lastWriteTime.toEpochMillis(),
-                          mime = if (isDir) null else FileTypes.mimeOf(info.fileName),''',
-              '''                        mtime = info.lastWriteTime.toEpochMillis(),
-                          creationTime = info.creationTime.toEpochMillis(),
-                          mime = if (isDir) null else FileTypes.mimeOf(info.fileName),''',
+              smb,
+              "                        mtime = info.lastWriteTime.toEpochMillis(),\n"
+              "                        mime = if (isDir) null else FileTypes.mimeOf(info.fileName),",
+              "                        mtime = info.lastWriteTime.toEpochMillis(),\n"
+              "                        creationTime = info.creationTime.toEpochMillis(),\n"
+              "                        mime = if (isDir) null else FileTypes.mimeOf(info.fileName),",
           )
 
           entry_row = "app/src/main/java/app/local1st/files/ui/browser/EntryRow.kt"
-          replace_once(
-              entry_row,
-              '''            val details = node.error ?: entryDetails(node)
-              if (details.isNotEmpty()) {
-                  Text(
-                      details,
-                      style = if (entry.isDir && node.error == null) {
-                          MaterialTheme.typography.labelSmall
-                      } else {
-                          MaterialTheme.typography.bodySmall
-                      },
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis,
-                      color = if (node.error != null) MaterialTheme.colorScheme.error
-                      else MaterialTheme.colorScheme.onSurfaceVariant,
-                  )
-              }''',
-              '''            if (entry.isDir && node.error == null && entry.badge == null) {
-                  FolderDetailsRow(node = node, loadFolderCount = true)
-              } else {
-                  val details = node.error ?: entryDetails(node)
-                  if (details.isNotEmpty()) {
-                      Text(
-                          details,
-                          style = MaterialTheme.typography.bodySmall,
-                          maxLines = 1,
-                          overflow = TextOverflow.Ellipsis,
-                          color = if (node.error != null) MaterialTheme.colorScheme.error
-                          else MaterialTheme.colorScheme.onSurfaceVariant,
-                      )
-                  }
-              }''',
-          )
+          old_rich = "\n".join([
+              "            val details = node.error ?: entryDetails(node)",
+              "            if (details.isNotEmpty()) {",
+              "                Text(",
+              "                    details,",
+              "                    style = if (entry.isDir && node.error == null) {",
+              "                        MaterialTheme.typography.labelSmall",
+              "                    } else {",
+              "                        MaterialTheme.typography.bodySmall",
+              "                    },",
+              "                    maxLines = 1,",
+              "                    overflow = TextOverflow.Ellipsis,",
+              "                    color = if (node.error != null) MaterialTheme.colorScheme.error",
+              "                    else MaterialTheme.colorScheme.onSurfaceVariant,",
+              "                )",
+              "            }",
+          ])
+          new_rich = "\n".join([
+              "            if (entry.isDir && node.error == null && entry.badge == null) {",
+              "                FolderDetailsRow(node = node, loadFolderCount = true)",
+              "            } else {",
+              "                val details = node.error ?: entryDetails(node)",
+              "                if (details.isNotEmpty()) {",
+              "                    Text(",
+              "                        details,",
+              "                        style = MaterialTheme.typography.bodySmall,",
+              "                        maxLines = 1,",
+              "                        overflow = TextOverflow.Ellipsis,",
+              "                        color = if (node.error != null) MaterialTheme.colorScheme.error",
+              "                        else MaterialTheme.colorScheme.onSurfaceVariant,",
+              "                    )",
+              "                }",
+              "            }",
+          ])
+          replace_once(entry_row, old_rich, new_rich)
 
-          replace_once(
-              entry_row,
-              '''            val details = entryDetails(node, loadFolderCount = false)
-              if (details.isNotEmpty()) {
-                  Text(
-                      details,
-                      style = if (entry.isDir) {
-                          MaterialTheme.typography.labelSmall
-                      } else {
-                          MaterialTheme.typography.bodySmall
-                      },
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                  )
-              }''',
-              '''            if (entry.isDir && entry.badge == null) {
-                  FolderDetailsRow(node = node, loadFolderCount = false)
-              } else {
-                  val details = entryDetails(node, loadFolderCount = false)
-                  if (details.isNotEmpty()) {
-                      Text(
-                          details,
-                          style = MaterialTheme.typography.bodySmall,
-                          maxLines = 1,
-                          overflow = TextOverflow.Ellipsis,
-                          color = MaterialTheme.colorScheme.onSurfaceVariant,
-                      )
-                  }
-              }''',
-          )
+          old_startup = "\n".join([
+              "            val details = entryDetails(node, loadFolderCount = false)",
+              "            if (details.isNotEmpty()) {",
+              "                Text(",
+              "                    details,",
+              "                    style = if (entry.isDir) {",
+              "                        MaterialTheme.typography.labelSmall",
+              "                    } else {",
+              "                        MaterialTheme.typography.bodySmall",
+              "                    },",
+              "                    maxLines = 1,",
+              "                    overflow = TextOverflow.Ellipsis,",
+              "                    color = MaterialTheme.colorScheme.onSurfaceVariant,",
+              "                )",
+              "            }",
+          ])
+          new_startup = "\n".join([
+              "            if (entry.isDir && entry.badge == null) {",
+              "                FolderDetailsRow(node = node, loadFolderCount = false)",
+              "            } else {",
+              "                val details = entryDetails(node, loadFolderCount = false)",
+              "                if (details.isNotEmpty()) {",
+              "                    Text(",
+              "                        details,",
+              "                        style = MaterialTheme.typography.bodySmall,",
+              "                        maxLines = 1,",
+              "                        overflow = TextOverflow.Ellipsis,",
+              "                        color = MaterialTheme.colorScheme.onSurfaceVariant,",
+              "                    )",
+              "                }",
+              "            }",
+          ])
+          replace_once(entry_row, old_startup, new_startup)
 
-          marker = '''@Composable
-          private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {'''
-          helper = '''@Composable
-          private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
-              val entry = node.entry
-              val counts = entryDetails(node, loadFolderCount)
-              val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
-              val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
-              if (counts.isEmpty() && created.isEmpty()) return
+          marker = "@Composable\nprivate fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {"
+          helper = """@Composable
+private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
+    val entry = node.entry
+    val counts = entryDetails(node, loadFolderCount)
+    val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
+    val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
+    if (counts.isEmpty() && created.isEmpty()) return
 
-              Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  modifier = Modifier.fillMaxWidth(),
-              ) {
-                  if (counts.isNotEmpty()) {
-                      Text(
-                          counts,
-                          style = MaterialTheme.typography.labelSmall,
-                          maxLines = 1,
-                          overflow = TextOverflow.Ellipsis,
-                          color = MaterialTheme.colorScheme.onSurfaceVariant,
-                          modifier = Modifier.weight(1f),
-                      )
-                  } else {
-                      Spacer(Modifier.weight(1f))
-                  }
-                  if (created.isNotEmpty()) {
-                      Text(
-                          created,
-                          style = MaterialTheme.typography.labelSmall,
-                          maxLines = 1,
-                          color = MaterialTheme.colorScheme.onSurfaceVariant,
-                          modifier = Modifier.padding(start = 8.dp),
-                      )
-                  }
-              }
-          }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (counts.isNotEmpty()) {
+            Text(
+                counts,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        if (created.isNotEmpty()) {
+            Text(
+                created,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
+}
 
-          @Composable
-          private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {'''
+@Composable
+private fun entryDetails(node: TreeNode, loadFolderCount: Boolean = true): String {"""
           replace_once(entry_row, marker, helper)
           PY
 
