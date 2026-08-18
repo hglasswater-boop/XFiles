@@ -183,14 +183,20 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     val isVideo = isVideoEntry(currentEntry)
 
     if (isVideo) {
-        VideoPlayerScreen(
+        VideoCompatibilityGuard(
             player = player,
             entry = currentEntry,
-            playing = playing,
-            hasPrevious = hasPrevious,
-            hasNext = hasNext,
             onClose = onClose,
-        )
+        ) {
+            VideoPlayerScreen(
+                player = player,
+                entry = currentEntry,
+                playing = playing,
+                hasPrevious = hasPrevious,
+                hasNext = hasNext,
+                onClose = onClose,
+            )
+        }
     } else {
         AudioPlayerScreen(
             player = player,
