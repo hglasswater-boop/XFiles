@@ -4,6 +4,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -64,9 +66,14 @@ import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.prefs.BrowserDisplaySettings
+import app.local1st.files.core.prefs.SearchHistorySettings
+import app.local1st.files.core.search.SearchHit
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.dialogs.AddSmbConnectionDialog
+import java.io.IOException
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 
 /**
@@ -74,12 +81,22 @@ import kotlinx.coroutines.flow.first
  * so a single header row can keep them on one mid-line.
  */
 val CrumbBarHeight = 40.dp
+private val SearchHeaderHeight = 64.dp
+private const val SEARCH_DEBOUNCE_MS = 400L
+private const val SEARCH_MIN_QUERY_LENGTH = 2
+
+private enum class PaneSearchPhase { IDLE, SEARCHING, DONE }
 
 /**
  * One browser pane: breadcrumb/search bar + flattened tree list.
- * The whole X-plore signature view.
+ * Search keeps the normal row selection model and operation toolbar while recursively walking
+ * below the focused directory, so hits remain actionable instead of becoming a separate screen.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@OptIn(
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalLayoutApi::class,
+    FlowPreview::class,
+)
 @Composable
 fun PaneView(
     controller: PaneController,
@@ -94,6 +111,7 @@ fun PaneView(
     headerOverlay: (@Composable () -> Unit)? = null,
     searchActive: Boolean = false,
     onSearchClose: () -> Unit = {},
+    onSearchResultsChanged: (List<XEntry>) -> Unit = {},
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
@@ -104,23 +122,112 @@ fun PaneView(
         mutableStateOf<Pair<String, String>?>(null)
     }
     var searchQuery by rememberSaveable(controller) { mutableStateOf("") }
+    var searchRoot by remember(controller) { mutableStateOf<XEntry?>(null) }
+    val searchResults = remember(controller) { mutableStateListOf<SearchHit>() }
+    var searchPhase by remember(controller) { mutableStateOf(PaneSearchPhase.IDLE) }
+    var searchError by remember(controller) { mutableStateOf<String?>(null) }
+    val currentOnSearchResultsChanged by rememberUpdatedState(onSearchResultsChanged)
 
-    val displayNodes = remember(state.nodes, searchActive, searchQuery) {
-        if (!searchActive || searchQuery.isBlank()) {
-            state.nodes
+    val query = searchQuery.trim()
+    val showingSearchResults = searchActive && query.length >= SEARCH_MIN_QUERY_LENGTH
+    val displayNodes = if (showingSearchResults) {
+        searchResults.mapIndexed { index, hit ->
+            TreeNode(
+                entry = hit.entry,
+                key = "search|${hit.parentId}|${hit.entry.id}",
+                depth = 0,
+                expanded = false,
+                loading = false,
+                guides = emptyList(),
+                isLastChild = index == searchResults.lastIndex,
+            )
+        }
+    } else {
+        state.nodes
+    }
+    val searchParents = if (showingSearchResults) {
+        searchResults.associate { it.entry.id to it.parentId }
+    } else {
+        emptyMap()
+    }
+
+    LaunchedEffect(searchActive) {
+        if (searchActive) {
+            searchRoot = controller.focusedDirEntry()
+            searchQuery = ""
+            searchResults.clear()
+            searchError = null
+            searchPhase = PaneSearchPhase.IDLE
         } else {
-            val matching = state.nodes.filter { node ->
-                browserNameMatches(node.entry.name, searchQuery)
+            searchRoot = null
+            searchQuery = ""
+            searchResults.clear()
+            searchError = null
+            searchPhase = PaneSearchPhase.IDLE
+            currentOnSearchResultsChanged(emptyList())
+        }
+    }
+
+    LaunchedEffect(searchActive, searchRoot?.id) {
+        if (!searchActive) return@LaunchedEffect
+        snapshotFlow { searchQuery.trim() }
+            .debounce(SEARCH_DEBOUNCE_MS)
+            .collectLatest { currentQuery ->
+                searchResults.clear()
+                searchError = null
+                if (currentQuery.length < SEARCH_MIN_QUERY_LENGTH) {
+                    searchPhase = PaneSearchPhase.IDLE
+                    return@collectLatest
+                }
+                val root = searchRoot
+                if (root == null) {
+                    searchPhase = PaneSearchPhase.DONE
+                    return@collectLatest
+                }
+                searchPhase = PaneSearchPhase.SEARCHING
+                try {
+                    Graph.searchEngine.search(root, currentQuery).collect { hit ->
+                        searchResults.add(hit)
+                    }
+                    SearchHistorySettings.add(Graph.appContext, currentQuery)
+                    searchPhase = PaneSearchPhase.DONE
+                } catch (error: IOException) {
+                    searchError = error.message ?: Graph.appContext.getString(R.string.search_failed)
+                    searchPhase = PaneSearchPhase.DONE
+                }
             }
-            matching.mapIndexed { index, node ->
-                // Search results are a flat working set. The backing tree and entry identity stay
-                // untouched, so selection and file operations still use the normal browser path.
-                node.copy(
-                    depth = 0,
-                    guides = emptyList(),
-                    isLastChild = index == matching.lastIndex,
-                )
+    }
+
+    LaunchedEffect(searchActive) {
+        if (!searchActive) return@LaunchedEffect
+        snapshotFlow { searchResults.map { it.entry } }.collectLatest { entries ->
+            currentOnSearchResultsChanged(entries)
+        }
+    }
+
+    // Keep recursive search results in step with destructive/move operations. The main browser
+    // already consumes the same event to refresh its tree; this removes hits that may live below
+    // currently collapsed ancestors and therefore would not otherwise be represented in nodes.
+    LaunchedEffect(searchActive) {
+        if (!searchActive) return@LaunchedEffect
+        Graph.opEngine.events.collect { event ->
+            val removed = event.removedEntryIds
+            if (removed.isNotEmpty()) {
+                searchResults.removeAll { hit -> searchEntryWasRemoved(hit.entry.id, removed) }
             }
+        }
+    }
+
+    fun updateSearchQuery(value: String) {
+        if (value == searchQuery) return
+        controller.clearSelection()
+        searchQuery = value
+        searchResults.clear()
+        searchError = null
+        searchPhase = if (value.trim().length >= SEARCH_MIN_QUERY_LENGTH) {
+            PaneSearchPhase.SEARCHING
+        } else {
+            PaneSearchPhase.IDLE
         }
     }
 
@@ -136,7 +243,8 @@ fun PaneView(
                 if (searchActive) {
                     PaneSearchHeader(
                         query = searchQuery,
-                        onQueryChange = { searchQuery = it },
+                        phase = searchPhase,
+                        onQueryChange = ::updateSearchQuery,
                         onClose = onSearchClose,
                     )
                 } else {
@@ -205,8 +313,8 @@ fun PaneView(
         controller.scrollTo.collectLatest { request ->
             // Keep this request until the browser is visible again and the expanded path has
             // propagated through the flattened tree.
-            val ready = controller.state.first { state ->
-                state.nodes.any { it.entry.id == request.id }
+            val ready = controller.state.first { paneState ->
+                paneState.nodes.any { it.entry.id == request.id }
             }
             val index = ready.nodes.indexOfFirst { it.entry.id == request.id }
             if (index < 0) return@collectLatest
@@ -218,7 +326,6 @@ fun PaneView(
         if (searchActive) {
             preSearchIndex = listState.firstVisibleItemIndex
         } else {
-            searchQuery = ""
             val restoreIndex = preSearchIndex
             preSearchIndex = null
             if (restoreIndex != null && state.nodes.isNotEmpty()) {
@@ -228,7 +335,7 @@ fun PaneView(
     }
 
     LaunchedEffect(searchActive, searchQuery) {
-        if (searchActive && searchQuery.isNotBlank() && displayNodes.isNotEmpty()) {
+        if (showingSearchResults && displayNodes.isNotEmpty()) {
             listState.scrollToItem(0)
         }
     }
@@ -242,89 +349,139 @@ fun PaneView(
         Box(Modifier.fillMaxSize()) {
             val statusPad = WindowInsets.statusBarsIgnoringVisibility
                 .asPaddingValues().calculateTopPadding()
+            val headerHeight = if (searchActive) SearchHeaderHeight else CrumbBarHeight
 
-            if (state.loadingRoots && state.nodes.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    LoadingIndicator()
+            when {
+                state.loadingRoots && state.nodes.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        LoadingIndicator()
+                    }
                 }
-            } else if (searchActive && searchQuery.isNotBlank() && displayNodes.isEmpty()) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(
-                            top = statusPad + 8.dp + CrumbBarHeight,
+                showingSearchResults && searchPhase == PaneSearchPhase.SEARCHING &&
+                    searchResults.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(
+                                top = statusPad + 8.dp + headerHeight,
+                                bottom = contentPadding.calculateBottomPadding(),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        LoadingIndicator()
+                    }
+                }
+                showingSearchResults && searchPhase == PaneSearchPhase.DONE &&
+                    searchResults.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(
+                                top = statusPad + 8.dp + headerHeight,
+                                bottom = contentPadding.calculateBottomPadding(),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            searchError ?: stringResource(R.string.no_results_for, query),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (searchError == null) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                        )
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(
+                            top = statusPad + 8.dp + headerHeight,
                             bottom = contentPadding.calculateBottomPadding(),
                         ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        stringResource(R.string.no_results_for, searchQuery.trim()),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(
-                        top = statusPad + 8.dp + CrumbBarHeight,
-                        bottom = contentPadding.calculateBottomPadding(),
-                    ),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(
-                        count = displayNodes.size,
-                        key = { displayNodes[it].key },
-                    ) { index ->
-                        val rawNode = displayNodes[index]
-                        val visualDepth = if (searchActive && searchQuery.isNotBlank()) {
-                            0
-                        } else {
-                            (rawNode.depth - depthBase).coerceIn(0, display.treeLevels)
-                        }
-                        val guideBase = (rawNode.depth - visualDepth).coerceAtLeast(0)
-                        val visualGuides = if (visualDepth == rawNode.depth && guideBase == 0) {
-                            rawNode.guides
-                        } else {
-                            List(visualDepth + 1) { localDepth ->
-                                rawNode.guides.getOrNull(guideBase + localDepth) ?: false
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(
+                            count = displayNodes.size,
+                            key = { displayNodes[it].key },
+                        ) { index ->
+                            val rawNode = displayNodes[index]
+                            val visualDepth = if (showingSearchResults) {
+                                0
+                            } else {
+                                (rawNode.depth - depthBase).coerceIn(0, display.treeLevels)
+                            }
+                            val guideBase = (rawNode.depth - visualDepth).coerceAtLeast(0)
+                            val visualGuides = if (visualDepth == rawNode.depth && guideBase == 0) {
+                                rawNode.guides
+                            } else {
+                                List(visualDepth + 1) { localDepth ->
+                                    rawNode.guides.getOrNull(guideBase + localDepth) ?: false
+                                }
+                            }
+                            val node = if (
+                                visualDepth == rawNode.depth && visualGuides === rawNode.guides
+                            ) {
+                                rawNode
+                            } else {
+                                rawNode.copy(depth = visualDepth, guides = visualGuides)
+                            }
+                            val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
+                            Column {
+                                EntryRow(
+                                    node = node,
+                                    selected = node.entry.id in state.selection,
+                                    focused = !showingSearchResults &&
+                                        node.entry.id == state.focusedDirId,
+                                    onClick = {
+                                        onActivate()
+                                        when {
+                                            addSmbServer -> showAddSmbServer = true
+                                            showingSearchResults && node.entry.isContainer -> {
+                                                controller.revealPath(node.entry.id)
+                                                onSearchClose()
+                                            }
+                                            else -> onOpenEntry(node.entry)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        onActivate()
+                                        if (addSmbServer) showAddSmbServer = true
+                                        else onEntryMenu(node.entry)
+                                    },
+                                    onToggleSelect = {
+                                        onActivate()
+                                        controller.toggleSelect(node.entry)
+                                    },
+                                    enabled = !state.snapshotOnly,
+                                    richContent = richRowsEnabled,
+                                    modifier = Modifier
+                                        .padding(horizontal = 4.dp)
+                                        .then(
+                                            if (itemAnimationsEnabled) Modifier.animateItem()
+                                            else Modifier,
+                                        ),
+                                )
+                                if (showingSearchResults) {
+                                    val parentId = searchParents[node.entry.id]
+                                    if (parentId != null) {
+                                        Text(
+                                            displaySearchParentPath(parentId),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(
+                                                start = 56.dp,
+                                                end = 12.dp,
+                                                bottom = 4.dp,
+                                            ),
+                                        )
+                                    }
+                                }
                             }
                         }
-                        val node = if (
-                            visualDepth == rawNode.depth && visualGuides === rawNode.guides
-                        ) {
-                            rawNode
-                        } else {
-                            rawNode.copy(depth = visualDepth, guides = visualGuides)
-                        }
-                        val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
-                        EntryRow(
-                            node = node,
-                            selected = node.entry.id in state.selection,
-                            focused = node.entry.id == state.focusedDirId,
-                            onClick = {
-                                onActivate()
-                                if (addSmbServer) showAddSmbServer = true
-                                else onOpenEntry(node.entry)
-                            },
-                            onLongClick = {
-                                onActivate()
-                                if (addSmbServer) showAddSmbServer = true
-                                else onEntryMenu(node.entry)
-                            },
-                            onToggleSelect = {
-                                onActivate()
-                                controller.toggleSelect(node.entry)
-                            },
-                            enabled = !state.snapshotOnly,
-                            richContent = richRowsEnabled,
-                            modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .then(
-                                    if (itemAnimationsEnabled) Modifier.animateItem()
-                                    else Modifier,
-                                ),
-                        )
                     }
                 }
             }
@@ -332,7 +489,8 @@ fun PaneView(
             if (searchActive) {
                 PaneSearchHeader(
                     query = searchQuery,
-                    onQueryChange = { searchQuery = it },
+                    phase = searchPhase,
+                    onQueryChange = ::updateSearchQuery,
                     onClose = onSearchClose,
                 )
             } else {
@@ -371,6 +529,7 @@ fun PaneView(
 @Composable
 private fun BoxScope.PaneSearchHeader(
     query: String,
+    phase: PaneSearchPhase,
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -396,12 +555,17 @@ private fun BoxScope.PaneSearchHeader(
             }
         },
         trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(
-                        Icons.Outlined.Close,
-                        contentDescription = stringResource(R.string.clear_query),
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (phase == PaneSearchPhase.SEARCHING && query.trim().length >= SEARCH_MIN_QUERY_LENGTH) {
+                    LoadingIndicator(Modifier.size(20.dp))
+                }
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(
+                            Icons.Outlined.Close,
+                            contentDescription = stringResource(R.string.clear_query),
+                        )
+                    }
                 }
             }
         },
@@ -555,4 +719,20 @@ private fun crumbsFor(focusedDirId: String?): List<Pair<String, String>> {
         }
         id to name
     }
+}
+
+private fun displaySearchParentPath(parentId: String): String =
+    if (XId.schemeOf(parentId) == XId.SCHEME_SMB) {
+        Graph.smbConnections.displayLabelPathForId(parentId)
+    } else {
+        parentId.substringAfter("://")
+    }
+
+private fun searchEntryWasRemoved(entryId: String, removedIds: Set<String>): Boolean {
+    var current: String? = entryId
+    while (current != null) {
+        if (current in removedIds) return true
+        current = XId.parent(current)
+    }
+    return false
 }
