@@ -1,0 +1,64 @@
+name: Fix video navigation gesture overlap
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/fix-video-nav-gesture.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Exclude bottom navigation area from video gestures
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          text = path.read_text(encoding='utf-8')
+          old = '''                    .windowInsetsPadding(
+                        WindowInsets.systemGestures
+                            .only(WindowInsetsSides.Horizontal)
+                            .union(WindowInsets(left = EDGE_GUARD_DP.dp, right = EDGE_GUARD_DP.dp)),
+                    )'''
+          new = '''                    .windowInsetsPadding(
+                        WindowInsets.systemGestures
+                            .only(WindowInsetsSides.Horizontal)
+                            .union(WindowInsets(left = EDGE_GUARD_DP.dp, right = EDGE_GUARD_DP.dp))
+                            .union(navBarsIns.only(WindowInsetsSides.Bottom)),
+                    )'''
+
+          matches = text.count(old)
+          if matches != 1:
+              raise SystemExit(f'Expected exactly one gesture inset block, found {matches}')
+
+          path.write_text(text.replace(old, new), encoding='utf-8')
+
+      - name: Compile debug Kotlin
+        run: ./gradlew :app:compileDebugKotlin
+
+      - name: Commit fix and remove one-off workflow
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/fix-video-nav-gesture.yml
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          git commit -m 'Avoid volume changes from navigation gestures'
+          git push origin HEAD:main
