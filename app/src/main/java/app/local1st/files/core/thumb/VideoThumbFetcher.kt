@@ -72,7 +72,7 @@ class VideoThumbFetcher(
                 CacheRead.Failed -> return@withPermit null
                 CacheRead.Miss -> {}
             }
-            val bitmap = extractFrame(data)
+            val bitmap = extractFrame(data) ?: SoftwareVideoThumbnail.extract(context, data)
             writeCache(cached, bitmap)
             bitmap?.let {
                 ImageFetchResult(image = it.asImage(), isSampled = true, dataSource = DataSource.DISK)
