@@ -2,7 +2,6 @@ package app.local1st.files.core.thumb
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.ImageFormat
 import android.graphics.PixelFormat
 import android.media.Image
 import android.media.ImageReader
@@ -93,7 +92,7 @@ internal object SoftwareVideoThumbnail {
                 val player = mediaPlayer ?: return@runOnMainBlocking
                 val source = media ?: return@runOnMainBlocking
                 val reader = imageReader ?: return@runOnMainBlocking
-                val vout = player.vlcVout
+                val vout = player.getVLCVout()
                 vout.setVideoSurface(reader.surface, null)
                 vout.setWindowSize(SIZE, SIZE)
                 vout.attachViews()
@@ -114,7 +113,7 @@ internal object SoftwareVideoThumbnail {
             if (player != null) {
                 runOnMainBlocking(SETUP_TIMEOUT_MS) {
                     runCatching { player.stop() }
-                    if (viewsAttached) runCatching { player.vlcVout.detachViews() }
+                    if (viewsAttached) runCatching { player.getVLCVout().detachViews() }
                 }
             }
             runCatching { imageReader?.setOnImageAvailableListener(null, null) }
@@ -128,7 +127,7 @@ internal object SoftwareVideoThumbnail {
     }
 
     private fun Image.toBitmap(): Bitmap? {
-        if (format != PixelFormat.RGBA_8888 && format != ImageFormat.FLEX_RGBA_8888) return null
+        if (format != PixelFormat.RGBA_8888) return null
         val plane = planes.firstOrNull() ?: return null
         val pixelStride = plane.pixelStride
         val rowStride = plane.rowStride
