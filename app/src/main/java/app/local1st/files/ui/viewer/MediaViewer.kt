@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -138,6 +139,8 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     var metadata by remember { mutableStateOf(MediaMetadata.EMPTY) }
     var hasPrevious by remember { mutableStateOf(false) }
     var hasNext by remember { mutableStateOf(false) }
+    var softwareVideoEntryId by remember { mutableStateOf<String?>(null) }
+    val softwareVideoEntryIdState = rememberUpdatedState(softwareVideoEntryId)
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -157,15 +160,21 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         }
         player.addListener(listener)
         onDispose {
-            saveCurrentVideoResume(context, playable, player)
+            saveCurrentVideoResume(
+                context = context,
+                playable = playable,
+                player = player,
+                skipMediaId = softwareVideoEntryIdState.value,
+            )
             player.removeListener(listener)
             player.release()
         }
     }
 
-    LaunchedEffect(player, currentIndex) {
+    LaunchedEffect(player, currentIndex, softwareVideoEntryId) {
         val resumeEntry = playable.getOrNull(currentIndex) ?: return@LaunchedEffect
         if (!isVideoEntry(resumeEntry)) return@LaunchedEffect
+        if (resumeEntry.id == softwareVideoEntryId) return@LaunchedEffect
 
         val resumeMs = VideoResumeStore.load(context, resumeEntry.id)
         if (resumeMs > player.currentPosition + VIDEO_RESUME_RESTORE_TOLERANCE_MS) {
@@ -189,6 +198,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             playing = playing,
             hasPrevious = hasPrevious,
             hasNext = hasNext,
+            onSoftwareModeChanged = { useSoftware ->
+                softwareVideoEntryId = currentEntry.id.takeIf { useSoftware }
+            },
             onClose = onClose,
         )
     } else {
@@ -216,8 +228,14 @@ private fun mediaUri(entry: XEntry) = when {
 private fun isVideoEntry(entry: XEntry): Boolean =
     FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
 
-private fun saveCurrentVideoResume(context: Context, playable: List<XEntry>, player: Player) {
+private fun saveCurrentVideoResume(
+    context: Context,
+    playable: List<XEntry>,
+    player: Player,
+    skipMediaId: String? = null,
+) {
     val currentEntry = playable.getOrNull(player.currentMediaItemIndex) ?: return
+    if (currentEntry.id == skipMediaId) return
     if (isVideoEntry(currentEntry)) saveVideoResume(context, currentEntry, player)
 }
 
