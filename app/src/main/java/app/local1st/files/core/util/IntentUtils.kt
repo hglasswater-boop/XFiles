@@ -1,5 +1,6 @@
 package app.local1st.files.core.util
 
+import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -15,8 +16,19 @@ import java.io.File
 
 object IntentUtils {
 
-    private fun uriFor(context: Context, path: String): Uri =
-        FileProvider.getUriForFile(context, context.packageName + ".fileprovider", File(path))
+    private fun uriFor(context: Context, entry: XEntry): Uri = when {
+        entry.localPath != null -> FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            File(entry.localPath),
+        )
+        RemoteFileProvider.canServe(entry) -> RemoteFileProvider.uriFor(context, entry)
+        else -> throw IllegalArgumentException("Entry cannot be exposed to another app: ${entry.id}")
+    }
+
+    /** Whether this file can be handed to another Android app as a readable content:// URI. */
+    fun canExternalRead(entry: XEntry): Boolean =
+        !entry.isDir && (entry.localPath != null || RemoteFileProvider.canServe(entry))
 
     /**
      * These are launched from the application context (see [app.local1st.files.di.Graph.appContext]),
@@ -30,33 +42,37 @@ object IntentUtils {
         false
     }
 
-    /** Open a local file with an external app chooser. Returns false when nothing handled it. */
+    /** Open a local or supported remote file with an external app chooser. */
     fun openWith(context: Context, entry: XEntry): Boolean = try {
-        val path = entry.localPath ?: return false
+        if (!canExternalRead(entry)) return false
         val mime = entry.mime ?: FileTypes.mimeOf(entry.name) ?: "*/*"
+        val uri = uriFor(context, entry)
         val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uriFor(context, path), mime)
+            .setDataAndType(uri, mime)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.clipData = ClipData.newUri(context.contentResolver, entry.name, uri)
         context.launch(Intent.createChooser(intent, entry.name))
     } catch (_: Throwable) {
         false
     }
 
-    /** Shares local files through the system chooser. Returns false when the handoff fails. */
+    /** Shares local files and supported remote files through the system chooser. */
     fun share(context: Context, entries: List<XEntry>): Boolean {
         return try {
-            // Never silently share only the local subset of a mixed selection.
-            val uris = entries.map { uriFor(context, it.localPath ?: return false) }
-            if (uris.isEmpty()) return false
+            if (entries.isEmpty() || entries.any { !canExternalRead(it) }) return false
+            val uris = entries.map { uriFor(context, it) }
+            val clipData = ClipData.newUri(context.contentResolver, entries.first().name, uris.first())
+            uris.drop(1).forEach { clipData.addItem(ClipData.Item(it)) }
             val intent = if (uris.size == 1) {
                 Intent(Intent.ACTION_SEND)
-                    .setType(entries.first().mime ?: "*/*")
+                    .setType(entries.first().mime ?: FileTypes.mimeOf(entries.first().name) ?: "*/*")
                     .putExtra(Intent.EXTRA_STREAM, uris.first())
             } else {
                 Intent(Intent.ACTION_SEND_MULTIPLE)
                     .setType("*/*")
                     .putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
             }
+            intent.clipData = clipData
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             context.launch(Intent.createChooser(intent, null))
         } catch (_: Throwable) {
