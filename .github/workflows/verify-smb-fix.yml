@@ -39,6 +39,7 @@ jobs:
             cancelled) STATE=error ;;
             *) STATE=failure ;;
           esac
+          export STATE
           python3 - <<'PY'
           import json, os
           payload = {
