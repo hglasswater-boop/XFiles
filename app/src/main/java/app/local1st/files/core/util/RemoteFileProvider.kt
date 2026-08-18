@@ -85,7 +85,18 @@ class RemoteFileProvider : ContentProvider() {
                 val count = min(min(requestedSize, data.size).toLong(), remaining).toInt()
                 if (count <= 0) return 0
                 return try {
-                    remote.read(offset, data, 0, count).coerceAtLeast(0)
+                    var total = 0
+                    while (total < count) {
+                        val read = remote.read(
+                            offset + total,
+                            data,
+                            total,
+                            count - total,
+                        )
+                        if (read <= 0) break
+                        total += read
+                    }
+                    total
                 } catch (error: Throwable) {
                     throw ErrnoException("SMB read", OsConstants.EIO, error)
                 }
