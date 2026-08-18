@@ -13,6 +13,8 @@ import android.os.ParcelFileDescriptor
 import android.os.ProxyFileDescriptorCallback
 import android.os.storage.StorageManager
 import android.provider.OpenableColumns
+import android.system.ErrnoException
+import android.system.OsConstants
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
@@ -78,15 +80,15 @@ class RemoteFileProvider : ContentProvider() {
 
             override fun onRead(offset: Long, requestedSize: Int, data: ByteArray): Int {
                 if (offset < 0L || requestedSize <= 0 || data.isEmpty()) return 0
-                if (size >= 0L && offset >= size) return 0
-                var count = min(requestedSize, data.size)
-                if (size >= 0L) {
-                    val remaining = size - offset
-                    if (remaining <= 0L) return 0
-                    count = min(count.toLong(), remaining).toInt()
-                }
+                if (offset >= size) return 0
+                val remaining = size - offset
+                val count = min(min(requestedSize, data.size).toLong(), remaining).toInt()
                 if (count <= 0) return 0
-                return remote.read(offset, data, 0, count).coerceAtLeast(0)
+                return try {
+                    remote.read(offset, data, 0, count).coerceAtLeast(0)
+                } catch (error: Throwable) {
+                    throw ErrnoException("SMB read", OsConstants.EIO, error)
+                }
             }
 
             override fun onRelease() {
@@ -108,15 +110,8 @@ class RemoteFileProvider : ContentProvider() {
         }
     }
 
-    override fun openAssetFile(uri: Uri, mode: String): AssetFileDescriptor {
-        val id = requireSmbId(uri)
-        val size = resolvedSize(uri, id)
-        return AssetFileDescriptor(
-            openFile(uri, mode),
-            0L,
-            if (size >= 0L) size else AssetFileDescriptor.UNKNOWN_LENGTH,
-        )
-    }
+    override fun openAssetFile(uri: Uri, mode: String): AssetFileDescriptor =
+        AssetFileDescriptor(openFile(uri, mode), 0L, AssetFileDescriptor.UNKNOWN_LENGTH)
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? =
         throw UnsupportedOperationException("Remote files are read-only")
@@ -149,7 +144,8 @@ class RemoteFileProvider : ContentProvider() {
     private fun resolvedSize(uri: Uri, id: String): Long {
         val encoded = fileSize(uri)
         if (encoded >= 0L) return encoded
-        return Graph.fsRegistry.forId(id).stat(id)?.size?.takeIf { it >= 0L } ?: -1L
+        return Graph.fsRegistry.forId(id).stat(id)?.size?.takeIf { it >= 0L }
+            ?: throw FileNotFoundException("Unable to determine SMB file size")
     }
 
     companion object {
