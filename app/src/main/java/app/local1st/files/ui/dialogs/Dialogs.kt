@@ -424,6 +424,12 @@ private fun EntryMenuContent(
             MenuItem("このフォルダの並び順") {
                 vm.dialog.value = DialogRequest.FolderSort(entry)
             }
+            if (entry != null) {
+                MenuItem("別ペインで開く") {
+                    vm.openFolderInOtherPane(entry)
+                    dismiss()
+                }
+            }
             MenuItem("コピー") {
                 Graph.smbConnections.duplicate(smbConnection.id)
                 dismiss()
@@ -512,6 +518,10 @@ private fun EntryMenuContent(
             if (entry.isDir) {
                 MenuItem("このフォルダの並び順") {
                     vm.dialog.value = DialogRequest.FolderSort(entry)
+                }
+                MenuItem("別ペインで開く") {
+                    vm.openFolderInOtherPane(entry)
+                    dismiss()
                 }
             }
             if (entry.isDir && vm.canCreateFileIn(entry)) {
@@ -659,6 +669,7 @@ private fun ContextMenuColumn(
 private fun contextMenuOrderKey(label: String): String? = when (label) {
     stringResource(R.string.details) -> ContextMenuOrderSettings.DETAILS
     "このフォルダの並び順" -> ContextMenuOrderSettings.FOLDER_SORT
+    "別ペインで開く" -> ContextMenuOrderSettings.OPEN_IN_OTHER_PANE
     stringResource(R.string.new_text_file) -> ContextMenuOrderSettings.NEW_TEXT_FILE
     stringResource(R.string.add_to_favorites), stringResource(R.string.remove_from_favorites) -> ContextMenuOrderSettings.FAVORITE
     stringResource(R.string.open_with) -> ContextMenuOrderSettings.OPEN_WITH
