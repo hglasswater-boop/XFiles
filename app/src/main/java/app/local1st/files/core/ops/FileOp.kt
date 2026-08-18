@@ -41,6 +41,12 @@ data class OpProgress(
     val totalItems: Int = 0,
     val doneItems: Int = 0,
     val currentItem: String = "",
+    /** True for copy/move operations that can expose transfer speed and ETA. */
+    val showTransferStats: Boolean = false,
+    /** Smoothed transfer throughput in bytes per second. */
+    val bytesPerSecond: Long = 0,
+    /** Estimated remaining transfer time, or null until a stable speed sample exists. */
+    val estimatedRemainingMillis: Long? = null,
     val error: String? = null,
 ) {
     val fraction: Float

@@ -14,6 +14,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,10 @@ private const val COPY_BUFFER_SIZE = 128 * 1024
 
 /** Minimum interval between StateFlow progress publications (~10 updates/s). */
 private const val PUBLISH_INTERVAL_NANOS = 100_000_000L
+
+/** Transfer samples are intentionally slower than UI publications so throughput does not jitter. */
+private const val SPEED_SAMPLE_INTERVAL_NANOS = 500_000_000L
+private const val SPEED_SMOOTHING_ALPHA = 0.3
 
 /** Characters not allowed in FAT/exFAT filenames; an app's label becomes the copied file's name. */
 private val ILLEGAL_FILENAME_CHARS = Regex("[\\\\/:*?\"<>|\\x00-\\x1F]")
@@ -69,7 +74,11 @@ class DefaultOperationEngine(
     override val events: SharedFlow<OpEvent> = _events
 
     override fun submit(op: FileOp): RunningOp {
-        val running = RunningOpImpl(nextId.getAndIncrement(), titleFor(op))
+        val running = RunningOpImpl(
+            id = nextId.getAndIncrement(),
+            title = titleFor(op),
+            showTransferStats = op is FileOp.Copy,
+        )
         // LAZY start so `running.job` is assigned before the coroutine can observe it.
         val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             execute(op, running)
@@ -669,11 +678,14 @@ private class AppExport(
 private class RunningOpImpl(
     override val id: Long,
     private val title: String,
+    private val showTransferStats: Boolean,
 ) : RunningOp {
 
     lateinit var job: Job
 
-    private val _progress = MutableStateFlow(OpProgress(title = title))
+    private val _progress = MutableStateFlow(
+        OpProgress(title = title, showTransferStats = showTransferStats),
+    )
     override val progress: StateFlow<OpProgress> = _progress
 
     private val _pendingConflict = MutableStateFlow<Conflict?>(null)
@@ -688,6 +700,13 @@ private class RunningOpImpl(
     private var doneItems = 0
     private var currentItem = ""
     private var lastPublishNanos = 0L
+
+    // Throughput is based only on bytes actually streamed. Progress bytes advanced by SKIP are
+    // deliberately excluded so conflict decisions cannot make the displayed speed spike.
+    private var transferredBytes = 0L
+    private var speedBytesPerSecond = 0L
+    private var speedSampleBytes = 0L
+    private var speedSampleNanos = 0L
 
     override fun resolveConflict(resolution: ConflictResolution) {
         conflictReply.get()?.complete(resolution)
@@ -704,7 +723,9 @@ private class RunningOpImpl(
     /** Absolute progress setter used by parallel zip workers (via a single publisher). */
     @Synchronized
     fun setBytesDone(total: Long) {
+        val delta = (total - doneBytes).coerceAtLeast(0L)
         doneBytes = total
+        recordTransferred(delta)
         publish(force = true)
     }
 
@@ -719,7 +740,9 @@ private class RunningOpImpl(
     }
 
     fun setState(state: OpState) {
+        val resumedFromConflict = this.state == OpState.AWAITING_CONFLICT && state == OpState.RUNNING
         this.state = state
+        if (resumedFromConflict) resetSpeedSample()
         publish(force = true)
     }
 
@@ -730,6 +753,7 @@ private class RunningOpImpl(
 
     fun bytesDone(n: Long) {
         doneBytes += n
+        recordTransferred(n)
         publish()
     }
 
@@ -766,6 +790,51 @@ private class RunningOpImpl(
         _progress.value = snapshot(error)
     }
 
+    private fun recordTransferred(delta: Long) {
+        if (!showTransferStats || delta <= 0L) return
+        transferredBytes += delta
+        val now = System.nanoTime()
+        if (speedSampleNanos == 0L) {
+            speedSampleNanos = now
+            speedSampleBytes = transferredBytes
+            return
+        }
+        val elapsedNanos = now - speedSampleNanos
+        if (elapsedNanos < SPEED_SAMPLE_INTERVAL_NANOS) return
+
+        val sampleBytes = transferredBytes - speedSampleBytes
+        if (sampleBytes > 0L) {
+            val instantSpeed = sampleBytes.toDouble() * 1_000_000_000.0 / elapsedNanos.toDouble()
+            speedBytesPerSecond = if (speedBytesPerSecond <= 0L) {
+                instantSpeed.roundToLong()
+            } else {
+                (
+                    speedBytesPerSecond.toDouble() * (1.0 - SPEED_SMOOTHING_ALPHA) +
+                        instantSpeed * SPEED_SMOOTHING_ALPHA
+                    ).roundToLong()
+            }
+        }
+        speedSampleNanos = now
+        speedSampleBytes = transferredBytes
+    }
+
+    private fun resetSpeedSample() {
+        if (!showTransferStats) return
+        speedBytesPerSecond = 0L
+        speedSampleBytes = transferredBytes
+        speedSampleNanos = 0L
+    }
+
+    private fun estimatedRemainingMillis(): Long? {
+        if (!showTransferStats || state != OpState.RUNNING || totalBytes <= 0L || speedBytesPerSecond <= 0L) {
+            return null
+        }
+        val remainingBytes = (totalBytes - doneBytes).coerceAtLeast(0L)
+        return (remainingBytes.toDouble() * 1_000.0 / speedBytesPerSecond.toDouble())
+            .roundToLong()
+            .coerceAtLeast(0L)
+    }
+
     private fun publish(force: Boolean = false) {
         val now = System.nanoTime()
         if (!force && now - lastPublishNanos < PUBLISH_INTERVAL_NANOS) return
@@ -781,6 +850,9 @@ private class RunningOpImpl(
         totalItems = totalItems,
         doneItems = doneItems,
         currentItem = currentItem,
+        showTransferStats = showTransferStats,
+        bytesPerSecond = speedBytesPerSecond,
+        estimatedRemainingMillis = estimatedRemainingMillis(),
         error = error,
     )
 }

@@ -34,8 +34,12 @@ import app.local1st.files.core.ops.BackgroundJobs
 import app.local1st.files.core.ops.ConflictChoice
 import app.local1st.files.core.ops.ConflictResolution
 import app.local1st.files.core.ops.OpState
+import app.local1st.files.core.util.Format
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.components.TooltipIconButton
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 /** Floating progress cards + conflict dialogs for running file operations and background jobs. */
@@ -109,6 +113,25 @@ fun OpsHost() {
                                 overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (
+                                progress.showTransferStats &&
+                                progress.state == OpState.RUNNING &&
+                                progress.bytesPerSecond > 0L
+                            ) {
+                                val eta = progress.estimatedRemainingMillis?.let(::formatEtaTime)
+                                Text(
+                                    buildString {
+                                        append(Format.bytes(progress.bytesPerSecond))
+                                        append("/s")
+                                        if (eta != null) {
+                                            append("  •  ETA ")
+                                            append(eta)
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                         TooltipIconButton(stringResource(R.string.cancel_operation), Icons.Outlined.Close, onClick = { op.cancel() })
                     }
@@ -160,4 +183,9 @@ fun OpsHost() {
             }
         }
     }
+}
+
+private fun formatEtaTime(remainingMillis: Long): String {
+    val finishAt = System.currentTimeMillis() + remainingMillis.coerceAtLeast(0L)
+    return DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(Date(finishAt))
 }
