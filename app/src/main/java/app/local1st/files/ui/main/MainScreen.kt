@@ -73,7 +73,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
@@ -111,7 +110,13 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     var startupContentReady by rememberSaveable(vm) {
         mutableStateOf(sessionReady && activeState.snapshotOnly)
     }
+    var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
     val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
+
+    fun closeSearch(paneIndex: Int) {
+        vm.panes[paneIndex].clearSelection()
+        if (searchPane == paneIndex) searchPane = null
+    }
 
     val selectionCount = activeState.selection.size
     val selectedFiles = if (selectionCount > 0) {
@@ -133,7 +138,12 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     BackHandler(enabled = pendingTransfer != null) {
         vm.cancelTransferDestination()
     }
-    BackHandler(enabled = pendingTransfer == null && selectionCount > 0) {
+    BackHandler(enabled = pendingTransfer == null && searchPane == activePane) {
+        closeSearch(activePane)
+    }
+    BackHandler(
+        enabled = pendingTransfer == null && searchPane != activePane && selectionCount > 0,
+    ) {
         vm.activeCtrl.clearSelection()
     }
 
@@ -155,21 +165,23 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             active = activePane == index,
                             onActivate = { vm.setActivePane(index) },
                             onOpenEntry = { entry ->
-                        if (pendingTransfer != null && entry.isContainer) {
-                            pane.toggleExpand(entry)
-                        } else if (pendingTransfer == null) {
-                            vm.openEntry(pane, entry)
-                        }
-                    },
+                                if (pendingTransfer != null && entry.isContainer) {
+                                    pane.toggleExpand(entry)
+                                } else if (pendingTransfer == null) {
+                                    vm.openEntry(pane, entry)
+                                }
+                            },
                             onEntryMenu = { entry ->
-                        if (pendingTransfer == null) {
-                            vm.dialog.value = DialogRequest.EntryMenu(entry)
-                        }
-                    },
+                                if (pendingTransfer == null) {
+                                    vm.dialog.value = DialogRequest.EntryMenu(entry)
+                                }
+                            },
                             onInitialLayoutReady = { version ->
                                 initiallyLaidOutPanes = initiallyLaidOutPanes + index
                                 vm.onPaneInitialLayoutReady(index, version)
                             },
+                            searchActive = searchPane == index,
+                            onSearchClose = { closeSearch(index) },
                             contentPadding = listPadding,
                             modifier = Modifier
                                 .weight(1f)
@@ -205,17 +217,17 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         active = activePane == page,
                         onActivate = { vm.setActivePane(page) },
                         onOpenEntry = { entry ->
-                        if (pendingTransfer != null && entry.isContainer) {
-                            pane.toggleExpand(entry)
-                        } else if (pendingTransfer == null) {
-                            vm.openEntry(pane, entry)
-                        }
-                    },
+                            if (pendingTransfer != null && entry.isContainer) {
+                                pane.toggleExpand(entry)
+                            } else if (pendingTransfer == null) {
+                                vm.openEntry(pane, entry)
+                            }
+                        },
                         onEntryMenu = { entry ->
-                        if (pendingTransfer == null) {
-                            vm.dialog.value = DialogRequest.EntryMenu(entry)
-                        }
-                    },
+                            if (pendingTransfer == null) {
+                                vm.dialog.value = DialogRequest.EntryMenu(entry)
+                            }
+                        },
                         onInitialLayoutReady = { version ->
                             initiallyLaidOutPanes = initiallyLaidOutPanes + page
                             vm.onPaneInitialLayoutReady(page, version)
@@ -250,6 +262,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                 onClick = { vm.setActivePane(targetPane) },
                             )
                         },
+                        searchActive = searchPane == page,
+                        onSearchClose = { closeSearch(page) },
                         contentPadding = listPadding,
                         modifier = Modifier.padding(horizontal = 4.dp),
                     )
@@ -281,87 +295,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
 
         // Signature X-plore action bar, reimagined as an Expressive floating toolbar.
         if (pendingTransfer == null) {
-        HorizontalFloatingToolbar(
-            expanded = true,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                .offset(y = (-24).dp),
-            content = {
-                AnimatedContent(
-                    targetState = selectionCount > 0,
-                    label = "toolbar",
-                ) { hasSelection ->
-                    Row {
-                        if (hasSelection) {
-                            TooltipIconButton(stringResource(R.string.clear), Icons.Outlined.Close) {
-                                vm.activeCtrl.clearSelection()
-                            }
-                            Text(
-                                "$selectionCount",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.align(Alignment.CenterVertically),
-                            )
-                            TooltipIconButton(
-                                label = copyTargetLabel,
-                                icon = Icons.Outlined.ContentCopy,
-                                enabled = canUseOtherPane,
-                            ) {
-                                vm.chooseTransferDestination(move = false)
-                            }
-                            TooltipIconButton(
-                                label = moveTargetLabel,
-                                icon = Icons.AutoMirrored.Outlined.DriveFileMove,
-                                enabled = canUseOtherPane,
-                            ) {
-                                vm.chooseTransferDestination(move = true)
-                            }
-                            TooltipIconButton(stringResource(R.string.delete), Icons.Outlined.Delete) { vm.requestDelete() }
-                            TooltipIconButton(
-                                label = compressTargetLabel,
-                                icon = Icons.Outlined.Archive,
-                                enabled = canUseOtherPane,
-                            ) { vm.requestCompress() }
-                            TooltipIconButton(
-                                label = stringResource(
-                                    if (canShareSelection) R.string.share
-                                    else R.string.share_requires_local_files,
-                                ),
-                                icon = Icons.Outlined.Share,
-                                enabled = canShareSelection,
-                            ) { vm.shareSelection() }
-                        } else {
-                            TooltipIconButton(stringResource(R.string.new_folder), Icons.Outlined.CreateNewFolder) {
-                                vm.requestNewFolder()
-                            }
-                            TooltipIconButton(
-                                stringResource(R.string.new_text_file),
-                                Icons.AutoMirrored.Outlined.NoteAdd,
-                            ) {
-                                vm.requestNewTextFile()
-                            }
-                            TooltipIconButton(
-                                stringResource(R.string.search),
-                                Icons.Outlined.Search,
-                                onClick = dropUnlessResumed { vm.openSearch() },
-                            )
-                            TooltipIconButton(stringResource(R.string.refresh), Icons.Outlined.Refresh) {
-                                vm.activeCtrl.refreshAllExpanded()
-                            }
-                            TooltipIconButton(stringResource(R.string.more), Icons.Outlined.MoreVert) {
-                                vm.dialog.value = DialogRequest.EntryMenu(
-                                    entry = vm.activeCtrl.focusedDirEntry(),
-                                    showSettings = true,
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-        )
-    } else {
-        val transfer = pendingTransfer
-        if (transfer != null) {
             HorizontalFloatingToolbar(
                 expanded = true,
                 modifier = Modifier
@@ -369,42 +302,143 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
                     .offset(y = (-24).dp),
                 content = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TooltipIconButton(
-                            label = stringResource(R.string.cancel),
-                            icon = Icons.Outlined.Close,
-                        ) { vm.cancelTransferDestination() }
-                        Text(
-                            "${transfer.sources.size}",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            transferDestinationName,
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .padding(horizontal = 6.dp)
-                                .widthIn(max = 140.dp),
-                        )
-                        TooltipIconButton(
-                            label = if (transfer.move) {
-                                "ここへ移動: $transferDestinationName"
+                    AnimatedContent(
+                        targetState = selectionCount > 0,
+                        label = "toolbar",
+                    ) { hasSelection ->
+                        Row {
+                            if (hasSelection) {
+                                TooltipIconButton(stringResource(R.string.clear), Icons.Outlined.Close) {
+                                    vm.activeCtrl.clearSelection()
+                                }
+                                Text(
+                                    "$selectionCount",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
+                                TooltipIconButton(
+                                    label = copyTargetLabel,
+                                    icon = Icons.Outlined.ContentCopy,
+                                    enabled = canUseOtherPane,
+                                ) {
+                                    vm.chooseTransferDestination(move = false)
+                                }
+                                TooltipIconButton(
+                                    label = moveTargetLabel,
+                                    icon = Icons.AutoMirrored.Outlined.DriveFileMove,
+                                    enabled = canUseOtherPane,
+                                ) {
+                                    vm.chooseTransferDestination(move = true)
+                                }
+                                TooltipIconButton(
+                                    stringResource(R.string.delete),
+                                    Icons.Outlined.Delete,
+                                ) { vm.requestDelete() }
+                                TooltipIconButton(
+                                    label = compressTargetLabel,
+                                    icon = Icons.Outlined.Archive,
+                                    enabled = canUseOtherPane,
+                                ) { vm.requestCompress() }
+                                TooltipIconButton(
+                                    label = stringResource(
+                                        if (canShareSelection) R.string.share
+                                        else R.string.share_requires_local_files,
+                                    ),
+                                    icon = Icons.Outlined.Share,
+                                    enabled = canShareSelection,
+                                ) { vm.shareSelection() }
                             } else {
-                                "ここへコピー: $transferDestinationName"
-                            },
-                            icon = if (transfer.move) {
-                                Icons.AutoMirrored.Outlined.DriveFileMove
-                            } else {
-                                Icons.Outlined.ContentCopy
-                            },
-                            enabled = canConfirmTransfer,
-                        ) { vm.confirmTransferCurrentDestination() }
+                                TooltipIconButton(
+                                    stringResource(R.string.new_folder),
+                                    Icons.Outlined.CreateNewFolder,
+                                ) {
+                                    vm.requestNewFolder()
+                                }
+                                TooltipIconButton(
+                                    stringResource(R.string.new_text_file),
+                                    Icons.AutoMirrored.Outlined.NoteAdd,
+                                ) {
+                                    vm.requestNewTextFile()
+                                }
+                                TooltipIconButton(
+                                    stringResource(R.string.search),
+                                    Icons.Outlined.Search,
+                                ) {
+                                    if (searchPane == activePane) {
+                                        closeSearch(activePane)
+                                    } else {
+                                        searchPane?.let { previous ->
+                                            vm.panes[previous].clearSelection()
+                                        }
+                                        searchPane = activePane
+                                    }
+                                }
+                                TooltipIconButton(
+                                    stringResource(R.string.refresh),
+                                    Icons.Outlined.Refresh,
+                                ) {
+                                    vm.activeCtrl.refreshAllExpanded()
+                                }
+                                TooltipIconButton(
+                                    stringResource(R.string.more),
+                                    Icons.Outlined.MoreVert,
+                                ) {
+                                    vm.dialog.value = DialogRequest.EntryMenu(
+                                        entry = vm.activeCtrl.focusedDirEntry(),
+                                        showSettings = true,
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
             )
+        } else {
+            val transfer = pendingTransfer
+            if (transfer != null) {
+                HorizontalFloatingToolbar(
+                    expanded = true,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                        .offset(y = (-24).dp),
+                    content = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TooltipIconButton(
+                                label = stringResource(R.string.cancel),
+                                icon = Icons.Outlined.Close,
+                            ) { vm.cancelTransferDestination() }
+                            Text(
+                                "${transfer.sources.size}",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                transferDestinationName,
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .padding(horizontal = 6.dp)
+                                    .widthIn(max = 140.dp),
+                            )
+                            TooltipIconButton(
+                                label = if (transfer.move) {
+                                    "ここへ移動: $transferDestinationName"
+                                } else {
+                                    "ここへコピー: $transferDestinationName"
+                                },
+                                icon = if (transfer.move) {
+                                    Icons.AutoMirrored.Outlined.DriveFileMove
+                                } else {
+                                    Icons.Outlined.ContentCopy
+                                },
+                                enabled = canConfirmTransfer,
+                            ) { vm.confirmTransferCurrentDestination() }
+                        }
+                    },
+                )
+            }
         }
-    }
 
         val requiredPanes = if (wideLayout) vm.panes.indices else listOf(activePane)
         val currentLayoutReady = requiredPanes.all { index ->
