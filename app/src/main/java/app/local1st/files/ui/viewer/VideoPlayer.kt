@@ -323,7 +323,8 @@ fun VideoPlayerScreen(
                     .windowInsetsPadding(
                         WindowInsets.systemGestures
                             .only(WindowInsetsSides.Horizontal)
-                            .union(WindowInsets(left = EDGE_GUARD_DP.dp, right = EDGE_GUARD_DP.dp)),
+                            .union(WindowInsets(left = EDGE_GUARD_DP.dp, right = EDGE_GUARD_DP.dp))
+                            .union(navBarsIns.only(WindowInsetsSides.Bottom)),
                     )
                     .pointerInput(Unit) {
                         var mode = VideoGestureMode.UNDECIDED
