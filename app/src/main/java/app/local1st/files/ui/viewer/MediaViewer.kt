@@ -183,7 +183,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     val isVideo = isVideoEntry(currentEntry)
 
     if (isVideo) {
-        VideoPlayerScreen(
+        AdaptiveVideoPlayerScreen(
             player = player,
             entry = currentEntry,
             playing = playing,
