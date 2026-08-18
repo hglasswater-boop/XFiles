@@ -119,7 +119,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     } else {
         emptyList()
     }
-    val canShareSelection = selectedFiles.isNotEmpty() && selectedFiles.all { it.localPath != null }
+    val canShareSelection = selectedFiles.isNotEmpty() &&
+        selectedFiles.all { app.local1st.files.core.util.IntentUtils.canExternalRead(it) }
     val unavailableDestinationLabel = stringResource(R.string.cannot_write, otherPaneName)
     val copyTargetLabel = stringResource(R.string.copy_to)
     val moveTargetLabel = stringResource(R.string.move_to)
