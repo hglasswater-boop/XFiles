@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   apk:
@@ -100,13 +101,12 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-      # Temporary: force a failure only after the artifact is safely uploaded so the GitHub
-      # notification exposes this run id to the connected client. Reverted immediately after
-      # downloading the APK.
-      - name: Temporary artifact locator
-        run: |
-          echo "APK artifact uploaded; intentionally failing this temporary locator run."
-          exit 1
+      # Temporary locator for this chat session. The commit that adds this step is reverted after
+      # the artifact is downloaded, leaving the PR's actual code diff clean.
+      - name: Publish temporary artifact locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment 18 --body "TEMP_APK_RUN_ID=${{ github.run_id }}"
 
   test:
     name: Unit tests
