@@ -456,7 +456,7 @@ class MainViewModel : ViewModel() {
     }
 
     fun openWith(entry: XEntry) {
-        if (entry.localPath == null) {
+        if (!IntentUtils.canExternalRead(entry)) {
             snackbar.tryEmit(text(R.string.open_with_requires_local_file))
             return
         }
@@ -582,7 +582,7 @@ class MainViewModel : ViewModel() {
                             Graph.appContext, file, label, progress,
                             onResult = { verdict.complete(it) },
                         ) { BackgroundJobs.messages.tryEmit(text(R.string.aab_key_regenerated)) }
-                        awaitVerdict(job, session, verdict, unwindOnGiveUp = false) {}
+                        awaitVerdict(job, session, pending = verdict, unwindOnGiveUp = false) {}
                     }
                     else -> installBundle(entry, file, label, job, progress)
                 }
@@ -884,7 +884,7 @@ fun confirmTransfer(destDir: XEntry) {
             snackbar.tryEmit(text(R.string.select_file_to_share))
             return
         }
-        if (files.any { it.localPath == null }) {
+        if (files.any { !IntentUtils.canExternalRead(it) }) {
             snackbar.tryEmit(text(R.string.share_requires_local_files))
             return
         }
