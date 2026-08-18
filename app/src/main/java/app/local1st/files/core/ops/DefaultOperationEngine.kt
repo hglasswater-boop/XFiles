@@ -41,7 +41,7 @@ private const val SPEED_SAMPLE_INTERVAL_NANOS = 500_000_000L
 private const val SPEED_SMOOTHING_ALPHA = 0.3
 
 /** Characters not allowed in FAT/exFAT filenames; an app's label becomes the copied file's name. */
-private val ILLEGAL_FILENAME_CHARS = Regex("[\\/:*?\"<>|\x00-\x1F]")
+private val ILLEGAL_FILENAME_CHARS = Regex("[\\\\/:*?\"<>|\\x00-\\x1F]")
 
 /** Shared empty stream for zip directory entries. */
 private val EMPTY_INPUT: InputStream get() = object : InputStream() {
