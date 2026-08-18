@@ -22,13 +22,20 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,7 +50,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -65,7 +76,7 @@ import kotlinx.coroutines.flow.first
 val CrumbBarHeight = 40.dp
 
 /**
- * One browser pane: breadcrumb bar + flattened tree list.
+ * One browser pane: breadcrumb/search bar + flattened tree list.
  * The whole X-plore signature view.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
@@ -81,6 +92,8 @@ fun PaneView(
     headerStartPadding: Dp = 6.dp,
     headerEndPadding: Dp = 6.dp,
     headerOverlay: (@Composable () -> Unit)? = null,
+    searchActive: Boolean = false,
+    onSearchClose: () -> Unit = {},
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
@@ -89,6 +102,26 @@ fun PaneView(
     val initialScrollIndex = state.initialScrollIndex
     var breadcrumbSortTarget by remember(controller) {
         mutableStateOf<Pair<String, String>?>(null)
+    }
+    var searchQuery by rememberSaveable(controller) { mutableStateOf("") }
+
+    val displayNodes = remember(state.nodes, searchActive, searchQuery) {
+        if (!searchActive || searchQuery.isBlank()) {
+            state.nodes
+        } else {
+            val matching = state.nodes.filter { node ->
+                browserNameMatches(node.entry.name, searchQuery)
+            }
+            matching.mapIndexed { index, node ->
+                // Search results are a flat working set. The backing tree and entry identity stay
+                // untouched, so selection and file operations still use the normal browser path.
+                node.copy(
+                    depth = 0,
+                    guides = emptyList(),
+                    isLastChild = index == matching.lastIndex,
+                )
+            }
+        }
     }
 
     if (initialScrollIndex == null) {
@@ -100,22 +133,30 @@ fun PaneView(
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 LoadingIndicator()
-                PaneHeader(
-                    focusedDirId = state.focusedDirId,
-                    active = active,
-                    breadcrumbAlignment = breadcrumbAlignment,
-                    headerStartPadding = headerStartPadding,
-                    headerEndPadding = headerEndPadding,
-                    headerOverlay = headerOverlay,
-                    onCrumbClick = { id ->
-                        onActivate()
-                        controller.revealPath(id)
-                    },
-                    onCrumbLongClick = { id, name ->
-                        onActivate()
-                        breadcrumbSortTarget = id to name
-                    },
-                )
+                if (searchActive) {
+                    PaneSearchHeader(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        onClose = onSearchClose,
+                    )
+                } else {
+                    PaneHeader(
+                        focusedDirId = state.focusedDirId,
+                        active = active,
+                        breadcrumbAlignment = breadcrumbAlignment,
+                        headerStartPadding = headerStartPadding,
+                        headerEndPadding = headerEndPadding,
+                        headerOverlay = headerOverlay,
+                        onCrumbClick = { id ->
+                            onActivate()
+                            controller.revealPath(id)
+                        },
+                        onCrumbLongClick = { id, name ->
+                            onActivate()
+                            breadcrumbSortTarget = id to name
+                        },
+                    )
+                }
             }
         }
         breadcrumbSortTarget?.let { (id, name) ->
@@ -140,6 +181,7 @@ fun PaneView(
     var richRowsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
     var itemAnimationsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
     var showAddSmbServer by rememberSaveable(controller) { mutableStateOf(false) }
+    var preSearchIndex by remember(controller) { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(controller, listState, state.treeVersion) {
         snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
@@ -172,6 +214,25 @@ fun PaneView(
         }
     }
 
+    LaunchedEffect(searchActive) {
+        if (searchActive) {
+            preSearchIndex = listState.firstVisibleItemIndex
+        } else {
+            searchQuery = ""
+            val restoreIndex = preSearchIndex
+            preSearchIndex = null
+            if (restoreIndex != null && state.nodes.isNotEmpty()) {
+                listState.scrollToItem(restoreIndex.coerceAtMost(state.nodes.lastIndex))
+            }
+        }
+    }
+
+    LaunchedEffect(searchActive, searchQuery) {
+        if (searchActive && searchQuery.isNotBlank() && displayNodes.isNotEmpty()) {
+            listState.scrollToItem(0)
+        }
+    }
+
     Surface(
         modifier = modifier.fillMaxSize(),
         color = if (active) MaterialTheme.colorScheme.surface
@@ -186,6 +247,22 @@ fun PaneView(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     LoadingIndicator()
                 }
+            } else if (searchActive && searchQuery.isNotBlank() && displayNodes.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(
+                            top = statusPad + 8.dp + CrumbBarHeight,
+                            bottom = contentPadding.calculateBottomPadding(),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(R.string.no_results_for, searchQuery.trim()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else {
                 LazyColumn(
                     state = listState,
@@ -196,11 +273,15 @@ fun PaneView(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(
-                        count = state.nodes.size,
-                        key = { state.nodes[it].key },
+                        count = displayNodes.size,
+                        key = { displayNodes[it].key },
                     ) { index ->
-                        val rawNode = state.nodes[index]
-                        val visualDepth = (rawNode.depth - depthBase).coerceIn(0, display.treeLevels)
+                        val rawNode = displayNodes[index]
+                        val visualDepth = if (searchActive && searchQuery.isNotBlank()) {
+                            0
+                        } else {
+                            (rawNode.depth - depthBase).coerceIn(0, display.treeLevels)
+                        }
                         val guideBase = (rawNode.depth - visualDepth).coerceAtLeast(0)
                         val visualGuides = if (visualDepth == rawNode.depth && guideBase == 0) {
                             rawNode.guides
@@ -248,22 +329,30 @@ fun PaneView(
                 }
             }
 
-            PaneHeader(
-                focusedDirId = state.focusedDirId,
-                active = active,
-                breadcrumbAlignment = breadcrumbAlignment,
-                headerStartPadding = headerStartPadding,
-                headerEndPadding = headerEndPadding,
-                headerOverlay = headerOverlay,
-                onCrumbClick = { id ->
-                    onActivate()
-                    controller.revealPath(id)
-                },
-                onCrumbLongClick = { id, name ->
-                    onActivate()
-                    breadcrumbSortTarget = id to name
-                },
-            )
+            if (searchActive) {
+                PaneSearchHeader(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    onClose = onSearchClose,
+                )
+            } else {
+                PaneHeader(
+                    focusedDirId = state.focusedDirId,
+                    active = active,
+                    breadcrumbAlignment = breadcrumbAlignment,
+                    headerStartPadding = headerStartPadding,
+                    headerEndPadding = headerEndPadding,
+                    headerOverlay = headerOverlay,
+                    onCrumbClick = { id ->
+                        onActivate()
+                        controller.revealPath(id)
+                    },
+                    onCrumbLongClick = { id, name ->
+                        onActivate()
+                        breadcrumbSortTarget = id to name
+                    },
+                )
+            }
         }
     }
 
@@ -277,6 +366,56 @@ fun PaneView(
             onDismiss = { breadcrumbSortTarget = null },
         )
     }
+}
+
+@Composable
+private fun BoxScope.PaneSearchHeader(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        placeholder = { Text(stringResource(R.string.search_files_hint)) },
+        leadingIcon = {
+            IconButton(
+                onClick = {
+                    keyboard?.hide()
+                    onClose()
+                },
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = stringResource(R.string.close_search),
+                )
+            }
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = stringResource(R.string.clear_query),
+                    )
+                }
+            }
+        },
+        singleLine = true,
+        shape = CircleShape,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { keyboard?.hide() }),
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .focusRequester(focusRequester),
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
