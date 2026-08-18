@@ -326,7 +326,7 @@ fun VideoPlayerScreen(
                             .union(WindowInsets(left = EDGE_GUARD_DP.dp, right = EDGE_GUARD_DP.dp))
                             .union(navBarsIns.only(WindowInsetsSides.Bottom)),
                     )
-                    .pointerInput(Unit) {
+                    .pointerInput(entry.id, frameMode) {
                         var mode = VideoGestureMode.UNDECIDED
                         var resumeAfterSeek = false
                         var accumX = 0f
@@ -335,10 +335,24 @@ fun VideoPlayerScreen(
                         var baseFrame = 0L
                         var baseVolume = 0
                         var startX = 0f
+                        var latestSeekTargetMs = -1L
 
                         fun finishGesture() {
                             when (mode) {
                                 VideoGestureMode.HORIZONTAL_SEEK -> {
+                                    if (!frameMode) {
+                                        player.setSeekParameters(
+                                            if (entry.scheme == XId.SCHEME_SMB) {
+                                                SeekParameters.CLOSEST_SYNC
+                                            } else {
+                                                SeekParameters.EXACT
+                                            },
+                                        )
+                                    }
+                                    if (latestSeekTargetMs >= 0L) {
+                                        seekGate.request(latestSeekTargetMs)
+                                        seekGate.flushLatest()
+                                    }
                                     scrubbing = false
                                     scrubLabel = null
                                     if (resumeAfterSeek && !frameMode) player.play()
@@ -378,6 +392,10 @@ fun VideoPlayerScreen(
                                             player.pause()
                                             baseMs = anchorMs()
                                             baseFrame = frameOf(baseMs)
+                                            latestSeekTargetMs = if (frameMode) -1L else baseMs
+                                            if (!frameMode) {
+                                                player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                                            }
                                             // Ignore the movement used to recognize the drag so
                                             // seeking starts smoothly instead of jumping immediately.
                                             accumX = 0f
@@ -403,6 +421,7 @@ fun VideoPlayerScreen(
                                             val deltaMs =
                                                 (accumX / 1.dp.toPx() * TIME_SWIPE_MS_PER_DP).toLong()
                                             val target = clampMs(baseMs + deltaMs)
+                                            latestSeekTargetMs = target
                                             seekGate.request(target)
                                             scrubLabel = String.format(
                                                 Locale.US,
@@ -665,6 +684,9 @@ fun VideoPlayerScreen(
                                 if (sliderPos == null) {
                                     sliderWasPlaying = player.playWhenReady
                                     player.pause()
+                                    if (seekWhileDragging && !frameMode) {
+                                        player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                                    }
                                 }
                                 sliderPos = v
                                 if (seekWhileDragging) {
@@ -673,6 +695,15 @@ fun VideoPlayerScreen(
                             }
                         },
                         onValueChangeFinished = {
+                            if (!frameMode) {
+                                player.setSeekParameters(
+                                    if (entry.scheme == XId.SCHEME_SMB) {
+                                        SeekParameters.CLOSEST_SYNC
+                                    } else {
+                                        SeekParameters.EXACT
+                                    },
+                                )
+                            }
                             sliderPos?.let {
                                 seekGate.request(clampMs((it * durationMs).toLong()))
                                 seekGate.flushLatest()
@@ -911,7 +942,7 @@ private val STANDARD_FPS =
     floatArrayOf(23.976f, 24f, 25f, 29.97f, 30f, 48f, 50f, 59.94f, 60f, 90f, 120f)
 
 private const val FALLBACK_FPS = 30f
-private const val SEEK_THROTTLE_MS = 80L
+private const val SEEK_THROTTLE_MS = 40L
 private const val SEEK_TARGET_HOLD_MS = 800L
 private const val FRAME_SWIPE_DP = 8f
 private const val EDGE_GUARD_DP = 24
