@@ -100,6 +100,14 @@ jobs:
           retention-days: 30
           compression-level: 0
 
+      # Temporary: force a failure only after the artifact is safely uploaded so the GitHub
+      # notification exposes this run id to the connected client. Reverted immediately after
+      # downloading the APK.
+      - name: Temporary artifact locator
+        run: |
+          echo "APK artifact uploaded; intentionally failing this temporary locator run."
+          exit 1
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest
