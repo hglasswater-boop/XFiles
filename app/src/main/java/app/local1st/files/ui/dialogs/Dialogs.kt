@@ -541,10 +541,10 @@ private fun EntryMenuContent(
             }
 
             if (!entry.isDir) {
-                val hasLocalFile = entry.localPath != null
+                val canExternalRead = IntentUtils.canExternalRead(entry)
                 MenuItem(
                     label = stringResource(R.string.open_with),
-                    enabled = hasLocalFile,
+                    enabled = canExternalRead,
                     disabledReason = stringResource(R.string.requires_local_file),
                 ) {
                     vm.openWith(entry)
@@ -552,7 +552,7 @@ private fun EntryMenuContent(
                 }
                 MenuItem(
                     label = stringResource(R.string.share),
-                    enabled = hasLocalFile,
+                    enabled = canExternalRead,
                     disabledReason = stringResource(R.string.requires_local_file),
                 ) {
                     vm.shareSelection(listOf(entry))
