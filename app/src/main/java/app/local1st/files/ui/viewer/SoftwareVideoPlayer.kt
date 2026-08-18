@@ -173,9 +173,10 @@ internal fun SoftwareVideoPlayerScreen(
                     },
                     onValueChange = { sliderPosition = it },
                     onValueChangeFinished = {
-                        val fraction = sliderPosition ?: return@Slider
-                        if (durationMs > 0L) {
-                            mediaPlayer.time = (durationMs * fraction).toLong().coerceIn(0L, durationMs)
+                        sliderPosition?.let { fraction ->
+                            if (durationMs > 0L) {
+                                mediaPlayer.time = (durationMs * fraction).toLong().coerceIn(0L, durationMs)
+                            }
                         }
                         sliderPosition = null
                     },
@@ -235,8 +236,9 @@ private fun openSoftwareMedia(
     libVlc: LibVLC,
     entry: XEntry,
 ): OpenedSoftwareMedia? = runCatching {
+    val localPath = entry.localPath
     when {
-        entry.localPath != null -> OpenedSoftwareMedia(Media(libVlc, entry.localPath), null)
+        localPath != null -> OpenedSoftwareMedia(Media(libVlc, localPath), null)
         entry.scheme == XId.SCHEME_ROOT -> {
             val descriptor = PrivilegedAccess.fdTransport()?.openFd(entry.path, write = false)
                 ?: return@runCatching null
