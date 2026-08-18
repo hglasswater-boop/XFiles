@@ -31,13 +31,13 @@ internal fun AdaptiveVideoPlayerScreen(
     playing: Boolean,
     hasPrevious: Boolean,
     hasNext: Boolean,
+    onSoftwareModeChanged: (Boolean) -> Unit,
     onClose: () -> Unit,
 ) {
     var softwareMode by remember(entry.id) { mutableStateOf<Boolean?>(null) }
-    var resumeMedia3AfterProbe by remember(entry.id) { mutableStateOf(false) }
 
     LaunchedEffect(entry.id) {
-        resumeMedia3AfterProbe = player.playWhenReady || player.isPlaying
+        val resumeMedia3AfterProbe = player.playWhenReady || player.isPlaying
         player.pause()
         val metadata = VideoMetadataReader.read(entry)
         softwareMode = shouldPreferSoftwareDecoder(metadata?.codec) && supportsSoftwarePlayback(entry)
@@ -60,8 +60,10 @@ internal fun AdaptiveVideoPlayerScreen(
         onDispose { player.removeListener(listener) }
     }
 
-    LaunchedEffect(softwareMode) {
-        if (softwareMode == true) player.pause()
+    LaunchedEffect(entry.id, softwareMode) {
+        val usingSoftware = softwareMode == true
+        onSoftwareModeChanged(usingSoftware)
+        if (usingSoftware) player.pause()
     }
 
     when (softwareMode) {
