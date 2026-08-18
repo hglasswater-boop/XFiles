@@ -18,14 +18,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.app.PictureInPictureParamsCompat
 import androidx.core.util.Consumer
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 
 /**
  * Keeps video playback eligible for Android picture-in-picture while the video player is active.
  * Android 12+ uses system auto-enter for a smooth Home gesture transition; Android 8-11 enters
- * PiP from the Activity's user-leave callback. The ExoPlayer itself is deliberately not paused
- * when the Activity leaves the foreground, so playback continues in the floating window.
+ * PiP from the Activity's user-leave callback. Playback continues only while PiP is actually
+ * active; if the Activity reaches the background without entering PiP, playback is paused so
+ * audio cannot continue invisibly behind the launcher or another app.
  * This uses Android's system PiP and therefore needs no draw-over-other-apps permission.
  */
 @Composable
@@ -62,39 +65,57 @@ internal fun VideoPictureInPicture(
         )
     }
 
-    DisposableEffect(activity) {
-        if (activity == null || !activity.supportsPip()) {
+    DisposableEffect(activity, player) {
+        if (activity == null) {
             onDispose { }
         } else {
-            val leaveListener = Runnable {
-                // Android 12+ auto-enters from setEnabled(true). Older versions still need an
-                // explicit request when the user leaves the Activity.
+            val lifecycleObserver = LifecycleEventObserver { _, event ->
                 if (
-                    Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
+                    event == Lifecycle.Event.ON_STOP &&
                     latestPlaying &&
                     !activity.isInPictureInPictureMode
                 ) {
-                    activity.enterPictureInPictureMode(
-                        pipParams(
-                            enabled = true,
-                            title = latestTitle,
-                            aspectRatio = aspectRatio,
-                        ),
-                    )
+                    player.pause()
                 }
             }
-            val modeListener = Consumer<PictureInPictureModeChangedInfo> { info ->
-                latestOnModeChanged(info.isInPictureInPictureMode)
-            }
+            activity.lifecycle.addObserver(lifecycleObserver)
 
-            activity.addOnUserLeaveHintListener(leaveListener)
-            activity.addOnPictureInPictureModeChangedListener(modeListener)
-            latestOnModeChanged(activity.isInPictureInPictureMode)
+            if (!activity.supportsPip()) {
+                onDispose {
+                    activity.lifecycle.removeObserver(lifecycleObserver)
+                }
+            } else {
+                val leaveListener = Runnable {
+                    // Android 12+ auto-enters from setEnabled(true). Older versions still need an
+                    // explicit request when the user leaves the Activity.
+                    if (
+                        Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
+                        latestPlaying &&
+                        !activity.isInPictureInPictureMode
+                    ) {
+                        activity.enterPictureInPictureMode(
+                            pipParams(
+                                enabled = true,
+                                title = latestTitle,
+                                aspectRatio = aspectRatio,
+                            ),
+                        )
+                    }
+                }
+                val modeListener = Consumer<PictureInPictureModeChangedInfo> { info ->
+                    latestOnModeChanged(info.isInPictureInPictureMode)
+                }
 
-            onDispose {
-                activity.removeOnUserLeaveHintListener(leaveListener)
-                activity.removeOnPictureInPictureModeChangedListener(modeListener)
-                activity.setPictureInPictureParams(pipParams(enabled = false))
+                activity.addOnUserLeaveHintListener(leaveListener)
+                activity.addOnPictureInPictureModeChangedListener(modeListener)
+                latestOnModeChanged(activity.isInPictureInPictureMode)
+
+                onDispose {
+                    activity.lifecycle.removeObserver(lifecycleObserver)
+                    activity.removeOnUserLeaveHintListener(leaveListener)
+                    activity.removeOnPictureInPictureModeChangedListener(modeListener)
+                    activity.setPictureInPictureParams(pipParams(enabled = false))
+                }
             }
         }
     }
