@@ -9,14 +9,17 @@ import kotlinx.coroutines.flow.asStateFlow
 object VideoPlayerSettings {
     const val DEFAULT_SEEK_WHILE_DRAGGING = true
     const val DEFAULT_CONTROLS_TRANSPARENCY_PERCENT = 15
+    const val DEFAULT_ORIENTATION_LOCKED = false
 
     private const val PREFS_NAME = "video_player"
     private const val KEY_SEEK_WHILE_DRAGGING = "seek_while_dragging"
     private const val KEY_CONTROLS_TRANSPARENCY_PERCENT = "controls_transparency_percent"
+    private const val KEY_ORIENTATION_LOCKED = "orientation_locked"
 
     private val _seekWhileDragging = MutableStateFlow(DEFAULT_SEEK_WHILE_DRAGGING)
     private val _controlsTransparencyPercent =
         MutableStateFlow(DEFAULT_CONTROLS_TRANSPARENCY_PERCENT)
+    private val _orientationLocked = MutableStateFlow(DEFAULT_ORIENTATION_LOCKED)
     private var initialized = false
 
     fun seekWhileDragging(context: Context): StateFlow<Boolean> {
@@ -27,6 +30,11 @@ object VideoPlayerSettings {
     fun controlsTransparencyPercent(context: Context): StateFlow<Int> {
         ensureInitialized(context)
         return _controlsTransparencyPercent.asStateFlow()
+    }
+
+    fun orientationLocked(context: Context): StateFlow<Boolean> {
+        ensureInitialized(context)
+        return _orientationLocked.asStateFlow()
     }
 
     fun setControlsTransparencyPercent(context: Context, percent: Int) {
@@ -55,6 +63,21 @@ object VideoPlayerSettings {
         _seekWhileDragging.value = enabled
     }
 
+    fun currentOrientationLocked(context: Context): Boolean {
+        ensureInitialized(context)
+        return _orientationLocked.value
+    }
+
+    fun setOrientationLocked(context: Context, locked: Boolean) {
+        ensureInitialized(context)
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_ORIENTATION_LOCKED, locked)
+            .apply()
+        _orientationLocked.value = locked
+    }
+
     @Synchronized
     private fun ensureInitialized(context: Context) {
         if (initialized) return
@@ -65,6 +88,8 @@ object VideoPlayerSettings {
         _controlsTransparencyPercent.value = prefs
             .getInt(KEY_CONTROLS_TRANSPARENCY_PERCENT, DEFAULT_CONTROLS_TRANSPARENCY_PERCENT)
             .coerceIn(0, 60)
+        _orientationLocked.value =
+            prefs.getBoolean(KEY_ORIENTATION_LOCKED, DEFAULT_ORIENTATION_LOCKED)
         initialized = true
     }
 }
