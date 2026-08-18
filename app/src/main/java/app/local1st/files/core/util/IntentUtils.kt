@@ -49,8 +49,8 @@ object IntentUtils {
         val uri = uriFor(context, entry)
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, mime)
-            .setClipData(ClipData.newUri(context.contentResolver, entry.name, uri))
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.clipData = ClipData.newUri(context.contentResolver, entry.name, uri)
         context.launch(Intent.createChooser(intent, entry.name))
     } catch (_: Throwable) {
         false
