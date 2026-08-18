@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 object ContextMenuOrderSettings {
     const val DETAILS = "details"
     const val FOLDER_SORT = "folder_sort"
+    const val OPEN_IN_OTHER_PANE = "open_in_other_pane"
     const val NEW_TEXT_FILE = "new_text_file"
     const val FAVORITE = "favorite"
     const val OPEN_WITH = "open_with"
@@ -22,7 +23,7 @@ object ContextMenuOrderSettings {
     const val DELETE = "delete"
 
     val DEFAULT_ORDER = listOf(
-        DETAILS, FOLDER_SORT, NEW_TEXT_FILE, FAVORITE, OPEN_WITH, SHARE,
+        DETAILS, FOLDER_SORT, OPEN_IN_OTHER_PANE, NEW_TEXT_FILE, FAVORITE, OPEN_WITH, SHARE,
         COPY_TO, MOVE_TO, ZIP, EXTRACT, INSTALL, RENAME, DELETE,
     )
 
