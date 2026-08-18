@@ -111,19 +111,28 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
         mutableStateOf(sessionReady && activeState.snapshotOnly)
     }
     var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
+    var searchEntries by remember(vm) { mutableStateOf<Map<String, XEntry>>(emptyMap()) }
     val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
 
     fun closeSearch(paneIndex: Int) {
         vm.panes[paneIndex].clearSelection()
-        if (searchPane == paneIndex) searchPane = null
+        if (searchPane == paneIndex) {
+            searchPane = null
+            searchEntries = emptyMap()
+        }
     }
 
     val selectionCount = activeState.selection.size
-    val selectedFiles = if (selectionCount > 0) {
-        vm.activeCtrl.selectionEntries().filter { !it.isDir }
+    val selectedEntries = if (selectionCount > 0) {
+        val browserEntries = vm.activeCtrl.selectionEntries().associateBy { it.id }
+        activeState.selection.mapNotNull { id ->
+            if (searchPane == activePane) searchEntries[id] ?: browserEntries[id]
+            else browserEntries[id]
+        }
     } else {
         emptyList()
     }
+    val selectedFiles = selectedEntries.filter { !it.isDir }
     val canShareSelection = selectedFiles.isNotEmpty() &&
         selectedFiles.all { app.local1st.files.core.util.IntentUtils.canExternalRead(it) }
     val unavailableDestinationLabel = stringResource(R.string.cannot_write, otherPaneName)
@@ -182,6 +191,11 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             },
                             searchActive = searchPane == index,
                             onSearchClose = { closeSearch(index) },
+                            onSearchResultsChanged = { entries ->
+                                if (searchPane == index) {
+                                    searchEntries = entries.associateBy { it.id }
+                                }
+                            },
                             contentPadding = listPadding,
                             modifier = Modifier
                                 .weight(1f)
@@ -264,6 +278,11 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         },
                         searchActive = searchPane == page,
                         onSearchClose = { closeSearch(page) },
+                        onSearchResultsChanged = { entries ->
+                            if (searchPane == page) {
+                                searchEntries = entries.associateBy { it.id }
+                            }
+                        },
                         contentPadding = listPadding,
                         modifier = Modifier.padding(horizontal = 4.dp),
                     )
@@ -319,26 +338,33 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                 TooltipIconButton(
                                     label = copyTargetLabel,
                                     icon = Icons.Outlined.ContentCopy,
-                                    enabled = canUseOtherPane,
+                                    enabled = canUseOtherPane && selectedEntries.isNotEmpty(),
                                 ) {
-                                    vm.chooseTransferDestination(move = false)
+                                    vm.chooseTransferDestination(
+                                        move = false,
+                                        sources = selectedEntries,
+                                    )
                                 }
                                 TooltipIconButton(
                                     label = moveTargetLabel,
                                     icon = Icons.AutoMirrored.Outlined.DriveFileMove,
-                                    enabled = canUseOtherPane,
+                                    enabled = canUseOtherPane && selectedEntries.isNotEmpty(),
                                 ) {
-                                    vm.chooseTransferDestination(move = true)
+                                    vm.chooseTransferDestination(
+                                        move = true,
+                                        sources = selectedEntries,
+                                    )
                                 }
                                 TooltipIconButton(
                                     stringResource(R.string.delete),
                                     Icons.Outlined.Delete,
-                                ) { vm.requestDelete() }
+                                    enabled = selectedEntries.isNotEmpty(),
+                                ) { vm.requestDelete(selectedEntries) }
                                 TooltipIconButton(
                                     label = compressTargetLabel,
                                     icon = Icons.Outlined.Archive,
-                                    enabled = canUseOtherPane,
-                                ) { vm.requestCompress() }
+                                    enabled = canUseOtherPane && selectedEntries.isNotEmpty(),
+                                ) { vm.requestCompress(selectedEntries) }
                                 TooltipIconButton(
                                     label = stringResource(
                                         if (canShareSelection) R.string.share
@@ -346,7 +372,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                     ),
                                     icon = Icons.Outlined.Share,
                                     enabled = canShareSelection,
-                                ) { vm.shareSelection() }
+                                ) { vm.shareSelection(selectedEntries) }
                             } else {
                                 TooltipIconButton(
                                     stringResource(R.string.new_folder),
@@ -370,6 +396,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                         searchPane?.let { previous ->
                                             vm.panes[previous].clearSelection()
                                         }
+                                        searchEntries = emptyMap()
                                         searchPane = activePane
                                     }
                                 }
