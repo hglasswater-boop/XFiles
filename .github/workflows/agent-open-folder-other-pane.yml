@@ -1,0 +1,149 @@
+name: Apply open-folder-other-pane change
+
+on:
+  push:
+    branches:
+      - agent/open-folder-other-pane
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Patch source
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"Expected source block not found in {path}: {old!r}")
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one source block in {path}, found {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          prefs = "app/src/main/java/app/local1st/files/core/prefs/ContextMenuOrderSettings.kt"
+          replace_once(
+              prefs,
+              '    const val FOLDER_SORT = "folder_sort"\n    const val NEW_TEXT_FILE = "new_text_file"',
+              '    const val FOLDER_SORT = "folder_sort"\n    const val OPEN_IN_OTHER_PANE = "open_in_other_pane"\n    const val NEW_TEXT_FILE = "new_text_file"',
+          )
+          replace_once(
+              prefs,
+              '        DETAILS, FOLDER_SORT, NEW_TEXT_FILE, FAVORITE, OPEN_WITH, SHARE,',
+              '        DETAILS, FOLDER_SORT, OPEN_IN_OTHER_PANE, NEW_TEXT_FILE, FAVORITE, OPEN_WITH, SHARE,',
+          )
+
+          order_ui = "app/src/main/java/app/local1st/files/ui/settings/ContextMenuOrderDragSection.kt"
+          replace_once(
+              order_ui,
+              '    ContextMenuOrderSettings.FOLDER_SORT -> "このフォルダの並び順"\n    ContextMenuOrderSettings.NEW_TEXT_FILE -> stringResource(R.string.new_text_file)',
+              '    ContextMenuOrderSettings.FOLDER_SORT -> "このフォルダの並び順"\n    ContextMenuOrderSettings.OPEN_IN_OTHER_PANE -> "別ペインで開く"\n    ContextMenuOrderSettings.NEW_TEXT_FILE -> stringResource(R.string.new_text_file)',
+          )
+
+          dialogs = "app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt"
+          replace_once(
+              dialogs,
+              '''            MenuItem("このフォルダの並び順") {
+                vm.dialog.value = DialogRequest.FolderSort(entry)
+            }
+            MenuItem("コピー") {''',
+              '''            MenuItem("このフォルダの並び順") {
+                vm.dialog.value = DialogRequest.FolderSort(entry)
+            }
+            if (entry != null) {
+                MenuItem("別ペインで開く") {
+                    vm.openFolderInOtherPane(entry)
+                    dismiss()
+                }
+            }
+            MenuItem("コピー") {''',
+          )
+          replace_once(
+              dialogs,
+              '''            if (entry.isDir) {
+                MenuItem("このフォルダの並び順") {
+                    vm.dialog.value = DialogRequest.FolderSort(entry)
+                }
+            }
+            if (entry.isDir && vm.canCreateFileIn(entry)) {''',
+              '''            if (entry.isDir) {
+                MenuItem("このフォルダの並び順") {
+                    vm.dialog.value = DialogRequest.FolderSort(entry)
+                }
+                MenuItem("別ペインで開く") {
+                    vm.openFolderInOtherPane(entry)
+                    dismiss()
+                }
+            }
+            if (entry.isDir && vm.canCreateFileIn(entry)) {''',
+          )
+          replace_once(
+              dialogs,
+              '    "このフォルダの並び順" -> ContextMenuOrderSettings.FOLDER_SORT\n    stringResource(R.string.new_text_file) -> ContextMenuOrderSettings.NEW_TEXT_FILE',
+              '    "このフォルダの並び順" -> ContextMenuOrderSettings.FOLDER_SORT\n    "別ペインで開く" -> ContextMenuOrderSettings.OPEN_IN_OTHER_PANE\n    stringResource(R.string.new_text_file) -> ContextMenuOrderSettings.NEW_TEXT_FILE',
+          )
+
+          Path("app/src/main/java/app/local1st/files/ui/dialogs/OtherPaneNavigation.kt").write_text('''package app.local1st.files.ui.dialogs
+
+import app.local1st.files.core.fs.XEntry
+import app.local1st.files.ui.main.MainViewModel
+
+/** Opens a real folder at the same location in the pane opposite the one that invoked the menu. */
+internal fun MainViewModel.openFolderInOtherPane(entry: XEntry) {
+    if (!entry.isDir) return
+    panes[1 - activePane.value].revealPath(entry.id)
+}
+''')
+
+          Path("app/src/test/java/app/local1st/files/ui/dialogs/OtherPaneNavigationTest.kt").parent.mkdir(parents=True, exist_ok=True)
+          Path("app/src/test/java/app/local1st/files/ui/dialogs/OtherPaneNavigationTest.kt").write_text('''package app.local1st.files.ui.dialogs
+
+import app.local1st.files.core.prefs.ContextMenuOrderSettings
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class OtherPaneNavigationTest {
+    @Test
+    fun `open in other pane participates in context menu ordering`() {
+        assertTrue(
+            ContextMenuOrderSettings.OPEN_IN_OTHER_PANE in ContextMenuOrderSettings.DEFAULT_ORDER,
+        )
+    }
+}
+''')
+          PY
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Commit tested change and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/agent-open-folder-other-pane.yml
+          git add app/src/main/java/app/local1st/files/core/prefs/ContextMenuOrderSettings.kt \
+                  app/src/main/java/app/local1st/files/ui/settings/ContextMenuOrderDragSection.kt \
+                  app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt \
+                  app/src/main/java/app/local1st/files/ui/dialogs/OtherPaneNavigation.kt \
+                  app/src/test/java/app/local1st/files/ui/dialogs/OtherPaneNavigationTest.kt
+          git commit -m "Open folder in other pane"
+          git push origin HEAD:agent/open-folder-other-pane
