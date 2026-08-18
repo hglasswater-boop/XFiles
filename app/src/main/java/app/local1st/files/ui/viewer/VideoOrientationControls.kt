@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import app.local1st.files.core.prefs.VideoPlayerSettings
 import app.local1st.files.ui.components.TooltipIconButton
 
 internal enum class PlayerOrientationMode {
@@ -29,8 +30,10 @@ internal enum class PlayerOrientationMode {
  */
 internal class VideoOrientationController(
     private val activity: Activity?,
+    initialMode: PlayerOrientationMode,
+    private val onModeChanged: (PlayerOrientationMode) -> Unit,
 ) {
-    var mode by mutableStateOf(PlayerOrientationMode.AUTO)
+    var mode by mutableStateOf(initialMode)
         private set
 
     fun enterPlayer() {
@@ -39,6 +42,7 @@ internal class VideoOrientationController(
 
     fun selectMode(newMode: PlayerOrientationMode) {
         mode = newMode
+        onModeChanged(newMode)
         applyRequestedOrientation()
     }
 
@@ -58,8 +62,9 @@ internal class VideoOrientationController(
  * Player-lifetime orientation controller.
  *
  * Video playback follows the device sensor by default, independent of the system rotation lock.
- * Locking keeps the current orientation even while the playback controls are hidden. Leaving the
- * player restores the Activity's previous orientation request.
+ * Locking keeps the current orientation even while the playback controls are hidden. The selected
+ * lock mode is persisted and restored the next time the video player opens. Leaving the player
+ * still restores the Activity's previous orientation request.
  */
 @Composable
 internal fun rememberVideoOrientationController(): VideoOrientationController {
@@ -68,7 +73,25 @@ internal fun rememberVideoOrientationController(): VideoOrientationController {
     val previousRequestedOrientation = remember(activity) {
         activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
-    val controller = remember(activity) { VideoOrientationController(activity) }
+    val initialMode = remember(context) {
+        if (VideoPlayerSettings.currentOrientationLocked(context)) {
+            PlayerOrientationMode.LOCKED
+        } else {
+            PlayerOrientationMode.AUTO
+        }
+    }
+    val controller = remember(activity, context, initialMode) {
+        VideoOrientationController(
+            activity = activity,
+            initialMode = initialMode,
+            onModeChanged = { mode ->
+                VideoPlayerSettings.setOrientationLocked(
+                    context,
+                    mode == PlayerOrientationMode.LOCKED,
+                )
+            },
+        )
+    }
 
     DisposableEffect(activity, controller) {
         controller.enterPlayer()
