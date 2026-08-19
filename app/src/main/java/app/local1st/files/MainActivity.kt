@@ -102,7 +102,7 @@ private fun Root(incomingIntents: Flow<Intent>) {
 
                     combine(vm.panes[0].state, vm.panes[1].state) { left, right ->
                         listOf(left, right)
-                    }.collect(observers::sync)
+                    }.collect { states -> observers.sync(states) }
                 } finally {
                     observers.close()
                 }
