@@ -3,7 +3,7 @@ name: Patch Search Select All Layout
 on:
   pull_request:
     branches: [main]
-    types: [opened]
+    types: [synchronize]
 
 permissions:
   contents: write
@@ -27,40 +27,44 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path('app/src/main/java/app/local1st/files/ui/browser/PaneView.kt')
           text = path.read_text()
 
-          old = '''                    ) {\n                        items(\n'''
-          new = '''                    ) {\n                        if (showingSearchResults && allSearchTargets.isNotEmpty()) {\n                            item(key = "search-select-all") {\n                                Box(\n                                    contentAlignment = Alignment.CenterEnd,\n                                    modifier = Modifier\n                                        .fillMaxWidth()\n                                        .padding(horizontal = 4.dp),\n                                ) {\n                                    Box(\n                                        contentAlignment = Alignment.Center,\n                                        modifier = Modifier.width(36.dp),\n                                    ) {\n                                        TriStateCheckbox(\n                                            state = searchSelectAllState,\n                                            onClick = {\n                                                onActivate()\n                                                setSearchTargetsSelected(\n                                                    allSearchTargets,\n                                                    searchSelectAllState != ToggleableState.On,\n                                                )\n                                            },\n                                        )\n                                    }\n                                }\n                            }\n                        }\n                        items(\n'''
-          if text.count(old) != 1:
-              raise SystemExit(f'list insertion point: {text.count(old)} matches')
-          text = text.replace(old, new, 1)
+          if 'item(key = "search-select-all")' not in text:
+              match = re.search(
+                  r'(?m)^(\s*)items\(\n\s*count = displayNodes\.size,',
+                  text,
+              )
+              if match is None:
+                  raise SystemExit('displayNodes items() marker not found')
+              indent = match.group(1)
+              block = f'''{indent}if (showingSearchResults && allSearchTargets.isNotEmpty()) {{\n{indent}    item(key = "search-select-all") {{\n{indent}        Box(\n{indent}            contentAlignment = Alignment.CenterEnd,\n{indent}            modifier = Modifier\n{indent}                .fillMaxWidth()\n{indent}                .padding(horizontal = 4.dp),\n{indent}        ) {{\n{indent}            Box(\n{indent}                contentAlignment = Alignment.Center,\n{indent}                modifier = Modifier.width(36.dp),\n{indent}            ) {{\n{indent}                TriStateCheckbox(\n{indent}                    state = searchSelectAllState,\n{indent}                    onClick = {{\n{indent}                        onActivate()\n{indent}                        setSearchTargetsSelected(\n{indent}                            allSearchTargets,\n{indent}                            searchSelectAllState != ToggleableState.On,\n{indent}                        )\n{indent}                    }},\n{indent}                )\n{indent}            }}\n{indent}        }}\n{indent}    }}\n{indent}}}\n'''
+              text = text[:match.start()] + block + text[match.start():]
 
-          old = '''            if (searchActive) {\n                PaneSearchHeader(\n                    query = searchQuery,\n                    phase = searchPhase,\n                    selectAllState = searchSelectAllState.takeIf { allSearchTargets.isNotEmpty() },\n                    onSelectAll = {\n                        onActivate()\n                        setSearchTargetsSelected(\n                            allSearchTargets,\n                            searchSelectAllState != ToggleableState.On,\n                        )\n                    },\n                    onQueryChange = ::updateSearchQuery,\n                    onClose = onSearchClose,\n                )\n'''
-          new = '''            if (searchActive) {\n                PaneSearchHeader(\n                    query = searchQuery,\n                    phase = searchPhase,\n                    onQueryChange = ::updateSearchQuery,\n                    onClose = onSearchClose,\n                )\n'''
-          if text.count(old) != 1:
-              raise SystemExit(f'header call: {text.count(old)} matches')
-          text = text.replace(old, new, 1)
-
-          old = '''private fun BoxScope.PaneSearchHeader(\n    query: String,\n    phase: PaneSearchPhase,\n    selectAllState: ToggleableState? = null,\n    onSelectAll: () -> Unit = {},\n    onQueryChange: (String) -> Unit,\n    onClose: () -> Unit,\n) {\n'''
-          new = '''private fun BoxScope.PaneSearchHeader(\n    query: String,\n    phase: PaneSearchPhase,\n    onQueryChange: (String) -> Unit,\n    onClose: () -> Unit,\n) {\n'''
-          if text.count(old) != 1:
-              raise SystemExit(f'header signature: {text.count(old)} matches')
-          text = text.replace(old, new, 1)
-
-          old = '''                if (selectAllState != null) {\n                    TriStateCheckbox(state = selectAllState, onClick = onSelectAll)\n                }\n'''
-          if text.count(old) != 1:
-              raise SystemExit(f'header checkbox: {text.count(old)} matches')
-          text = text.replace(old, '', 1)
+          pattern = re.compile(
+              r'\n\s*selectAllState = searchSelectAllState\.takeIf \{ allSearchTargets\.isNotEmpty\(\) \},'
+              r'\n\s*onSelectAll = \{.*?\n\s*\},(?=\n\s*onQueryChange = ::updateSearchQuery,)',
+              re.S,
+          )
+          text, count = pattern.subn('', text, count=1)
+          if count == 0 and 'selectAllState = searchSelectAllState.takeIf' in text:
+              raise SystemExit('failed to remove select-all args from search header')
 
           path.write_text(text)
           PY
       - name: Compile
         run: ./gradlew :app:compileDebugKotlin -PbuildNumber=379
-      - name: Commit
+      - name: Commit if changed
         run: |
+          set -eu
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/src/main/java/app/local1st/files/ui/browser/PaneView.kt
-          git commit -m "Move search select-all above result checkboxes"
-          git push origin HEAD:agent/search-select-all-layout
+          if git diff --cached --quiet; then
+            echo "No source changes needed"
+          else
+            git commit -m "Move search select-all above result checkboxes"
+            git push origin HEAD:agent/search-select-all-layout
+          fi
