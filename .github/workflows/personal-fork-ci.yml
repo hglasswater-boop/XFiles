@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   apk:
@@ -17,6 +18,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      # Keep one machine-readable marker on PR #23 so the latest main run can be retrieved
+      # directly through the GitHub app without relying on email notifications.
+      - name: Publish Debug CI run marker
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY=$(cat <<EOF
+          <!-- xfiles-debug-ci-run -->
+          DEBUG_CI_RUN_ID=${{ github.run_id }}
+          DEBUG_CI_RUN_NUMBER=${{ github.run_number }}
+          COMMIT=${{ github.sha }}
+
+          Latest main Debug CI run marker for APK retrieval.
+          EOF
+          )
+          gh api \
+            --method PATCH \
+            "repos/${{ github.repository }}/issues/comments/5335944947" \
+            -f body="$BODY"
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
