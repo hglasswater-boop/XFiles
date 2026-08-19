@@ -1,0 +1,280 @@
+name: Render Search UI Fix
+
+on:
+  push:
+    branches: [agent/search-ui-fix]
+    paths: [__search_ui_trigger__]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish run marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/27/comments" \
+            -f body="<!-- xfiles-search-ui-render -->
+          RUN_ID=${{ github.run_id }}
+          STATUS=rendering"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/search-ui-fix
+
+      - name: Render patched PaneView
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/app/local1st/files/ui/browser/PaneView.kt')
+          text = path.read_text()
+
+          def one(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          one(
+              'import androidx.compose.material3.Text\nimport androidx.compose.runtime.Composable',
+              'import androidx.compose.material3.Text\nimport androidx.compose.material3.TriStateCheckbox\nimport androidx.compose.runtime.Composable',
+              'TriStateCheckbox import',
+          )
+          one(
+              'import androidx.compose.ui.res.stringResource\nimport androidx.compose.ui.text.input.ImeAction',
+              'import androidx.compose.ui.res.stringResource\nimport androidx.compose.ui.state.ToggleableState\nimport androidx.compose.ui.text.input.ImeAction',
+              'ToggleableState import',
+          )
+          one(
+              '''    val searchParents = if (showingSearchResults) {
+                  searchResults.associate { it.entry.id to it.parentId }
+              } else {
+                  emptyMap()
+              }
+
+              LaunchedEffect(searchActive) {''',
+              '''    val searchParents = if (showingSearchResults) {
+                  searchResults.associate { it.entry.id to it.parentId }
+              } else {
+                  emptyMap()
+              }
+              val searchSelectionTargetMap = if (
+                  showingSearchResults && searchPhase == PaneSearchPhase.DONE
+              ) {
+                  searchSelectionTargets(searchResults.map { it.entry })
+              } else {
+                  emptyMap()
+              }
+              val allSearchTargets = searchSelectionTargetMap.values.flatten().distinctBy { it.id }
+              val selectedSearchTargetCount = allSearchTargets.count { it.id in state.selection }
+              val searchSelectAllState = when {
+                  allSearchTargets.isEmpty() || selectedSearchTargetCount == 0 -> ToggleableState.Off
+                  selectedSearchTargetCount == allSearchTargets.size -> ToggleableState.On
+                  else -> ToggleableState.Indeterminate
+              }
+
+              fun setSearchTargetsSelected(targets: List<XEntry>, selected: Boolean) {
+                  val selectedIds = state.selection
+                  targets.forEach { target ->
+                      if ((target.id in selectedIds) != selected) controller.toggleSelect(target)
+                  }
+              }
+
+              LaunchedEffect(searchActive) {''',
+              'search selection state',
+          )
+          one(
+              '''            val headerHeight = if (searchActive) SearchHeaderHeight else CrumbBarHeight
+
+              when {''',
+              '''            val headerHeight = if (searchActive) SearchHeaderHeight else CrumbBarHeight
+              val listTopInset = statusPad + 8.dp + headerHeight
+
+              when {''',
+              'list top inset',
+          )
+          one(
+              '''                    LazyColumn(
+                          state = listState,
+                          contentPadding = PaddingValues(
+                              top = statusPad + 8.dp + headerHeight,
+                              bottom = contentPadding.calculateBottomPadding(),
+                          ),
+                          modifier = Modifier.fillMaxSize(),
+                      ) {''',
+              '''                    LazyColumn(
+                          state = listState,
+                          contentPadding = PaddingValues(
+                              top = if (searchActive) 0.dp else listTopInset,
+                              bottom = contentPadding.calculateBottomPadding(),
+                          ),
+                          modifier = Modifier
+                              .fillMaxSize()
+                              .then(
+                                  if (searchActive) Modifier.padding(top = listTopInset)
+                                  else Modifier,
+                              ),
+                      ) {''',
+              'LazyColumn search viewport',
+          )
+          old_top = 'top = statusPad + 8.dp + headerHeight,'
+          if text.count(old_top) != 2:
+              raise SystemExit(f'placeholder top inset: expected 2 matches, found {text.count(old_top)}')
+          text = text.replace(old_top, 'top = listTopInset,')
+          one(
+              '''                            val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
+                              Column {
+                                  EntryRow(
+                                      node = node,
+                                      selected = node.entry.id in state.selection,''',
+              '''                            val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
+                              val searchSelectionTargetsForRow = if (showingSearchResults) {
+                                  searchSelectionTargetMap[node.entry.id].orEmpty()
+                              } else {
+                                  emptyList()
+                              }
+                              val searchRowSelected = showingSearchResults &&
+                                  searchSelectionTargetsForRow.isNotEmpty() &&
+                                  searchSelectionTargetsForRow.all { it.id in state.selection }
+                              Column {
+                                  EntryRow(
+                                      node = node,
+                                      selected = if (showingSearchResults) {
+                                          searchRowSelected
+                                      } else {
+                                          node.entry.id in state.selection
+                                      },''',
+              'search row selection',
+          )
+          one(
+              '''                                    onToggleSelect = {
+                                          onActivate()
+                                          controller.toggleSelect(node.entry)
+                                      },''',
+              '''                                    onToggleSelect = {
+                                          onActivate()
+                                          if (showingSearchResults && searchSelectionTargetsForRow.isNotEmpty()) {
+                                              setSearchTargetsSelected(
+                                                  searchSelectionTargetsForRow,
+                                                  !searchRowSelected,
+                                              )
+                                          } else {
+                                              controller.toggleSelect(node.entry)
+                                          }
+                                      },''',
+              'row toggle selection',
+          )
+          one(
+              '''            if (searchActive) {
+                  PaneSearchHeader(
+                      query = searchQuery,
+                      phase = searchPhase,
+                      onQueryChange = ::updateSearchQuery,
+                      onClose = onSearchClose,
+                  )''',
+              '''            if (searchActive) {
+                  PaneSearchHeader(
+                      query = searchQuery,
+                      phase = searchPhase,
+                      selectAllState = searchSelectAllState.takeIf { allSearchTargets.isNotEmpty() },
+                      onSelectAll = {
+                          onActivate()
+                          setSearchTargetsSelected(
+                              allSearchTargets,
+                              searchSelectAllState != ToggleableState.On,
+                          )
+                      },
+                      onQueryChange = ::updateSearchQuery,
+                      onClose = onSearchClose,
+                  )''',
+              'search header select all',
+          )
+          one(
+              '''private fun BoxScope.PaneSearchHeader(
+              query: String,
+              phase: PaneSearchPhase,
+              onQueryChange: (String) -> Unit,
+              onClose: () -> Unit,
+          ) {''',
+              '''private fun BoxScope.PaneSearchHeader(
+              query: String,
+              phase: PaneSearchPhase,
+              selectAllState: ToggleableState? = null,
+              onSelectAll: () -> Unit = {},
+              onQueryChange: (String) -> Unit,
+              onClose: () -> Unit,
+          ) {''',
+              'search header signature',
+          )
+          one(
+              '''                if (phase == PaneSearchPhase.SEARCHING && query.trim().length >= SEARCH_MIN_QUERY_LENGTH) {
+                      LoadingIndicator(Modifier.size(20.dp))
+                  }
+                  if (query.isNotEmpty()) {''',
+              '''                if (phase == PaneSearchPhase.SEARCHING && query.trim().length >= SEARCH_MIN_QUERY_LENGTH) {
+                      LoadingIndicator(Modifier.size(20.dp))
+                  }
+                  if (selectAllState != null) {
+                      TriStateCheckbox(state = selectAllState, onClick = onSelectAll)
+                  }
+                  if (query.isNotEmpty()) {''',
+              'search header checkbox',
+          )
+          one(
+              'private fun searchEntryWasRemoved(entryId: String, removedIds: Set<String>): Boolean {',
+              '''internal fun searchSelectionTargets(entries: List<XEntry>): Map<String, List<XEntry>> {
+              if (entries.isEmpty()) return emptyMap()
+              val unique = LinkedHashMap<String, XEntry>()
+              entries.forEach { unique[it.id] = it }
+              val matchedIds = unique.keys
+              val matchedAncestors = HashSet<String>()
+              unique.values.forEach { entry ->
+                  var current = XId.parent(entry.id)
+                  while (current != null) {
+                      if (current in matchedIds) matchedAncestors += current
+                      current = XId.parent(current)
+                  }
+              }
+              val targets = LinkedHashMap<String, MutableList<XEntry>>()
+              unique.values.filterNot { it.id in matchedAncestors }.forEach { terminal ->
+                  var current: String? = terminal.id
+                  while (current != null) {
+                      if (current in matchedIds) targets.getOrPut(current) { mutableListOf() }.add(terminal)
+                      current = XId.parent(current)
+                  }
+              }
+              return unique.keys.associateWith { targets[it].orEmpty() }
+          }
+
+          private fun searchEntryWasRemoved(entryId: String, removedIds: Set<String>): Boolean {''',
+              'search selection helper',
+          )
+          path.write_text(text)
+          PY
+
+      - name: Upload patched PaneView
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-pane-view
+          path: app/src/main/java/app/local1st/files/ui/browser/PaneView.kt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Publish ready marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/27/comments" \
+            -f body="<!-- xfiles-search-ui-render -->
+          RUN_ID=${{ github.run_id }}
+          STATUS=ready"
