@@ -1,0 +1,66 @@
+name: Patch Search Select All Layout
+
+on:
+  push:
+    branches: [agent/search-select-all-layout]
+    paths: [__patch_search_select_all__]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/search-select-all-layout
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Move master checkbox above result checkboxes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/app/local1st/files/ui/browser/PaneView.kt')
+          text = path.read_text()
+
+          old = '''                    ) {\n                        items(\n'''
+          new = '''                    ) {\n                        if (showingSearchResults && allSearchTargets.isNotEmpty()) {\n                            item(key = "search-select-all") {\n                                Box(\n                                    contentAlignment = Alignment.CenterEnd,\n                                    modifier = Modifier\n                                        .fillMaxWidth()\n                                        .padding(horizontal = 4.dp),\n                                ) {\n                                    Box(\n                                        contentAlignment = Alignment.Center,\n                                        modifier = Modifier.width(36.dp),\n                                    ) {\n                                        TriStateCheckbox(\n                                            state = searchSelectAllState,\n                                            onClick = {\n                                                onActivate()\n                                                setSearchTargetsSelected(\n                                                    allSearchTargets,\n                                                    searchSelectAllState != ToggleableState.On,\n                                                )\n                                            },\n                                        )\n                                    }\n                                }\n                            }\n                        }\n                        items(\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'list insertion point: {text.count(old)} matches')
+          text = text.replace(old, new, 1)
+
+          old = '''            if (searchActive) {\n                PaneSearchHeader(\n                    query = searchQuery,\n                    phase = searchPhase,\n                    selectAllState = searchSelectAllState.takeIf { allSearchTargets.isNotEmpty() },\n                    onSelectAll = {\n                        onActivate()\n                        setSearchTargetsSelected(\n                            allSearchTargets,\n                            searchSelectAllState != ToggleableState.On,\n                        )\n                    },\n                    onQueryChange = ::updateSearchQuery,\n                    onClose = onSearchClose,\n                )\n'''
+          new = '''            if (searchActive) {\n                PaneSearchHeader(\n                    query = searchQuery,\n                    phase = searchPhase,\n                    onQueryChange = ::updateSearchQuery,\n                    onClose = onSearchClose,\n                )\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'header call: {text.count(old)} matches')
+          text = text.replace(old, new, 1)
+
+          old = '''private fun BoxScope.PaneSearchHeader(\n    query: String,\n    phase: PaneSearchPhase,\n    selectAllState: ToggleableState? = null,\n    onSelectAll: () -> Unit = {},\n    onQueryChange: (String) -> Unit,\n    onClose: () -> Unit,\n) {\n'''
+          new = '''private fun BoxScope.PaneSearchHeader(\n    query: String,\n    phase: PaneSearchPhase,\n    onQueryChange: (String) -> Unit,\n    onClose: () -> Unit,\n) {\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'header signature: {text.count(old)} matches')
+          text = text.replace(old, new, 1)
+
+          old = '''                if (selectAllState != null) {\n                    TriStateCheckbox(state = selectAllState, onClick = onSelectAll)\n                }\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'header checkbox: {text.count(old)} matches')
+          text = text.replace(old, '', 1)
+
+          path.write_text(text)
+          PY
+      - name: Compile
+        run: ./gradlew :app:compileDebugKotlin -PbuildNumber=379
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/browser/PaneView.kt
+          git commit -m "Move search select-all above result checkboxes"
+          git push origin HEAD:agent/search-select-all-layout
