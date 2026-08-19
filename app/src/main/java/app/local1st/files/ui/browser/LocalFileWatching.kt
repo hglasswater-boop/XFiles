@@ -115,7 +115,7 @@ internal class LocalDirectoryObserverSet(
     )
 
     private companion object {
-        const val WATCH_MASK =
+        val WATCH_MASK =
             FileObserver.CREATE or
                 FileObserver.DELETE or
                 FileObserver.MOVED_FROM or
