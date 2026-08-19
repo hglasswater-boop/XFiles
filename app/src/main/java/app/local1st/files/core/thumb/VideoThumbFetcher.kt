@@ -39,7 +39,7 @@ data class VideoThumb(
 )
 
 /**
- * Extracts a small poster frame from a local video and keeps it in an on-disk thumbnail
+ * Extracts a high-quality poster frame from a local video and keeps it in an on-disk thumbnail
  * cache. Embedded cover/jacket art is preferred when the container exposes one; only videos
  * without usable artwork fall back to a decoded representative frame.
  *
@@ -62,11 +62,7 @@ class VideoThumbFetcher(
             CacheRead.Failed -> return null
             CacheRead.Miss -> {}
         }
-        // Hardware codec instances are a scarce global resource; a folder of fresh
-        // videos must not race a dozen extractions (losers fall back to software
-        // decoders or fail outright).
         return extractSemaphore.withPermit {
-            // The wait may have been exactly this video, extracted for the other pane.
             when (val read = readCached(cached)) {
                 is CacheRead.Hit -> return@withPermit read.result
                 CacheRead.Failed -> return@withPermit null
@@ -87,22 +83,15 @@ class VideoThumbFetcher(
     }
 
     private fun readCached(cached: File): CacheRead {
-        // length() before isFile: a file deleted in between reads as 0 bytes, which must
-        // fall through to Miss, not be mistaken for the zero-byte failure marker.
         val len = cached.length()
         if (len == 0L) {
             if (!cached.isFile) return CacheRead.Miss
-            // Failure markers expire: extraction also fails for transient reasons
-            // (hardware codecs exhausted, I/O hiccup) that shouldn't cost the video
-            // its thumbnail forever — one retry per TTL is cheap.
             if (System.currentTimeMillis() - cached.lastModified() < NEGATIVE_TTL_MS) {
                 return CacheRead.Failed
             }
             cached.delete()
             return CacheRead.Miss
         }
-        // A crash or full disk can leave a truncated file; serving it would pin a broken
-        // thumbnail with no repair path. SOI/EOI markers catch that without decoding.
         if (!isValidJpeg(cached, len)) {
             cached.delete()
             return CacheRead.Miss
@@ -132,9 +121,6 @@ class VideoThumbFetcher(
     private fun extractFrame(data: VideoThumb): Bitmap? {
         val retriever = MediaMetadataRetriever()
         var descriptor: ParcelFileDescriptor? = null
-        // A malformed stream can wedge the native call indefinitely while it holds one of
-        // the two extraction permits; release() from another thread aborts it with an
-        // exception. The lock keeps watchdog and normal teardown from double-releasing.
         val releaseLock = Any()
         fun release() {
             synchronized(releaseLock) { runCatching { retriever.release() } }
@@ -142,7 +128,6 @@ class VideoThumbFetcher(
         val watchdog = watchdogExecutor.schedule({ release() }, EXTRACT_TIMEOUT_S, TimeUnit.SECONDS)
         return try {
             if (data.privileged) {
-                // Poster frames are decoration: never launch a `su` probe for one.
                 val transport = PrivilegedAccess.fdTransport() ?: return null
                 descriptor = transport.openFd(data.path, write = false) ?: return null
                 retriever.setDataSource(descriptor.fileDescriptor)
@@ -150,18 +135,16 @@ class VideoThumbFetcher(
                 retriever.setDataSource(data.path)
             }
 
-            // A container-provided jacket/cover is intentional artwork and is therefore a better
-            // thumbnail than an arbitrary video frame. Decode it sampled so several rows with
-            // high-resolution cover art cannot briefly allocate multiple full-size bitmaps.
             retriever.embeddedPicture
                 ?.let(::decodeEmbeddedPicture)
                 ?.let { return it }
 
-            // No usable embedded art: use the format's representative frame. Scaled decode caps
-            // the output at thumb size instead of a full video-resolution bitmap.
             if (Build.VERSION.SDK_INT >= 27) {
                 retriever.getScaledFrameAtTime(
-                    -1, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, THUMB_SIZE, THUMB_SIZE,
+                    -1,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    THUMB_SIZE,
+                    THUMB_SIZE,
                 )
             } else {
                 retriever.getFrameAtTime(-1)?.let(::scaleDown)
@@ -171,7 +154,6 @@ class VideoThumbFetcher(
         } finally {
             watchdog.cancel(false)
             release()
-            // MediaMetadataRetriever does not own the caller's descriptor.
             runCatching { descriptor?.close() }
         }
     }
@@ -207,7 +189,6 @@ class VideoThumbFetcher(
         return out
     }
 
-    /** Atomically publish the frame (or a zero-byte failure marker) under [target]. */
     private fun writeCache(target: File, bitmap: Bitmap?) {
         runCatching {
             val dir = target.parentFile ?: return
@@ -217,10 +198,7 @@ class VideoThumbFetcher(
                 return
             }
             val tmp = File.createTempFile("thumb", ".tmp", dir)
-            val ok = tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 82, it) }
-            // compress reports stream errors (disk full) as `false`, not an exception — a
-            // truncated frame must never be published. No failure marker either: freeing
-            // up space should be enough to get thumbnails back.
+            val ok = tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it) }
             if (!ok || !tmp.renameTo(target)) tmp.delete()
         }
     }
@@ -230,14 +208,13 @@ class VideoThumbFetcher(
             VideoThumbFetcher(context, data)
     }
 
-    /** Without an explicit keyer a custom model has no memory-cache key at all. */
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb-v2:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v3:${data.path}:${data.mtime}:${data.size}"
     }
 
     companion object {
-        private const val THUMB_SIZE = 256
+        private const val THUMB_SIZE = 512
         private const val MAX_CACHE_BYTES = 64L * 1024 * 1024
         private const val NEGATIVE_TTL_MS = 60L * 60 * 1000
         private const val EXTRACT_TIMEOUT_S = 20L
@@ -249,23 +226,17 @@ class VideoThumbFetcher(
             Thread(r, "video-thumb-watchdog").apply { isDaemon = true }
         }
 
-        // Prune on the first write of each process, then re-check every N writes so a
-        // single long session cannot overshoot the budget without bound.
         private var writesUntilPrune = 1
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v2|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
+                .digest("v3|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             val dir = File(context.cacheDir, "video_thumbs")
             dir.mkdirs()
             return File(dir, "$digest.jpg")
         }
 
-        /**
-         * Drop oldest entries when the cache outgrows its budget. Entries keyed by a
-         * changed mtime/size or a deleted source video are orphaned, so growth is real.
-         */
         @Synchronized
         private fun pruneMaybe(dir: File) {
             if (--writesUntilPrune > 0) return
@@ -276,8 +247,6 @@ class VideoThumbFetcher(
             val now = System.currentTimeMillis()
             for (f in files.sortedBy { it.lastModified() }) {
                 if (total <= MAX_CACHE_BYTES / 2) break
-                // Fresh files may back an in-flight SourceFetchResult that has not been
-                // decoded yet; deleting them would error those rows.
                 if (now - f.lastModified() < PRUNE_SKIP_RECENT_MS) continue
                 val len = f.length()
                 if (f.delete()) total -= len

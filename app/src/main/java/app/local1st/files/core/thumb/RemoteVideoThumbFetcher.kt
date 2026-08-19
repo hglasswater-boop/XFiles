@@ -61,7 +61,7 @@ class RemoteVideoThumbFetcher(
                 cached.parentFile?.mkdirs()
                 val tmp = File.createTempFile("remote-thumb", ".tmp", cached.parentFile)
                 val ok = tmp.outputStream().use {
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 78, it)
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)
                 }
                 if (ok) {
                     if (!tmp.renameTo(cached)) {
@@ -87,8 +87,6 @@ class RemoteVideoThumbFetcher(
         return try {
             retriever.setDataSource(source)
 
-            // Prefer intentional artwork stored in the media container. Besides giving a much
-            // better jacket view, this usually avoids spinning up video decoding at all.
             retriever.embeddedPicture
                 ?.let(::decodeEmbeddedPicture)
                 ?.let { return it }
@@ -98,9 +96,6 @@ class RemoteVideoThumbFetcher(
                 ?.toLongOrNull()
                 ?.takeIf { it > 0L }
             val candidatesUs = if (durationMs != null) {
-                // No embedded jacket: do not use the opening frame because many files start with
-                // black/fade-in/title cards. Usually 25% is enough; later positions are read only
-                // when the selected frame is nearly black, so the common case stays fast.
                 longArrayOf(
                     durationMs * 250L,
                     durationMs * 500L,
@@ -122,7 +117,6 @@ class RemoteVideoThumbFetcher(
                 } else if (best !== frame) {
                     frame.recycle()
                 }
-                // Reject only genuinely near-black frames. Dark scenes are still accepted.
                 if (best != null && !isNearlyBlack(best)) return best
             }
             best
@@ -237,22 +231,20 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v5:$id:$mtime:$size"
+            "remote-video-thumb-v6:$id:$mtime:$size"
         }
     }
 
     companion object {
-        // The list renders thumbnails around 36dp. 192px is enough even on dense screens and
-        // trims decoder/compression work compared with the previous 256px poster.
-        private const val THUMB_SIZE = 192
+        // EXTRA_LARGE rows are 104dp wide. 384px keeps SMB thumbnails crisp on dense phones
+        // without making network-backed extraction as heavy as full 512px local thumbnails.
+        private const val THUMB_SIZE = 384
 
-        // NAS latency dominates thumbnail startup, so generate several visible rows at once.
-        // Four keeps the UI responsive without opening an excessive number of SMB sessions.
         private val semaphore = Semaphore(4)
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v5|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v6|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
@@ -261,11 +253,6 @@ class RemoteVideoThumbFetcher(
 
 /**
  * Random-access bridge for MediaMetadataRetriever with SMB read-ahead.
- *
- * MediaMetadataRetriever performs many small readAt() calls while parsing MP4 atoms. Sending every
- * one as a separate SMB request is extremely expensive on a NAS. Read 1 MiB aligned blocks instead
- * and keep the four most recently used blocks in memory. Header, tail metadata and nearby frame
- * reads then usually cost one SMB round trip per region rather than dozens/hundreds of tiny reads.
  */
 private class SmbMediaDataSource(private val entry: XEntry) : MediaDataSource() {
     private var file: SmbRandomAccessFile? = null
