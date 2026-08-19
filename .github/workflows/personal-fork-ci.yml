@@ -10,6 +10,8 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   apk:
@@ -106,6 +108,24 @@ jobs:
             --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ github.run_number }}" \
             --prerelease \
             --notes "Signed debug APK built from main at $GITHUB_SHA."
+
+      - name: Record debug run metadata
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          BODY=$(cat <<EOF
+          <!-- xfiles-debug-run -->
+          DEBUG_CI_RUN_ID=${{ github.run_id }}
+          DEBUG_CI_RUN_NUMBER=${{ github.run_number }}
+          DEBUG_APK=${{ steps.apk_name.outputs.name }}
+          COMMIT=$GITHUB_SHA
+          EOF
+          )
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/27/comments" \
+            -f body="$BODY"
 
   test:
     name: Unit tests
