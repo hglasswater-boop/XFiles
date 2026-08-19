@@ -1,9 +1,9 @@
 name: Patch Search Select All Layout
 
 on:
-  push:
-    branches: [agent/search-select-all-layout]
-    paths: [__patch_search_select_all__]
+  pull_request:
+    branches: [main]
+    types: [opened]
 
 permissions:
   contents: write
