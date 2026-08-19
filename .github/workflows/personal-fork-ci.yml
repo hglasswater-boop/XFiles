@@ -27,6 +27,10 @@ jobs:
         with:
           cache-read-only: true
 
+      - name: Compute Android build number
+        id: build_number
+        run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
+
       - name: Restore incremental Android build state
         id: incremental-restore
         uses: actions/cache/restore@v5
@@ -40,7 +44,7 @@ jobs:
             xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-
 
       - name: Warm incremental debug build
-        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
+        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
 
       - name: Save incremental Android build state
         uses: actions/cache/save@v5
@@ -75,14 +79,14 @@ jobs:
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ github.run_number }}
+        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
 
       - name: Name debug APK
         id: apk_name
         run: |
           set -eu
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          APK_NAME="XFiles-${BASE_VERSION}-b${{ github.run_number }}-debug.apk"
+          APK_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
@@ -90,7 +94,7 @@ jobs:
       - name: Upload signed debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: XFiles-${{ github.run_number }}-signed-debug
+          name: XFiles-${{ steps.build_number.outputs.value }}-signed-debug
           path: ${{ steps.apk_name.outputs.name }}
           if-no-files-found: error
           retention-days: 30
@@ -105,7 +109,7 @@ jobs:
           gh release delete debug-latest --cleanup-tag -y 2>/dev/null || true
           gh release create debug-latest "${{ steps.apk_name.outputs.name }}" \
             --target "$GITHUB_SHA" \
-            --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ github.run_number }}" \
+            --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ steps.build_number.outputs.value }}" \
             --prerelease \
             --notes "Signed debug APK built from main at $GITHUB_SHA."
 
@@ -119,6 +123,7 @@ jobs:
           <!-- xfiles-debug-run -->
           DEBUG_CI_RUN_ID=${{ github.run_id }}
           DEBUG_CI_RUN_NUMBER=${{ github.run_number }}
+          DEBUG_BUILD_NUMBER=${{ steps.build_number.outputs.value }}
           DEBUG_APK=${{ steps.apk_name.outputs.name }}
           COMMIT=$GITHUB_SHA
           EOF
@@ -140,4 +145,4 @@ jobs:
         with:
           cache-read-only: true
       - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest -PbuildNumber=${{ github.run_number }}
+        run: ./gradlew :app:testDebugUnitTest
