@@ -9,8 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  issues: write
+  contents: write
 
 jobs:
   apk:
@@ -18,41 +17,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
-      # Publish a machine-readable marker for main builds so the latest APK artifact can be
-      # retrieved directly without relying on Actions success email notifications.
-      - name: Publish Debug CI run marker
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          BODY=$(cat <<EOF
-          <!-- xfiles-debug-ci-run -->
-          DEBUG_CI_RUN_ID=${{ github.run_id }}
-          DEBUG_CI_RUN_NUMBER=${{ github.run_number }}
-          COMMIT=${{ github.sha }}
-
-          Latest main Debug CI run marker for APK retrieval.
-          EOF
-          )
-          gh api \
-            --method POST \
-            "repos/${{ github.repository }}/issues/23/comments" \
-            -f body="$BODY"
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          # Dependency/build-cache state from main is useful, but do not save Gradle home
-          # after the signed build because signing credentials are visible to Gradle then.
           cache-read-only: true
 
-      # GitHub-hosted runners are disposable. Preserve the project-local state that Gradle and
-      # Kotlin need for true incremental compilation between personal debug builds. This cache is
-      # explicitly saved before any signing secret is exposed to Gradle.
       - name: Restore incremental Android build state
         id: incremental-restore
         uses: actions/cache/restore@v5
@@ -95,8 +67,6 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
-      # The warm build above does the expensive compilation without secrets. Reconfiguring with
-      # the stable key should only invalidate packaging/signing work; compiled code remains warm.
       - name: Assemble stable-signed debug APK
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
@@ -110,9 +80,10 @@ jobs:
         run: |
           set -eu
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          APK_NAME="XFiles-${BASE_VERSION}-b${{ github.run_number }}.apk"
+          APK_NAME="XFiles-${BASE_VERSION}-b${{ github.run_number }}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Upload signed debug APK
         uses: actions/upload-artifact@v4
@@ -122,6 +93,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+      - name: Publish debug-latest release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release delete debug-latest --cleanup-tag -y 2>/dev/null || true
+          gh release create debug-latest "${{ steps.apk_name.outputs.name }}" \
+            --target "$GITHUB_SHA" \
+            --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ github.run_number }}" \
+            --prerelease \
+            --notes "Signed debug APK built from main at $GITHUB_SHA."
 
   test:
     name: Unit tests
