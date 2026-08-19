@@ -39,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +57,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -149,6 +151,27 @@ fun PaneView(
         searchResults.associate { it.entry.id to it.parentId }
     } else {
         emptyMap()
+    }
+    val searchSelectionTargetMap = if (
+        showingSearchResults && searchPhase == PaneSearchPhase.DONE
+    ) {
+        searchSelectionTargets(searchResults.map { it.entry })
+    } else {
+        emptyMap()
+    }
+    val allSearchTargets = searchSelectionTargetMap.values.flatten().distinctBy { it.id }
+    val selectedSearchTargetCount = allSearchTargets.count { it.id in state.selection }
+    val searchSelectAllState = when {
+        allSearchTargets.isEmpty() || selectedSearchTargetCount == 0 -> ToggleableState.Off
+        selectedSearchTargetCount == allSearchTargets.size -> ToggleableState.On
+        else -> ToggleableState.Indeterminate
+    }
+
+    fun setSearchTargetsSelected(targets: List<XEntry>, selected: Boolean) {
+        val selectedIds = state.selection
+        targets.forEach { target ->
+            if ((target.id in selectedIds) != selected) controller.toggleSelect(target)
+        }
     }
 
     LaunchedEffect(searchActive) {
@@ -350,6 +373,7 @@ fun PaneView(
             val statusPad = WindowInsets.statusBarsIgnoringVisibility
                 .asPaddingValues().calculateTopPadding()
             val headerHeight = if (searchActive) SearchHeaderHeight else CrumbBarHeight
+            val listTopInset = statusPad + 8.dp + headerHeight
 
             when {
                 state.loadingRoots && state.nodes.isEmpty() -> {
@@ -363,7 +387,7 @@ fun PaneView(
                         Modifier
                             .fillMaxSize()
                             .padding(
-                                top = statusPad + 8.dp + headerHeight,
+                                top = listTopInset,
                                 bottom = contentPadding.calculateBottomPadding(),
                             ),
                         contentAlignment = Alignment.Center,
@@ -377,7 +401,7 @@ fun PaneView(
                         Modifier
                             .fillMaxSize()
                             .padding(
-                                top = statusPad + 8.dp + headerHeight,
+                                top = listTopInset,
                                 bottom = contentPadding.calculateBottomPadding(),
                             ),
                         contentAlignment = Alignment.Center,
@@ -397,10 +421,15 @@ fun PaneView(
                     LazyColumn(
                         state = listState,
                         contentPadding = PaddingValues(
-                            top = statusPad + 8.dp + headerHeight,
+                            top = if (searchActive) 0.dp else listTopInset,
                             bottom = contentPadding.calculateBottomPadding(),
                         ),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (searchActive) Modifier.padding(top = listTopInset)
+                                else Modifier,
+                            ),
                     ) {
                         items(
                             count = displayNodes.size,
@@ -428,10 +457,22 @@ fun PaneView(
                                 rawNode.copy(depth = visualDepth, guides = visualGuides)
                             }
                             val addSmbServer = node.entry.id == SmbTreeFileSystem.ADD_SERVER_ID
+                            val searchSelectionTargetsForRow = if (showingSearchResults) {
+                                searchSelectionTargetMap[node.entry.id].orEmpty()
+                            } else {
+                                emptyList()
+                            }
+                            val searchRowSelected = showingSearchResults &&
+                                searchSelectionTargetsForRow.isNotEmpty() &&
+                                searchSelectionTargetsForRow.all { it.id in state.selection }
                             Column {
                                 EntryRow(
                                     node = node,
-                                    selected = node.entry.id in state.selection,
+                                    selected = if (showingSearchResults) {
+                                        searchRowSelected
+                                    } else {
+                                        node.entry.id in state.selection
+                                    },
                                     focused = !showingSearchResults &&
                                         node.entry.id == state.focusedDirId,
                                     onClick = {
@@ -452,7 +493,14 @@ fun PaneView(
                                     },
                                     onToggleSelect = {
                                         onActivate()
-                                        controller.toggleSelect(node.entry)
+                                        if (showingSearchResults && searchSelectionTargetsForRow.isNotEmpty()) {
+                                            setSearchTargetsSelected(
+                                                searchSelectionTargetsForRow,
+                                                !searchRowSelected,
+                                            )
+                                        } else {
+                                            controller.toggleSelect(node.entry)
+                                        }
                                     },
                                     enabled = !state.snapshotOnly,
                                     richContent = richRowsEnabled,
@@ -490,6 +538,14 @@ fun PaneView(
                 PaneSearchHeader(
                     query = searchQuery,
                     phase = searchPhase,
+                    selectAllState = searchSelectAllState.takeIf { allSearchTargets.isNotEmpty() },
+                    onSelectAll = {
+                        onActivate()
+                        setSearchTargetsSelected(
+                            allSearchTargets,
+                            searchSelectAllState != ToggleableState.On,
+                        )
+                    },
                     onQueryChange = ::updateSearchQuery,
                     onClose = onSearchClose,
                 )
@@ -530,6 +586,8 @@ fun PaneView(
 private fun BoxScope.PaneSearchHeader(
     query: String,
     phase: PaneSearchPhase,
+    selectAllState: ToggleableState? = null,
+    onSelectAll: () -> Unit = {},
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -558,6 +616,9 @@ private fun BoxScope.PaneSearchHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (phase == PaneSearchPhase.SEARCHING && query.trim().length >= SEARCH_MIN_QUERY_LENGTH) {
                     LoadingIndicator(Modifier.size(20.dp))
+                }
+                if (selectAllState != null) {
+                    TriStateCheckbox(state = selectAllState, onClick = onSelectAll)
                 }
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { onQueryChange("") }) {
@@ -727,6 +788,30 @@ private fun displaySearchParentPath(parentId: String): String =
     } else {
         parentId.substringAfter("://")
     }
+
+internal fun searchSelectionTargets(entries: List<XEntry>): Map<String, List<XEntry>> {
+    if (entries.isEmpty()) return emptyMap()
+    val unique = LinkedHashMap<String, XEntry>()
+    entries.forEach { unique[it.id] = it }
+    val matchedIds = unique.keys
+    val matchedAncestors = HashSet<String>()
+    unique.values.forEach { entry ->
+        var current = XId.parent(entry.id)
+        while (current != null) {
+            if (current in matchedIds) matchedAncestors += current
+            current = XId.parent(current)
+        }
+    }
+    val targets = LinkedHashMap<String, MutableList<XEntry>>()
+    unique.values.filterNot { it.id in matchedAncestors }.forEach { terminal ->
+        var current: String? = terminal.id
+        while (current != null) {
+            if (current in matchedIds) targets.getOrPut(current) { mutableListOf() }.add(terminal)
+            current = XId.parent(current)
+        }
+    }
+    return unique.keys.associateWith { targets[it].orEmpty() }
+}
 
 private fun searchEntryWasRemoved(entryId: String, removedIds: Set<String>): Boolean {
     var current: String? = entryId
