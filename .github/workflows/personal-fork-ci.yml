@@ -19,8 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Keep one machine-readable marker on PR #23 so the latest main run can be retrieved
-      # directly through the GitHub app without relying on email notifications.
+      # Publish a machine-readable marker for main builds so the latest APK artifact can be
+      # retrieved directly without relying on Actions success email notifications.
       - name: Publish Debug CI run marker
         if: github.ref == 'refs/heads/main'
         env:
@@ -36,8 +36,8 @@ jobs:
           EOF
           )
           gh api \
-            --method PATCH \
-            "repos/${{ github.repository }}/issues/comments/5335944947" \
+            --method POST \
+            "repos/${{ github.repository }}/issues/23/comments" \
             -f body="$BODY"
 
       - uses: actions/setup-java@v5
