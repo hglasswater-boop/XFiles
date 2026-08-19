@@ -142,7 +142,9 @@ class RemoteVideoThumbFetcher(
             sample *= 2
         }
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let(::scaleDown)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            ?.let(::scaleDown)
+            ?.let { fitEmbeddedVideoArtwork(it, THUMB_SIZE) }
     }
 
     private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? =
@@ -231,7 +233,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v7:$id:$mtime:$size"
+            "remote-video-thumb-v8:$id:$mtime:$size"
         }
     }
 
@@ -242,7 +244,7 @@ class RemoteVideoThumbFetcher(
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v7|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v8|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
