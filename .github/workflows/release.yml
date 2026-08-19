@@ -1,6 +1,7 @@
 name: Release
 
-# Every push builds a signed APK. The build number (versionCode) increments each run.
+# Every push builds a signed APK. Android versionCode comes from the checked-out commit timestamp
+# so it cannot regress just because a different GitHub Actions workflow produced the APK.
 # If version.properties' versionName already has a stable release, this only refreshes the
 # rolling "nightly" prerelease. When versionName is bumped, a new stable release is cut.
 on:
@@ -36,6 +37,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Compute Android build number
+        id: build_number
+        run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
+
       - name: Require signing secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -63,7 +68,7 @@ jobs:
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease :app:bundleRelease -PbuildNumber=${{ github.run_number }} --no-daemon
+        run: ./gradlew :app:assembleRelease :app:bundleRelease -PbuildNumber=${{ steps.build_number.outputs.value }} --no-daemon
 
       # Not attached to the public release: the AAB is only useful for a Play upload,
       # and shipping it alongside the APK would just confuse people. Grab it from the
@@ -71,7 +76,7 @@ jobs:
       - name: Upload AAB as build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: XFiles-${{ github.run_number }}-play-bundle
+          name: XFiles-${{ steps.build_number.outputs.value }}-play-bundle
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 90
@@ -83,7 +88,7 @@ jobs:
         run: |
           set -eu
           VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          BUILD=${{ github.run_number }}
+          BUILD=${{ steps.build_number.outputs.value }}
           # Stable release for this versionName already exists? (HTTP 200 vs 404)
           CODE=$(curl -s -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
