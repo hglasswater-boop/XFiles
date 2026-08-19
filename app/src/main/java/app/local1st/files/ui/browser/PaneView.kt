@@ -431,6 +431,32 @@ fun PaneView(
                                 else Modifier,
                             ),
                     ) {
+                        if (showingSearchResults && allSearchTargets.isNotEmpty()) {
+                            item(key = "search-select-all") {
+                                Box(
+                                    contentAlignment = Alignment.CenterEnd,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp),
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.width(36.dp),
+                                    ) {
+                                        TriStateCheckbox(
+                                            state = searchSelectAllState,
+                                            onClick = {
+                                                onActivate()
+                                                setSearchTargetsSelected(
+                                                    allSearchTargets,
+                                                    searchSelectAllState != ToggleableState.On,
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         items(
                             count = displayNodes.size,
                             key = { displayNodes[it].key },
@@ -538,14 +564,6 @@ fun PaneView(
                 PaneSearchHeader(
                     query = searchQuery,
                     phase = searchPhase,
-                    selectAllState = searchSelectAllState.takeIf { allSearchTargets.isNotEmpty() },
-                    onSelectAll = {
-                        onActivate()
-                        setSearchTargetsSelected(
-                            allSearchTargets,
-                            searchSelectAllState != ToggleableState.On,
-                        )
-                    },
                     onQueryChange = ::updateSearchQuery,
                     onClose = onSearchClose,
                 )
@@ -586,8 +604,6 @@ fun PaneView(
 private fun BoxScope.PaneSearchHeader(
     query: String,
     phase: PaneSearchPhase,
-    selectAllState: ToggleableState? = null,
-    onSelectAll: () -> Unit = {},
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -616,9 +632,6 @@ private fun BoxScope.PaneSearchHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (phase == PaneSearchPhase.SEARCHING && query.trim().length >= SEARCH_MIN_QUERY_LENGTH) {
                     LoadingIndicator(Modifier.size(20.dp))
-                }
-                if (selectAllState != null) {
-                    TriStateCheckbox(state = selectAllState, onClick = onSelectAll)
                 }
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { onQueryChange("") }) {
