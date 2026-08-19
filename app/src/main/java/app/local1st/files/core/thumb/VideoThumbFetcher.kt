@@ -172,7 +172,9 @@ class VideoThumbFetcher(
             sample *= 2
         }
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let(::scaleDown)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            ?.let(::scaleDown)
+            ?.let { fitEmbeddedVideoArtwork(it, THUMB_SIZE) }
     }
 
     private fun scaleDown(src: Bitmap): Bitmap {
@@ -210,7 +212,7 @@ class VideoThumbFetcher(
 
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb-v3:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v4:${data.path}:${data.mtime}:${data.size}"
     }
 
     companion object {
@@ -230,7 +232,7 @@ class VideoThumbFetcher(
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v3|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
+                .digest("v4|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             val dir = File(context.cacheDir, "video_thumbs")
             dir.mkdirs()
