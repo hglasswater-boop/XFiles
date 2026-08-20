@@ -175,7 +175,10 @@ jobs:
           name: ${{ steps.decide.outputs.name }}
           prerelease: ${{ steps.decide.outputs.prerelease }}
           body: |
-            XFiles ${{ steps.decide.outputs.version }} · build ${{ steps.decide.outputs.build }} (${{ github.sha }}). Offline, open-source file manager — no network, no telemetry.
+            **Dual-pane file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.**
+
+            XFiles ${{ steps.decide.outputs.version }} · build ${{ steps.decide.outputs.build }} (${{ github.sha }}).
+            Browse local storage and SMB2/3 shares in the same tree, with remote thumbnails and direct video streaming.
 
             ${{ steps.decide.outputs.notes }}
           files: ${{ steps.decide.outputs.apk }}
