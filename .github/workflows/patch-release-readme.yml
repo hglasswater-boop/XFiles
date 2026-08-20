@@ -1,0 +1,54 @@
+name: Patch release README
+
+on:
+  push:
+    branches: [release/1.3.8-smb]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: release/1.3.8-smb
+          fetch-depth: 0
+      - name: Add release pitch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          en = Path('README.md')
+          text = en.read_text()
+          pitch = '> **Dual-pane file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.**\n\n'
+          marker = 'and SMB2/3 network shares — on the latest Android stack with a Material 3 Expressive UI.\n\n'
+          if pitch not in text:
+              if marker not in text:
+                  raise SystemExit('English README marker not found')
+              text = text.replace(marker, marker + pitch, 1)
+          en.write_text(text)
+
+          ja = Path('README.ja.md')
+          text = ja.read_text()
+          pitch = '> **2ペイン・ツリー表示、SMB/NAS、Root・Shizuku対応。広告・テレメトリなし。**\n\n'
+          marker = '**X-plore の操作感を目指したオープンソース Android ファイルマネージャー** — 2 ペインのツリー表示、アーカイブをフォルダのように閲覧、アプリ管理、APK/AAB/XAPK のインストール、Root / Shizuku、SMB2/3 ネットワーク共有に対応し、Material 3 Expressive UI を採用しています。\n\n'
+          if pitch not in text:
+              if marker not in text:
+                  raise SystemExit('Japanese README marker not found')
+              text = text.replace(marker, marker + pitch, 1)
+          text = text.replace('現在の fork 用 `versionName` は `1.3.6-smb` です。', '現在の fork 用 `versionName` は `1.3.8-smb` です。')
+          ja.write_text(text)
+          PY
+      - name: Commit README update
+        run: |
+          if git diff --quiet -- README.md README.ja.md; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- README.md README.ja.md
+          git commit -m "Add release pitch to README"
+          git push origin HEAD:release/1.3.8-smb
