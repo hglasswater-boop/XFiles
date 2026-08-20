@@ -1,53 +1,56 @@
-XFiles is an offline file manager for Android that borrows X-plore's workflow: two independent panes, folders that expand in place as a tree, and archives you can walk into like folders.
+XFiles is an open-source Android file manager built for people who want X-plore-style dual-pane tree browsing, powerful local file operations, and first-class NAS access in one app.
 
-It has no INTERNET permission. Android itself blocks it from opening a network connection, so nothing you browse, copy or open can leave your device. No analytics, no crash reporting, no ads, no account, no cloud.
+Two independent panes keep source and destination visible. Folders expand in place as a tree, archives open like folders, and saved SMB2/SMB3 shares appear alongside local storage instead of living in a separate network screen.
+
+SMB / NAS
+• Browse saved SMB2/SMB3 servers directly in the normal file tree
+• Copy and move between local storage and SMB shares, or between SMB locations
+• Show image and video thumbnails from remote folders
+• Prefer embedded video cover art when available
+• Stream videos directly from SMB through the built-in Media3 player
+• Seek through large remote videos without downloading the whole file first
+• Protect saved SMB passwords with Android Keystore
 
 DUAL-PANE TREE BROWSER
-• Two independent panes — side by side on tablets and in landscape, a swipeable pager on phones
-• Folders expand in place with indent guides, instead of replacing the view one directory at a time
-• Image thumbnails and video poster frames render inline, cached so they are instant next time
-• The other pane is always the copy/move/zip/extract destination; on phones its folder stays visible at the top
-• Long-press Copy to… or Move to… when you need a one-off explicit destination
+• Two independent panes, side by side on wide screens and swipeable on phones
+• Folders expand in place with tree guide lines
+• Copy and move operations confirm the destination before starting
+• Per-folder sorting and configurable browser density
+• Folder and file counts shown separately with icons
 
 FILE OPERATIONS
-• Multi-select, copy, move, rename, delete, new folder
-• Skip / overwrite / keep-both conflict resolution
-• Long operations keep running in a foreground service with progress and a cancel action
+• Multi-select, copy, move, rename, delete and new folder
+• ZIP creation and archive extraction
+• Skip / overwrite / keep-both conflict handling
+• Long operations continue in a foreground service with progress and cancellation
 
 ARCHIVES AS FOLDERS
-• Browse zip, jar, apk, 7z, tar (.gz/.bz2/.xz) and rar in place, without extracting first
-• Create zips using every CPU core
-• Extract by copying out to a folder you choose
+• Browse zip, jar, apk, 7z, tar (.gz/.bz2/.xz) and rar without extracting first
+• Parallel ZIP creation for better performance on large jobs
 
 BUILT-IN VIEWERS
-• Image viewer with pager and pinch zoom
-• Text viewer you can edit and save
-• Hex viewer with on-demand paging for large files
+• Image, text and hex viewers
 • Audio player
-• Video player with frame-accurate stepping — tap the time readout for a frame counter, step one frame at a time, scrub by frame with live preview
+• Media3 video player with frame stepping
+• Double-tap left/right for -10 / +10 second seeking
+• Right-side vertical swipe for media volume
 
-APP MANAGER
-• Installed and system apps with real icons, versions and package names
-• Each app's activities, services, receivers and providers, browsable as a tree with their exported and enabled state
-• base.apk and every split APK listed per app — and expandable, because an APK is just a zip
-• Install, launch, uninstall, or copy an APK out to share an app as a file
+APP MANAGER & INSTALLER
+• Browse installed and system apps, components and split APKs
+• Install APK, APKS, APKM, XAPK and AAB packages
+• Launch, uninstall or copy APK files out of installed apps
 
-ROOT ACCESS (OPTIONAL)
-• A Root entry is on the home screen by default; turn it off in Settings
-• Superuser (su) browses the whole tree; without it Shizuku can still list `/` and what the adb shell can see
-• `/data` and `/data/data` stay closed until superuser is granted
-• A separate read-only switch (on by default) blocks writes
+ROOT & SHIZUKU
+• Optional su access on rooted devices
+• Shizuku support for adb-shell level access without root
+• Browse locations such as Android/data where platform restrictions permit
+• Read-only privileged mode is enabled by default for safer inspection
 
-MODERN ANDROID
-• Material 3 Expressive with dynamic colour, light / dark / system themes
-• True edge-to-edge, no top app bar
-• Hidden files, folders-first and sort options
-
-WHY "ALL FILES ACCESS"
-XFiles requests All files access because that is what a general-purpose file manager does: it has to list, open and modify files anywhere in shared storage, including folders it did not create. It is used for nothing else. The app has no network permission, so it has no way to send your files anywhere.
+PRIVACY
+XFiles has no analytics, no advertising, no account system and no telemetry. Network access is used for SMB servers explicitly configured by the user. SMB credentials stay on the device and saved passwords are protected with Android Keystore. Portable settings backups, including optional SMB credentials, are password-encrypted before export.
 
 OPEN SOURCE
-XFiles is free software under GPL-3.0. Read the code, build it yourself, or verify the missing INTERNET permission for yourself:
-https://github.com/Local1stDotApp/XFiles
+This repository is a personal fork of Local1stDotApp/XFiles and is licensed under GPL-3.0-only. Thanks to the upstream authors and contributors for creating and publishing the foundation this fork builds on.
 
-XFiles is an independent project inspired by X-plore File Manager. It shares no code or assets with it and is not affiliated with its developer.
+Source code:
+https://github.com/hglasswater-boop/XFiles
