@@ -31,6 +31,14 @@ This repository is a personal fork of
 is kept as the base, while this fork adds the following customizations for day-to-day
 use:
 
+### Acknowledgements
+
+This fork would not exist without the original
+[Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles). Many thanks to the
+original author and contributors for creating XFiles and making it available as open
+source. Their work provided the foundation that made these personal customizations
+possible.
+
 ### SMB2/3 network shares
 
 - Added a native **SMB2/SMB3 filesystem** using SMBJ and exposed saved servers directly
