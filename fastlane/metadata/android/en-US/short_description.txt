@@ -1,1 +1,1 @@
-Offline dual-pane file manager — archives, apps, root. No network permission.
+Dual-pane Android file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.
