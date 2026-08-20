@@ -724,6 +724,9 @@ fun chooseTransferDestination(
         startDirId = panes[1 - sourcePane].state.value.focusedDirId,
         sourcePane = sourcePane,
     )
+    // Destination selection must happen in the opposite pane. This is especially important
+    // during recursive search because the source pane remains filtered to search hits.
+    activePane.value = 1 - sourcePane
 }
 
 fun cancelTransferDestination() {
