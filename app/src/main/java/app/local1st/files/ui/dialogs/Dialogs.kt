@@ -95,13 +95,21 @@ fun MainDialogs(vm: MainViewModel) {
             onConfirm = { vm.performRename(req.entry, it) },
         )
 
-        is DialogRequest.NewFolder -> NameDialog(
-            title = stringResource(R.string.new_folder),
-            initial = "",
-            confirmLabel = stringResource(R.string.create),
-            onDismiss = dismiss,
-            onConfirm = { vm.performNewFolder(req.parent, it) },
-        )
+        is DialogRequest.NewFolder -> {
+            val destinationPath = when (req.parent.scheme) {
+                XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.parent.id)
+                XId.SCHEME_ROOT -> "root:${req.parent.path}"
+                else -> req.parent.path
+            }
+            NameDialog(
+                title = stringResource(R.string.new_folder),
+                initial = "",
+                confirmLabel = stringResource(R.string.create),
+                destinationPath = destinationPath,
+                onDismiss = dismiss,
+                onConfirm = { vm.performNewFolder(req.parent, it) },
+            )
+        }
 
         is DialogRequest.NewTextFile -> NameDialog(
             title = stringResource(R.string.new_text_file),
@@ -332,6 +340,7 @@ private fun NameDialog(
     title: String,
     initial: String,
     confirmLabel: String,
+    destinationPath: String? = null,
     selectStem: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
@@ -357,12 +366,23 @@ private fun NameDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = true,
-                modifier = Modifier.focusRequester(focusRequester).fillMaxWidth(),
-            )
+            Column {
+                destinationPath?.let { path ->
+                    Text(
+                        text = path,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                            .copy(fontFamily = FontFamily.Monospace),
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    singleLine = true,
+                    modifier = Modifier.focusRequester(focusRequester).fillMaxWidth(),
+                )
+            }
         },
         confirmButton = {
             Button(
