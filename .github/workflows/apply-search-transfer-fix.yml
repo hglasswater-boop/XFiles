@@ -1,0 +1,57 @@
+name: Apply search transfer destination fix
+
+on:
+  push:
+    branches:
+      - fix/search-transfer-destination
+
+permissions:
+  contents: write
+
+jobs:
+  patch-source:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/search-transfer-destination
+
+      - name: Patch transfer destination pane switch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt')
+          text = path.read_text()
+          old = '''    pendingTransfer.value = PendingTransfer(
+        sources = sources,
+        move = move,
+        startDirId = panes[1 - sourcePane].state.value.focusedDirId,
+        sourcePane = sourcePane,
+    )
+'''
+          new = old + '''    // Destination selection happens in the opposite pane. Switching immediately is
+    // especially important for recursive search results: the source pane remains filtered,
+    // while the destination pane stays a normal browsable tree.
+    activePane.value = 1 - sourcePane
+'''
+          if new in text:
+              print('Fix is already applied.')
+              raise SystemExit(0)
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one transfer block, found {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit source fix
+        run: |
+          if git diff --quiet -- app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- app/src/main/java/app/local1st/files/ui/main/MainViewModel.kt
+          git commit -m "Fix transfer destination from search results"
+          git push origin HEAD:fix/search-transfer-destination
