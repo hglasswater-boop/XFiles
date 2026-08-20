@@ -6,6 +6,8 @@
 
 **X-plore の操作感を目指したオープンソース Android ファイルマネージャー** — 2 ペインのツリー表示、アーカイブをフォルダのように閲覧、アプリ管理、APK/AAB/XAPK のインストール、Root / Shizuku、SMB2/3 ネットワーク共有に対応し、Material 3 Expressive UI を採用しています。
 
+> **2ペイン・ツリー表示、SMB/NAS、Root・Shizuku対応。広告・テレメトリなし。**
+
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-3DDC84?logo=android&logoColor=white)](#ビルドと実行)
@@ -180,7 +182,7 @@ APK は [**Releases**](https://github.com/hglasswater-boop/XFiles/releases) か�
 - **`vX.Y`** — `versionName` を更新したときに作成される安定版。
 - **`nightly`** — `main` への push ごとに更新されるローリング prerelease。
 
-現在の fork 用 `versionName` は `1.3.6-smb` です。
+現在の fork 用 `versionName` は `1.3.8-smb` です。
 
 **Android 8.0（API 26）以上**が必要です。
 

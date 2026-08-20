@@ -8,6 +8,8 @@
 browsing, archive-as-folder, app manager, APK/AAB/XAPK install, root & Shizuku access,
 and SMB2/3 network shares — on the latest Android stack with a Material 3 Expressive UI.
 
+> **Dual-pane file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.**
+
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-3DDC84?logo=android&logoColor=white)](#build--run)
