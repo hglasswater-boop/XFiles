@@ -19,6 +19,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Record feature branch run id
+        if: github.ref == 'refs/heads/fix/search-transfer-destination'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/27/comments" \
+            -f body="<!-- xfiles-feature-debug-run -->
+          DEBUG_CI_RUN_ID=${{ github.run_id }}
+          COMMIT=$GITHUB_SHA
+          STATUS=building"
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
