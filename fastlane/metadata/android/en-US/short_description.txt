@@ -1,1 +1,1 @@
-Dual-pane Android file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.
+Dual-pane file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.
