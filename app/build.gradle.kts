@@ -76,6 +76,13 @@ android {
         compose = true
     }
 
+    // Keep Google Play dependency metadata out of release artifacts. This avoids an opaque
+    // signing block and makes the APK friendlier to independent scanners/reproducible builds.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     // Generate Android 13+ "App language" settings from the locales that this app ships.
     androidResources {
         generateLocaleConfig = true
