@@ -26,10 +26,10 @@ jobs:
           DEBUG_ARTIFACT_RUN_NUMBER=${{ github.run_number }}
           STATUS=building"
 
-      - name: Checkout search transfer fix
+      - name: Checkout latest main
         uses: actions/checkout@v5
         with:
-          ref: fix/search-transfer-destination
+          ref: main
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
