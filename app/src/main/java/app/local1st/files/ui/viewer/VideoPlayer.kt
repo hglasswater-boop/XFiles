@@ -296,6 +296,8 @@ fun VideoPlayerScreen(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
+                            // Double-tap is reserved for seeking and must not reveal playback controls.
+                            controlsVisible = false
                             val xFraction = offset.x / size.width
                             val deltaSeconds = when {
                                 xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
