@@ -335,10 +335,13 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                     style = MaterialTheme.typography.titleMedium,
                                     modifier = Modifier.align(Alignment.CenterVertically),
                                 )
+                                // Copy/move may start while the other pane is focused inside an
+                                // archive (including an APK). Destination mode then lets the user
+                                // switch panes and choose any writable folder before confirming.
                                 TooltipIconButton(
                                     label = copyTargetLabel,
                                     icon = Icons.Outlined.ContentCopy,
-                                    enabled = canUseOtherPane && selectedEntries.isNotEmpty(),
+                                    enabled = selectedEntries.isNotEmpty(),
                                 ) {
                                     vm.chooseTransferDestination(
                                         move = false,
@@ -348,7 +351,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                 TooltipIconButton(
                                     label = moveTargetLabel,
                                     icon = Icons.AutoMirrored.Outlined.DriveFileMove,
-                                    enabled = canUseOtherPane && selectedEntries.isNotEmpty(),
+                                    enabled = selectedEntries.isNotEmpty(),
                                 ) {
                                     vm.chooseTransferDestination(
                                         move = true,
