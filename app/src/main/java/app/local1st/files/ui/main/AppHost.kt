@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
@@ -24,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavEntry
@@ -39,6 +41,8 @@ import app.local1st.files.ui.viewer.ViewerScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val BrowserSnackbarBottomPadding = 96.dp
 
 /** Top-level screen host. Exactly one full-screen destination is composed at a time. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -115,7 +119,14 @@ fun AppHost(vm: MainViewModel) {
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility),
+                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                .padding(
+                    bottom = if (backStack.lastOrNull()?.screen == AppScreen.Browser) {
+                        BrowserSnackbarBottomPadding
+                    } else {
+                        0.dp
+                    },
+                ),
         )
     }
 }
