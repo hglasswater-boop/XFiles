@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   apk:
-    name: Build APK
+    name: Build APKs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -43,8 +43,8 @@ jobs:
           restore-keys: |
             xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-
 
-      - name: Warm incremental debug build
-        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
+      - name: Warm incremental debug builds
+        run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
 
       - name: Save incremental Android build state
         uses: actions/cache/save@v5
@@ -73,29 +73,34 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
-      - name: Assemble stable-signed debug APK
+      - name: Assemble stable-signed debug APKs
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
+        run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
 
-      - name: Name debug APK
+      - name: Name debug APKs
         id: apk_name
         run: |
           set -eu
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          APK_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
-          echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
+          MOBILE_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          TV_NAME="XFiles-TV-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
+          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
+          echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "tv_name=$TV_NAME" >> "$GITHUB_OUTPUT"
           echo "version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Upload signed debug APK
+      - name: Upload signed debug APKs
         uses: actions/upload-artifact@v4
         with:
           name: XFiles-${{ steps.build_number.outputs.value }}-signed-debug
-          path: ${{ steps.apk_name.outputs.name }}
+          path: |
+            ${{ steps.apk_name.outputs.mobile_name }}
+            ${{ steps.apk_name.outputs.tv_name }}
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
@@ -107,11 +112,13 @@ jobs:
         run: |
           set -eu
           gh release delete debug-latest --cleanup-tag -y 2>/dev/null || true
-          gh release create debug-latest "${{ steps.apk_name.outputs.name }}" \
+          gh release create debug-latest \
+            "${{ steps.apk_name.outputs.mobile_name }}" \
+            "${{ steps.apk_name.outputs.tv_name }}" \
             --target "$GITHUB_SHA" \
             --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ steps.build_number.outputs.value }}" \
             --prerelease \
-            --notes "Signed debug APK built from main at $GITHUB_SHA."
+            --notes "Signed mobile and Google TV debug APKs built from main at $GITHUB_SHA."
 
       - name: Record debug run metadata
         if: github.ref == 'refs/heads/main'
@@ -124,7 +131,8 @@ jobs:
           DEBUG_CI_RUN_ID=${{ github.run_id }}
           DEBUG_CI_RUN_NUMBER=${{ github.run_number }}
           DEBUG_BUILD_NUMBER=${{ steps.build_number.outputs.value }}
-          DEBUG_APK=${{ steps.apk_name.outputs.name }}
+          DEBUG_APK=${{ steps.apk_name.outputs.mobile_name }}
+          DEBUG_TV_APK=${{ steps.apk_name.outputs.tv_name }}
           COMMIT=$GITHUB_SHA
           EOF
           )
@@ -144,5 +152,5 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: true
-      - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest
+      - name: Run unit tests for both editions
+        run: ./gradlew :app:testMobileDebugUnitTest :app:testTvDebugUnitTest
