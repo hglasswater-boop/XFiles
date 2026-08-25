@@ -2,18 +2,13 @@ package app.local1st.files
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,13 +38,6 @@ private data class TvRelease(
     val assetName: String,
     val downloadUrl: String,
 )
-
-private sealed interface UpdateCheckState {
-    data object Checking : UpdateCheckState
-    data object UpToDate : UpdateCheckState
-    data class Available(val release: TvRelease) : UpdateCheckState
-    data class Failed(val message: String) : UpdateCheckState
-}
 
 private object TvSelfUpdater {
     private const val RELEASE_API =
@@ -153,18 +141,19 @@ private object TvSelfUpdater {
         context.startActivity(intent)
     }
 
+    @Suppress("DEPRECATION")
     private fun validateApk(context: Context, apk: File, release: TvRelease) {
-        val packageInfo = context.packageManager.getPackageArchiveInfo(
-            apk.absolutePath,
-            PackageManager.PackageInfoFlags.of(0L),
-        ) ?: error("Downloaded APK could not be read")
+        // Use the API-26-compatible overload because Google TV devices may be older than API 33.
+        val packageInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+            ?: error("Downloaded APK could not be read")
         if (packageInfo.packageName != context.packageName) {
             error("Downloaded APK is not XFiles TV")
         }
-        if (packageInfo.longVersionCode <= BuildConfig.VERSION_CODE.toLong()) {
+        val downloadedBuild = packageInfo.versionCode.toLong()
+        if (downloadedBuild <= BuildConfig.VERSION_CODE.toLong()) {
             error("Downloaded APK is not newer than the installed build")
         }
-        if (packageInfo.longVersionCode != release.buildNumber.toLong()) {
+        if (downloadedBuild != release.buildNumber.toLong()) {
             error("Downloaded APK build number does not match the GitHub asset")
         }
     }
@@ -259,122 +248,4 @@ fun EditionStartupUpdateCheck() {
             }
         },
     )
-}
-
-@Composable
-fun EditionUpdateSettingsSection() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var checkState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Checking) }
-    var downloading by remember { mutableStateOf(false) }
-    var installError by remember { mutableStateOf<String?>(null) }
-
-    fun checkForUpdate() {
-        checkState = UpdateCheckState.Checking
-        installError = null
-        scope.launch {
-            checkState = runCatching { TvSelfUpdater.check() }
-                .fold(
-                    onSuccess = { release ->
-                        if (release == null) UpdateCheckState.UpToDate
-                        else UpdateCheckState.Available(release)
-                    },
-                    onFailure = { UpdateCheckState.Failed(it.message ?: it.javaClass.simpleName) },
-                )
-        }
-    }
-
-    LaunchedEffect(Unit) { checkForUpdate() }
-
-    Spacer(Modifier.height(16.dp))
-    Text(
-        stringResource(R.string.tv_update_section_title),
-        style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(vertical = 8.dp),
-    )
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                stringResource(R.string.tv_update_current_build, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                stringResource(R.string.tv_update_section_summary),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
-
-            when (val state = checkState) {
-                UpdateCheckState.Checking -> Text(stringResource(R.string.tv_update_checking))
-                UpdateCheckState.UpToDate -> Text(stringResource(R.string.tv_update_up_to_date))
-                is UpdateCheckState.Available -> {
-                    Text(
-                        stringResource(
-                            R.string.tv_update_available_inline,
-                            state.release.versionName,
-                            state.release.buildNumber,
-                        ),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (!TvSelfUpdater.canInstallPackages(context)) {
-                        Text(
-                            stringResource(R.string.tv_update_install_permission_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    OutlinedButton(
-                        enabled = !downloading,
-                        onClick = {
-                            if (!TvSelfUpdater.canInstallPackages(context)) {
-                                TvSelfUpdater.openInstallPermission(context)
-                                return@OutlinedButton
-                            }
-                            scope.launch {
-                                downloading = true
-                                installError = null
-                                runCatching {
-                                    TvSelfUpdater.downloadAndValidate(context, state.release)
-                                }.onSuccess {
-                                    TvSelfUpdater.launchInstaller(context, it)
-                                }.onFailure {
-                                    installError = it.message ?: it.javaClass.simpleName
-                                }
-                                downloading = false
-                            }
-                        },
-                    ) {
-                        Text(
-                            stringResource(
-                                if (downloading) R.string.tv_update_downloading
-                                else R.string.tv_update_install,
-                            ),
-                        )
-                    }
-                }
-                is UpdateCheckState.Failed -> Text(
-                    stringResource(R.string.tv_update_error, state.message),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-
-            installError?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    stringResource(R.string.tv_update_error, it),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                enabled = checkState !is UpdateCheckState.Checking && !downloading,
-                onClick = { checkForUpdate() },
-            ) {
-                Text(stringResource(R.string.tv_update_check_now))
-            }
-        }
-    }
 }
