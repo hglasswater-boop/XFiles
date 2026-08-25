@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tv_update_available_title">XFiles TV の更新があります</string>
+    <string name="tv_update_available_message">GitHub に %1$s、ビルド %2$d があります。</string>
+    <string name="tv_update_install_permission_hint">初回更新時だけ、Android の設定で「XFiles TV からの不明なアプリのインストール」を許可してください。</string>
+    <string name="tv_update_install">ダウンロードして更新</string>
+    <string name="tv_update_downloading">ダウンロード中…</string>
+    <string name="tv_update_later">あとで</string>
+    <string name="tv_update_error">更新に失敗しました: %1$s</string>
+</resources>
