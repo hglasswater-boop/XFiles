@@ -139,5 +139,6 @@ private fun Root(incomingIntents: Flow<Intent>) {
         // AppHost keeps external viewers reachable without broad storage permission while making
         // every full-screen page a real destination instead of layering it over MainScreen.
         AppHost(vm)
+        EditionStartupUpdateCheck()
     }
 }
