@@ -2,10 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Keep the same APK installable on touch devices and Android/Google TV. -->
-    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <uses-feature android:name="android.software.leanback" android:required="false" />
-
     <!-- Full file system access (X-plore style all-files manager) -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
@@ -22,12 +18,10 @@
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
-    <!-- Install an app copied out of the App manager, including split (.apks/.apkm/.xapk) bundles -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Network access is used only for user-configured SMB2/SMB3 shares. -->
+    <!-- SMB and Chromecast relay networking. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Android 17+ blocks direct LAN traffic (SMB and the Cast relay) without this runtime permission. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -39,7 +33,6 @@
     <application
         android:name=".XFilesApp"
         android:allowBackup="true"
-        android:banner="@drawable/tv_banner"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -58,13 +51,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
         </activity>
 
-        <!-- Disabled by default; Settings lets the user opt XFiles into the system resolver. -->
         <activity-alias
             android:name=".OpenArchiveActivity"
             android:enabled="false"
@@ -90,7 +78,6 @@
                 <data android:mimeType="application/x-bzip-compressed-tar" />
                 <data android:mimeType="application/x-xz" />
                 <data android:mimeType="application/x-xz-compressed-tar" />
-                <!-- AAB/APKS/APKM/XAPK commonly arrive without a registered MIME type. -->
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity-alias>
@@ -126,8 +113,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- No ordinary app holds this signature permission, so the exported Shizuku
-             provider remains closed to third-party callers. -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
@@ -146,7 +131,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Seekable read-only bridge for SMB files handed to external apps. -->
         <provider
             android:name=".core.util.RemoteFileProvider"
             android:authorities="${applicationId}.remotefileprovider"

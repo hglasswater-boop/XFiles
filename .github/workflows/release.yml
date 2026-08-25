@@ -1,9 +1,5 @@
 name: Release
 
-# Every push builds a signed APK. Android versionCode comes from the checked-out commit timestamp
-# so it cannot regress just because a different GitHub Actions workflow produced the APK.
-# If version.properties' versionName already has a stable release, this only refreshes the
-# rolling "nightly" prerelease. When versionName is bumped, a new stable release is cut.
 on:
   push:
     branches: [main]
@@ -18,14 +14,11 @@ permissions:
 
 jobs:
   release:
-    # GitHub-hosted Ubuntu runner. Android SDK is preinstalled; Java/Gradle are configured below.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # Release notes are built from git history, which needs the commits and the version tags
-          # a shallow clone leaves out.
           fetch-depth: 0
 
       - name: Set up Java
@@ -57,27 +50,21 @@ jobs:
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
-      # APK goes to GitHub Releases for direct download; AAB is what Google Play accepts
-      # (mandatory for new apps since 2021). Both come from the same signed build.
-      - name: Build signed release APK + AAB
+      - name: Build signed mobile + TV APKs and mobile AAB
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/release.jks
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease :app:bundleRelease -PbuildNumber=${{ steps.build_number.outputs.value }} --no-daemon
+        run: ./gradlew :app:assembleMobileRelease :app:assembleTvRelease :app:bundleMobileRelease -PbuildNumber=${{ steps.build_number.outputs.value }} --no-daemon
 
-      # Not attached to the public release: the AAB is only useful for a Play upload,
-      # and shipping it alongside the APK would just confuse people. Grab it from the
-      # run's artifacts when you need to push a Play build.
-      - name: Upload AAB as build artifact
+      - name: Upload mobile AAB as build artifact
         uses: actions/upload-artifact@v7
         with:
           name: XFiles-${{ steps.build_number.outputs.value }}-play-bundle
-          path: app/build/outputs/bundle/release/app-release.aab
+          path: app/build/outputs/bundle/mobileRelease/app-mobile-release.aab
           if-no-files-found: error
           retention-days: 90
 
@@ -89,28 +76,25 @@ jobs:
           set -eu
           VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
           BUILD=${{ steps.build_number.outputs.value }}
-          # Stable release for this versionName already exists? (HTTP 200 vs 404)
           CODE=$(curl -s -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${VERSION}")
           if [ "$CODE" = "200" ]; then
-            echo "tag=nightly"                                        >> "$GITHUB_OUTPUT"
-            echo "name=XFiles ${VERSION} — nightly (build ${BUILD})"  >> "$GITHUB_OUTPUT"
-            echo "prerelease=true"                                    >> "$GITHUB_OUTPUT"
-            echo "apk=XFiles-nightly.apk"                             >> "$GITHUB_OUTPUT"
+            echo "tag=nightly"                                       >> "$GITHUB_OUTPUT"
+            echo "name=XFiles ${VERSION} nightly (build ${BUILD})"  >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"                                   >> "$GITHUB_OUTPUT"
+            echo "apk=XFiles-nightly.apk"                            >> "$GITHUB_OUTPUT"
+            echo "tv_apk=XFiles-TV-nightly.apk"                      >> "$GITHUB_OUTPUT"
           else
-            echo "tag=v${VERSION}"                                    >> "$GITHUB_OUTPUT"
-            echo "name=XFiles ${VERSION}"                             >> "$GITHUB_OUTPUT"
-            echo "prerelease=false"                                   >> "$GITHUB_OUTPUT"
-            echo "apk=XFiles-${VERSION}.apk"                          >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}"                                   >> "$GITHUB_OUTPUT"
+            echo "name=XFiles ${VERSION}"                            >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"                                  >> "$GITHUB_OUTPUT"
+            echo "apk=XFiles-${VERSION}.apk"                         >> "$GITHUB_OUTPUT"
+            echo "tv_apk=XFiles-TV-${VERSION}.apk"                   >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD"     >> "$GITHUB_OUTPUT"
 
-          # Release notes are every commit since the newest version tag. Cutting a stable release
-          # that tag is the previous version; refreshing the nightly it is the current stable — so
-          # the list reads as "what this download adds on top of the last release" either way.
-          # The version bump itself is dropped: the release already says which version it is.
           SINCE=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
           if [ -n "$SINCE" ]; then RANGE="$SINCE..HEAD"; else RANGE=HEAD; fi
           LOG=$(git log --no-merges --reverse --pretty='format:- %s' "$RANGE" \
@@ -135,13 +119,11 @@ jobs:
             echo RELEASE_NOTES
           } >> "$GITHUB_OUTPUT"
 
-      - name: Rename artifact
-        run: cp app/build/outputs/apk/release/app-release.apk "${{ steps.decide.outputs.apk }}"
+      - name: Rename APKs
+        run: |
+          cp app/build/outputs/apk/mobile/release/app-mobile-release.apk "${{ steps.decide.outputs.apk }}"
+          cp app/build/outputs/apk/tv/release/app-tv-release.apk "${{ steps.decide.outputs.tv_apk }}"
 
-      # GitHub lists /releases by created_at / published_at, not by last update.
-      # action-gh-release updates the existing nightly in place, so its July date
-      # never moves and a later stable (v1.3.1) stays above it. Delete the release
-      # and the tag first; the next step then creates a fresh one that sorts to the top.
       - name: Drop previous nightly
         if: steps.decide.outputs.prerelease == 'true'
         env:
@@ -178,7 +160,9 @@ jobs:
             **Dual-pane file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.**
 
             XFiles ${{ steps.decide.outputs.version }} · build ${{ steps.decide.outputs.build }} (${{ github.sha }}).
-            Browse local storage and SMB2/3 shares in the same tree, with remote thumbnails and direct video streaming.
+            The standard mobile edition keeps touch UI behavior; the separate XFiles TV edition adds Google TV launcher and remote-focus behavior. Chromecast playback is available in both editions.
 
             ${{ steps.decide.outputs.notes }}
-          files: ${{ steps.decide.outputs.apk }}
+          files: |
+            ${{ steps.decide.outputs.apk }}
+            ${{ steps.decide.outputs.tv_apk }}
