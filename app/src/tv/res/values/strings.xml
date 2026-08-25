@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="tv_app_name">XFiles TV</string>
+    <string name="tv_update_section_title">Updates</string>
+    <string name="tv_update_section_summary">Checks the XFiles GitHub debug-latest release and installs the Google TV APK.</string>
+    <string name="tv_update_current_build">Installed: %1$s (%2$d)</string>
+    <string name="tv_update_checking">Checking GitHub…</string>
+    <string name="tv_update_up_to_date">You already have the latest build.</string>
+    <string name="tv_update_available_title">XFiles TV update available</string>
+    <string name="tv_update_available_message">Version %1$s, build %2$d is available on GitHub.</string>
+    <string name="tv_update_available_inline">Available: %1$s (build %2$d)</string>
+    <string name="tv_update_install_permission_hint">The first update requires allowing XFiles TV to install unknown apps in Android settings.</string>
+    <string name="tv_update_install">Download and update</string>
+    <string name="tv_update_downloading">Downloading…</string>
+    <string name="tv_update_later">Later</string>
+    <string name="tv_update_check_now">Check again</string>
+    <string name="tv_update_error">Update failed: %1$s</string>
 </resources>
