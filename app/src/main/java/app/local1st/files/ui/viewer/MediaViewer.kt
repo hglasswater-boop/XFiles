@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.MusicNote
@@ -24,8 +25,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -33,6 +36,7 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -51,10 +56,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.MediaRouteButton
+import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -110,7 +119,28 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     val startIndex = remember(playable, entry.id) {
         playable.indexOfFirst { it.id == entry.id }.coerceAtLeast(0)
     }
-    val player = remember {
+    val mediaItems = remember(playable) {
+        playable.map { item ->
+            val uri = mediaUri(item)
+                ?: Uri.Builder().scheme(XId.SCHEME_ROOT).path(item.path).build()
+            MediaItem.Builder()
+                .setMediaId(item.id)
+                .setUri(uri)
+                .setMimeType(castMimeType(item))
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(item.name)
+                        .setMediaType(
+                            if (isVideoEntry(item)) MediaMetadata.MEDIA_TYPE_MOVIE
+                            else MediaMetadata.MEDIA_TYPE_MUSIC,
+                        )
+                        .build(),
+                )
+                .build()
+        }
+    }
+    val relay = remember(playable) { CastMediaRelay(context, playable) }
+    val localPlayer = remember {
         val dataSourceFactory = DefaultDataSource.Factory(context, XFilesRemoteDataSource.Factory())
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(
@@ -118,16 +148,24 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             )
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .build()
+    }
+    val remotePlayer = remember(relay, mediaItems) {
+        RemoteCastPlayer.Builder(context)
+            .setMediaItemConverter(
+                XFilesCastMediaItemConverter(
+                    relay = relay,
+                    originals = mediaItems.associateBy { it.mediaId },
+                ),
+            )
+            .build()
+    }
+    val player = remember(localPlayer, remotePlayer, mediaItems, startIndex) {
+        CastPlayer.Builder(context)
+            .setLocalPlayer(localPlayer)
+            .setRemotePlayer(remotePlayer)
+            .build()
             .apply {
-                setMediaItems(
-                    playable.map {
-                        val uri = mediaUri(it)
-                            ?: Uri.Builder().scheme(XId.SCHEME_ROOT).path(it.path).build()
-                        MediaItem.fromUri(uri)
-                    },
-                    startIndex,
-                    C.TIME_UNSET,
-                )
+                setMediaItems(mediaItems, startIndex, C.TIME_UNSET)
                 prepare()
                 playWhenReady = true
             }
@@ -138,6 +176,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     var metadata by remember { mutableStateOf(MediaMetadata.EMPTY) }
     var hasPrevious by remember { mutableStateOf(false) }
     var hasNext by remember { mutableStateOf(false) }
+    var remotePlayback by remember {
+        mutableStateOf(player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE)
+    }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -154,12 +195,19 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         ?.let { VideoResumeStore.clear(context, it.id) }
                 }
             }
+
+            override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
+                remotePlayback = deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+            }
         }
         player.addListener(listener)
         onDispose {
             saveCurrentVideoResume(context, playable, player)
             player.removeListener(listener)
-            player.release()
+            runCatching { player.release() }
+            runCatching { remotePlayer.release() }
+            runCatching { localPlayer.release() }
+            relay.close()
         }
     }
 
@@ -183,12 +231,8 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     val isVideo = isVideoEntry(currentEntry)
 
     if (isVideo) {
-        VideoCompatibilityGuard(
-            player = player,
-            entry = currentEntry,
-            onClose = onClose,
-        ) {
-            VideoPlayerScreen(
+        if (remotePlayback) {
+            CastRemoteControls(
                 player = player,
                 entry = currentEntry,
                 playing = playing,
@@ -196,6 +240,34 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 hasNext = hasNext,
                 onClose = onClose,
             )
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                VideoCompatibilityGuard(
+                    player = localPlayer,
+                    entry = currentEntry,
+                    onClose = onClose,
+                ) {
+                    VideoPlayerScreen(
+                        player = localPlayer,
+                        entry = currentEntry,
+                        playing = playing,
+                        hasPrevious = hasPrevious,
+                        hasNext = hasNext,
+                        onClose = onClose,
+                    )
+                }
+                Surface(
+                    color = Color.Black.copy(alpha = 0.48f),
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides Color.White) {
+                        MediaRouteButton()
+                    }
+                }
+            }
         }
     } else {
         AudioPlayerScreen(
@@ -268,6 +340,9 @@ private fun AudioPlayerScreen(
                 title = { Text(stringResource(R.string.music)) },
                 navigationIcon = {
                     TooltipIconButton(stringResource(R.string.close), Icons.Outlined.Close, onClick = onClose)
+                },
+                actions = {
+                    MediaRouteButton()
                 },
             )
         },

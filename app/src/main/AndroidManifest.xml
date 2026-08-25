@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Keep the same APK installable on touch devices and Android/Google TV. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
     <!-- Full file system access (X-plore style all-files manager) -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
@@ -23,6 +27,8 @@
 
     <!-- Network access is used only for user-configured SMB2/SMB3 shares. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 17+ blocks direct LAN traffic (SMB and the Cast relay) without this runtime permission. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Long-running file operations continue in a foreground service -->
@@ -33,6 +39,7 @@
     <application
         android:name=".XFilesApp"
         android:allowBackup="true"
+        android:banner="@drawable/tv_banner"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -50,6 +57,10 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 

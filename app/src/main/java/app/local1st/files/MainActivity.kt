@@ -1,6 +1,9 @@
 package app.local1st.files
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,6 +42,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (
+            Build.VERSION.SDK_INT >= 37 &&
+            checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(Manifest.permission.ACCESS_LOCAL_NETWORK),
+                LOCAL_NETWORK_PERMISSION_REQUEST,
+            )
+        }
         if (savedInstanceState == null) incomingIntents.trySend(intent)
         setContent {
             Root(incomingIntentFlow)
@@ -49,6 +61,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         incomingIntents.trySend(intent)
+    }
+
+    private companion object {
+        const val LOCAL_NETWORK_PERMISSION_REQUEST = 1001
     }
 }
 
