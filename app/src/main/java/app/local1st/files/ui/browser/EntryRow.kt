@@ -3,6 +3,7 @@ package app.local1st.files.ui.browser
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -101,6 +103,7 @@ fun EntryRow(
     modifier: Modifier = Modifier,
 ) {
     val entry = node.entry
+    var inputFocused by remember { mutableStateOf(false) }
     val display by BrowserDisplaySettings.state(Graph.appContext).collectAsState()
     val wantsThumbnail = EntryIcons.wantsThumbnail(entry)
     val displayDepth = minOf(node.depth, display.treeLevels)
@@ -121,6 +124,7 @@ fun EntryRow(
 
     val background = when {
         selected -> MaterialTheme.colorScheme.secondaryContainer
+        inputFocused -> MaterialTheme.colorScheme.primaryContainer
         focused -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> Color.Transparent
     }
@@ -150,6 +154,12 @@ fun EntryRow(
             .heightIn(min = rowMinHeight)
             .clip(RoundedCornerShape(8.dp))
             .background(background)
+            .onFocusChanged { inputFocused = it.isFocused }
+            .border(
+                width = if (inputFocused) 2.dp else 0.dp,
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(8.dp),
+            )
             .drawBehind {
                 if (displayDepth <= 0) return@drawBehind
                 val unit = IndentWidth.toPx()

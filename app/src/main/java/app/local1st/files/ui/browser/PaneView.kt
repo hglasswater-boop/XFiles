@@ -1,5 +1,6 @@
 package app.local1st.files.ui.browser
 
+import android.content.pm.PackageManager
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
@@ -119,6 +121,10 @@ fun PaneView(
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
     val display by BrowserDisplaySettings.state(Graph.appContext).collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val isTv = remember(context) {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    }
     val initialScrollIndex = state.initialScrollIndex
     var breadcrumbSortTarget by remember(controller) {
         mutableStateOf<Pair<String, String>?>(null)
@@ -313,6 +319,22 @@ fun PaneView(
     var itemAnimationsEnabled by rememberSaveable(controller) { mutableStateOf(false) }
     var showAddSmbServer by rememberSaveable(controller) { mutableStateOf(false) }
     var preSearchIndex by remember(controller) { mutableStateOf<Int?>(null) }
+    val tvInitialFocusRequester = remember { FocusRequester() }
+    var tvInitialFocusRequested by rememberSaveable(controller) { mutableStateOf(false) }
+
+    LaunchedEffect(isTv, active, displayNodes.size, searchActive) {
+        if (
+            isTv &&
+            active &&
+            !searchActive &&
+            !tvInitialFocusRequested &&
+            displayNodes.isNotEmpty()
+        ) {
+            withFrameNanos { }
+            runCatching { tvInitialFocusRequester.requestFocus() }
+            tvInitialFocusRequested = true
+        }
+    }
 
     LaunchedEffect(controller, listState, state.treeVersion) {
         snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
@@ -532,6 +554,13 @@ fun PaneView(
                                     richContent = richRowsEnabled,
                                     modifier = Modifier
                                         .padding(horizontal = 4.dp)
+                                        .then(
+                                            if (isTv && active && index == 0) {
+                                                Modifier.focusRequester(tvInitialFocusRequester)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
                                         .then(
                                             if (itemAnimationsEnabled) Modifier.animateItem()
                                             else Modifier,
