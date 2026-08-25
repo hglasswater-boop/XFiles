@@ -6,18 +6,12 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// versionName is human-set in version.properties. CI passes GitHub's monotonically increasing
-// workflow run number via -PbuildNumber; publish builds expose it in both versionCode and
-// versionName so installed builds are unambiguous (for example 1.3.6-smb-b92).
 val appBaseVersionName = Properties().apply {
     rootProject.file("version.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }.getProperty("versionName", "1.0")
 val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull()
 val appBuildNumber = ciBuildNumber ?: 1
 val appVersionName = ciBuildNumber?.let { "$appBaseVersionName-b$it" } ?: appBaseVersionName
-
-// CI signing comes from env (CI injects it from GitHub secrets). Absent locally, Android's
-// normal debug signing still works; personal CI explicitly refuses to publish without these envs.
 val ciKeystore: String? = System.getenv("XFILES_KEYSTORE")
 
 android {
@@ -30,6 +24,18 @@ android {
         targetSdk = 37
         versionCode = appBuildNumber
         versionName = appVersionName
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("mobile") {
+            dimension = "edition"
+        }
+        create("tv") {
+            dimension = "edition"
+            applicationIdSuffix = ".tv"
+            versionNameSuffix = "-tv"
+        }
     }
 
     signingConfigs {
@@ -45,9 +51,6 @@ android {
 
     buildTypes {
         debug {
-            // GitHub-hosted runners otherwise create a fresh ~/.android/debug.keystore per run,
-            // which makes every APK a different signer and prevents Android from updating the
-            // previous build. Reuse the CI key whenever one is supplied.
             if (ciKeystore != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -76,14 +79,11 @@ android {
         compose = true
     }
 
-    // Keep Google Play dependency metadata out of release artifacts. This avoids an opaque
-    // signing block and makes the APK friendlier to independent scanners/reproducible builds.
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
     }
 
-    // Generate Android 13+ "App language" settings from the locales that this app ships.
     androidResources {
         generateLocaleConfig = true
         localeFilters += listOf(
@@ -95,12 +95,6 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1,LICENSE.md}"
-            // Payloads no code can read — resource shrinking only covers res/, so these ride
-            // along dead: ARSCLib's bundled framework tables (we drive its chunk classes
-            // directly, never its decoder), the API-level database belonging to the R8
-            // internals the vendored bundletool drops, bundletool's AndroidX migration map,
-            // and the .proto sources that protobuf and bundletool ship for reference — the
-            // runtime reads descriptors compiled into the generated classes instead.
             excludes += listOf(
                 "/frameworks/**",
                 "/api_database/**",
@@ -144,7 +138,6 @@ dependencies {
     implementation(libs.xz)
     implementation(libs.junrar)
     implementation(libs.smbj)
-    // Carries bundletool and ARSCLib, both relocated under app.local1st.files.vendor.
     implementation(project(path = ":vendor:bundletool-shaded", configuration = "shadedRuntimeElements"))
 
     implementation(libs.media3.exoplayer)
