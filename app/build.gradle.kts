@@ -142,7 +142,7 @@ dependencies {
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
-    implementation(libs.media3.cast)
+    add("mobileImplementation", libs.media3.cast)
 
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
