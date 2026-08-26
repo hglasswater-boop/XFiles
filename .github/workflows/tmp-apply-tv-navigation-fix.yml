@@ -1,0 +1,471 @@
+name: Apply TV navigation patch
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/tv-navigation-layout-performance
+          fetch-depth: 0
+
+      - name: Apply TV fixes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected one match in {path}, found {count}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Shared main screen: phones keep the bottom toolbar, TV uses focus-revealed side rails.
+          path = "app/src/main/java/app/local1st/files/ui/main/MainScreen.kt"
+          replace_once(path, "import app.local1st.files.R\n", "import app.local1st.files.BuildConfig\nimport app.local1st.files.R\n")
+          replace_once(
+              path,
+              "    val wideLayout = LocalConfiguration.current.screenWidthDp >= 700\n",
+              "    val wideLayout = LocalConfiguration.current.screenWidthDp >= 700\n"
+              "    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(\".tv\")\n",
+          )
+          replace_once(
+              path,
+              "        val listPadding = PaddingValues(bottom = 120.dp)\n",
+              "        val listPadding = PaddingValues(bottom = if (isTvEdition) 24.dp else 120.dp)\n",
+          )
+          replace_once(
+              path,
+              "        if (pendingTransfer == null) {\n            HorizontalFloatingToolbar(\n",
+              "        if (!isTvEdition && pendingTransfer == null) {\n            HorizontalFloatingToolbar(\n",
+          )
+          replace_once(
+              path,
+              "        } else {\n            val transfer = pendingTransfer\n            if (transfer != null) {\n                HorizontalFloatingToolbar(\n",
+              "        } else if (!isTvEdition) {\n            val transfer = pendingTransfer\n            if (transfer != null) {\n                HorizontalFloatingToolbar(\n",
+          )
+          marker = "        val requiredPanes = if (wideLayout) vm.panes.indices else listOf(activePane)\n"
+          p = Path(path)
+          text = p.read_text()
+          if text.count(marker) != 1:
+              raise SystemExit("MainScreen insertion marker not unique")
+          hook = '''        if (isTvEdition) {
+            EditionSideActionMenu(
+                selectionCount = selectionCount,
+                selectionAvailable = selectedEntries.isNotEmpty(),
+                canUseOtherPane = canUseOtherPane,
+                canShareSelection = canShareSelection,
+                copyTargetLabel = copyTargetLabel,
+                moveTargetLabel = moveTargetLabel,
+                compressTargetLabel = compressTargetLabel,
+                transferActive = pendingTransfer != null,
+                transferMove = pendingTransfer?.move == true,
+                transferSourceCount = pendingTransfer?.sources?.size ?: 0,
+                transferDestinationName = transferDestinationName,
+                canConfirmTransfer = canConfirmTransfer,
+                onNewFolder = { vm.requestNewFolder() },
+                onNewTextFile = { vm.requestNewTextFile() },
+                onSearch = {
+                    if (searchPane == activePane) {
+                        closeSearch(activePane)
+                    } else {
+                        searchPane?.let { previous -> vm.panes[previous].clearSelection() }
+                        searchEntries = emptyMap()
+                        searchPane = activePane
+                    }
+                },
+                onRefresh = { vm.activeCtrl.refreshAllExpanded() },
+                onMore = {
+                    vm.dialog.value = DialogRequest.EntryMenu(
+                        entry = vm.activeCtrl.focusedDirEntry(),
+                        showSettings = true,
+                    )
+                },
+                onClear = { vm.activeCtrl.clearSelection() },
+                onCopy = {
+                    vm.chooseTransferDestination(move = false, sources = selectedEntries)
+                },
+                onMove = {
+                    vm.chooseTransferDestination(move = true, sources = selectedEntries)
+                },
+                onDelete = { vm.requestDelete(selectedEntries) },
+                onCompress = { vm.requestCompress(selectedEntries) },
+                onShare = { vm.shareSelection(selectedEntries) },
+                onCancelTransfer = { vm.cancelTransferDestination() },
+                onConfirmTransfer = { vm.confirmTransferCurrentDestination() },
+            )
+        }
+
+'''
+          p.write_text(text.replace(marker, hook + marker, 1))
+
+          # Bottom sheet menu: bound height to the screen and scroll instead of clipping below it.
+          path = "app/src/main/java/app/local1st/files/ui/dialogs/Dialogs.kt"
+          replace_once(path, "import androidx.compose.foundation.clickable\n", "import androidx.compose.foundation.clickable\nimport androidx.compose.foundation.rememberScrollState\nimport androidx.compose.foundation.verticalScroll\n")
+          replace_once(path, "import androidx.compose.foundation.layout.fillMaxWidth\n", "import androidx.compose.foundation.layout.fillMaxWidth\nimport androidx.compose.foundation.layout.heightIn\n")
+          replace_once(path, "import androidx.compose.ui.platform.LocalClipboardManager\n", "import androidx.compose.ui.platform.LocalClipboardManager\nimport androidx.compose.ui.platform.LocalConfiguration\n")
+          replace_once(
+              path,
+              "    ContextMenuColumn(contextMenuOrder, Modifier.padding(bottom = 24.dp)) {\n",
+              "    val contextMenuScroll = rememberScrollState()\n"
+              "    val contextMenuMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.82f).dp\n"
+              "    ContextMenuColumn(\n"
+              "        contextMenuOrder,\n"
+              "        Modifier\n"
+              "            .heightIn(max = contextMenuMaxHeight)\n"
+              "            .verticalScroll(contextMenuScroll)\n"
+              "            .padding(bottom = 24.dp),\n"
+              "    ) {\n",
+          )
+
+          # Back button on TV should not capture initial D-pad focus in Settings.
+          path = "app/src/main/java/app/local1st/files/ui/components/TooltipIconButton.kt"
+          replace_once(path, "import androidx.compose.ui.Modifier\n", "import androidx.compose.ui.Modifier\nimport androidx.compose.ui.focus.focusProperties\n")
+          replace_once(path, "import androidx.compose.ui.graphics.vector.ImageVector\n", "import androidx.compose.ui.graphics.vector.ImageVector\nimport androidx.compose.ui.res.stringResource\nimport app.local1st.files.BuildConfig\nimport app.local1st.files.R\n")
+          replace_once(
+              path,
+              "    TooltipBox(\n",
+              "    val skipTvBackFocus = BuildConfig.APPLICATION_ID.endsWith(\".tv\") &&\n"
+              "        label == stringResource(R.string.back)\n\n"
+              "    TooltipBox(\n",
+          )
+          replace_once(
+              path,
+              "            modifier = modifier,\n",
+              "            modifier = modifier.then(\n"
+              "                if (skipTvBackFocus) Modifier.focusProperties { canFocus = false }\n"
+              "                else Modifier,\n"
+              "            ),\n",
+          )
+
+          # Keep folder/file counts, but serialize TV directory reads to avoid I/O bursts.
+          path = "app/src/main/java/app/local1st/files/ui/browser/FolderFileCount.kt"
+          replace_once(path, "import app.local1st.files.core.fs.EntryKind\n", "import app.local1st.files.BuildConfig\nimport app.local1st.files.core.fs.EntryKind\n")
+          replace_once(
+              path,
+              "    private val reads = Semaphore(4)\n",
+              "    private val reads = Semaphore(if (BuildConfig.APPLICATION_ID.endsWith(\".tv\")) 1 else 4)\n",
+          )
+
+          # TV list: remove decorative item/chevron animation and skip per-row video metadata scans.
+          path = "app/src/tv/java/app/local1st/files/ui/browser/PaneView.kt"
+          replace_once(path, "            itemAnimationsEnabled = true\n", "            itemAnimationsEnabled = false\n")
+
+          path = "app/src/tv/java/app/local1st/files/ui/browser/EntryRow.kt"
+          replace_once(path, "                animate = true,\n", "                animate = false,\n")
+          old_meta = '''    val videoMetadata by produceState<VideoMetadata?>(
+        initialValue = null,
+        entry.id,
+        entry.mtime,
+        entry.size,
+        isVideo,
+    ) {
+        if (isVideo) value = VideoMetadataReader.read(entry)
+    }
+'''
+          replace_once(path, old_meta, "    val videoMetadata: VideoMetadata? = null\n")
+
+          # Mobile flavor hook is a no-op; TV flavor implements edge-focus side rails.
+          Path("app/src/mobile/java/app/local1st/files/ui/main").mkdir(parents=True, exist_ok=True)
+          Path("app/src/mobile/java/app/local1st/files/ui/main/EditionSideActionMenu.kt").write_text(r'''package app.local1st.files.ui.main
+
+import androidx.compose.runtime.Composable
+
+@Suppress("UNUSED_PARAMETER")
+@Composable
+internal fun EditionSideActionMenu(
+    selectionCount: Int,
+    selectionAvailable: Boolean,
+    canUseOtherPane: Boolean,
+    canShareSelection: Boolean,
+    copyTargetLabel: String,
+    moveTargetLabel: String,
+    compressTargetLabel: String,
+    transferActive: Boolean,
+    transferMove: Boolean,
+    transferSourceCount: Int,
+    transferDestinationName: String,
+    canConfirmTransfer: Boolean,
+    onNewFolder: () -> Unit,
+    onNewTextFile: () -> Unit,
+    onSearch: () -> Unit,
+    onRefresh: () -> Unit,
+    onMore: () -> Unit,
+    onClear: () -> Unit,
+    onCopy: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    onCompress: () -> Unit,
+    onShare: () -> Unit,
+    onCancelTransfer: () -> Unit,
+    onConfirmTransfer: () -> Unit,
+) = Unit
+''')
+
+          Path("app/src/tv/java/app/local1st/files/ui/main").mkdir(parents=True, exist_ok=True)
+          Path("app/src/tv/java/app/local1st/files/ui/main/EditionSideActionMenu.kt").write_text(r'''package app.local1st.files.ui.main
+
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
+import androidx.compose.material.icons.automirrored.outlined.NoteAdd
+import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusGroup
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import app.local1st.files.R
+
+@Composable
+internal fun EditionSideActionMenu(
+    selectionCount: Int,
+    selectionAvailable: Boolean,
+    canUseOtherPane: Boolean,
+    canShareSelection: Boolean,
+    copyTargetLabel: String,
+    moveTargetLabel: String,
+    compressTargetLabel: String,
+    transferActive: Boolean,
+    transferMove: Boolean,
+    transferSourceCount: Int,
+    transferDestinationName: String,
+    canConfirmTransfer: Boolean,
+    onNewFolder: () -> Unit,
+    onNewTextFile: () -> Unit,
+    onSearch: () -> Unit,
+    onRefresh: () -> Unit,
+    onMore: () -> Unit,
+    onClear: () -> Unit,
+    onCopy: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    onCompress: () -> Unit,
+    onShare: () -> Unit,
+    onCancelTransfer: () -> Unit,
+    onConfirmTransfer: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        FocusRevealRail(
+            alignment = Alignment.CenterStart,
+            status = when {
+                transferActive -> transferSourceCount.toString()
+                selectionCount > 0 -> selectionCount.toString()
+                else -> null
+            },
+        ) {
+            when {
+                transferActive -> {
+                    TvActionButton(stringResource(R.string.cancel), Icons.Outlined.Close, onClick = onCancelTransfer)
+                }
+                selectionCount > 0 -> {
+                    TvActionButton(stringResource(R.string.clear), Icons.Outlined.Close, onClick = onClear)
+                    TvActionButton(copyTargetLabel, Icons.Outlined.ContentCopy, selectionAvailable, onCopy)
+                    TvActionButton(moveTargetLabel, Icons.AutoMirrored.Outlined.DriveFileMove, selectionAvailable, onMove)
+                }
+                else -> {
+                    TvActionButton(stringResource(R.string.new_folder), Icons.Outlined.CreateNewFolder, onClick = onNewFolder)
+                    TvActionButton(stringResource(R.string.new_text_file), Icons.AutoMirrored.Outlined.NoteAdd, onClick = onNewTextFile)
+                    TvActionButton(stringResource(R.string.search), Icons.Outlined.Search, onClick = onSearch)
+                }
+            }
+        }
+        FocusRevealRail(
+            alignment = Alignment.CenterEnd,
+        ) {
+            when {
+                transferActive -> {
+                    TvActionButton(
+                        label = if (transferMove) {
+                            "${stringResource(R.string.move_to)} $transferDestinationName"
+                        } else {
+                            "${stringResource(R.string.copy_to)} $transferDestinationName"
+                        },
+                        icon = if (transferMove) Icons.AutoMirrored.Outlined.DriveFileMove else Icons.Outlined.ContentCopy,
+                        enabled = canConfirmTransfer,
+                        onClick = onConfirmTransfer,
+                    )
+                }
+                selectionCount > 0 -> {
+                    TvActionButton(stringResource(R.string.delete), Icons.Outlined.Delete, selectionAvailable, onDelete)
+                    TvActionButton(compressTargetLabel, Icons.Outlined.Archive, canUseOtherPane && selectionAvailable, onCompress)
+                    TvActionButton(
+                        stringResource(if (canShareSelection) R.string.share else R.string.share_requires_local_files),
+                        Icons.Outlined.Share,
+                        canShareSelection,
+                        onShare,
+                    )
+                }
+                else -> {
+                    TvActionButton(stringResource(R.string.refresh), Icons.Outlined.Refresh, onClick = onRefresh)
+                    TvActionButton(stringResource(R.string.more), Icons.Outlined.MoreVert, onClick = onMore)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.FocusRevealRail(
+    alignment: Alignment,
+    status: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var visible by remember { mutableStateOf(false) }
+    val firstAction = remember { FocusRequester() }
+    val edgeRequester = remember { FocusRequester() }
+
+    Box(
+        modifier = Modifier
+            .align(alignment)
+            .fillMaxHeight()
+            .width(if (visible) 96.dp else 14.dp)
+            .focusGroup()
+            .onFocusChanged { state -> visible = state.hasFocus },
+    ) {
+        Box(
+            Modifier
+                .align(if (alignment == Alignment.CenterStart) Alignment.CenterStart else Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(14.dp)
+                .focusRequester(edgeRequester)
+                .onFocusChanged { if (it.isFocused) visible = true }
+                .focusable(),
+        )
+
+        if (visible) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(horizontal = 4.dp, vertical = 52.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
+                tonalElevation = 4.dp,
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.SpaceEvenly,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (status != null) {
+                        Text(
+                            status,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Box(Modifier.focusRequester(firstAction)) {
+                        Column(
+                            verticalArrangement = Arrangement.SpaceEvenly,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            content = content,
+                        )
+                    }
+                }
+            }
+            LaunchedEffect(visible) {
+                if (visible) runCatching { firstAction.requestFocus() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvActionButton(
+    label: String,
+    icon: ImageVector,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .onFocusChanged { focused = it.isFocused },
+        shape = RoundedCornerShape(14.dp),
+        color = if (focused) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = when {
+            !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            focused -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(icon, contentDescription = null)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+            )
+        }
+    }
+}
+''')
+
+          # Remove the earlier branch-local helper workflow from the actual change set.
+          Path(".github/workflows/apply-tv-navigation-fix.yml").unlink(missing_ok=True)
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix Google TV navigation, menus, and rendering"
+          git push origin HEAD:fix/tv-navigation-layout-performance
