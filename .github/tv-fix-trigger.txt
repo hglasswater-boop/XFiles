@@ -1,1 +1,0 @@
-apply-tv-navigation-layout-performance
