@@ -1,5 +1,7 @@
 package app.local1st.files.ui.main
 
+import android.app.Activity
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
@@ -66,6 +68,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -86,6 +89,7 @@ import app.local1st.files.ui.dialogs.DialogRequest
 
 private val CompactTargetChipMaxWidth = 96.dp
 private val CompactIosChevronSize = 12.dp
+private const val TvExitBackWindowMs = 2_000L
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -113,8 +117,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     }
     var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
     var searchEntries by remember(vm) { mutableStateOf<Map<String, XEntry>>(emptyMap()) }
+    var lastTvRootBackAt by remember { mutableStateOf(0L) }
     val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
     val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
+    val context = LocalContext.current
 
     fun closeSearch(paneIndex: Int) {
         vm.panes[paneIndex].clearSelection()
@@ -156,6 +162,41 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
         enabled = pendingTransfer == null && searchPane != activePane && selectionCount > 0,
     ) {
         vm.activeCtrl.clearSelection()
+    }
+    BackHandler(
+        enabled = isTvEdition &&
+            pendingTransfer == null &&
+            searchPane != activePane &&
+            selectionCount == 0,
+    ) {
+        val controller = vm.activeCtrl
+        val paneState = controller.state.value
+        val focusedId = paneState.focusedDirId
+        val focusedIndex = focusedId?.let { id ->
+            paneState.nodes.indexOfLast { node -> node.entry.id == id }
+        } ?: -1
+        val focusedNode = paneState.nodes.getOrNull(focusedIndex)
+        val parentNode = if (focusedNode != null && focusedNode.depth > 0) {
+            paneState.nodes
+                .take(focusedIndex)
+                .lastOrNull { node -> node.depth == focusedNode.depth - 1 }
+        } else {
+            null
+        }
+
+        if (focusedNode != null && parentNode != null) {
+            if (focusedNode.entry.isContainer) controller.collapse(focusedNode.entry)
+            controller.revealPath(parentNode.entry.id, animate = false)
+            lastTvRootBackAt = 0L
+        } else {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastTvRootBackAt <= TvExitBackWindowMs) {
+                (context as? Activity)?.finish()
+            } else {
+                lastTvRootBackAt = now
+                vm.snackbar.tryEmit(context.getString(R.string.press_back_again_to_exit))
+            }
+        }
     }
 
     // No top app bar at all: the panes extend under the status bar, and the few former
