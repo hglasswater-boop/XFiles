@@ -11,8 +11,17 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import app.local1st.files.BuildConfig
+import app.local1st.files.R
 
 /**
  * An icon-only button that reveals its [label] on long-press (and on hover), so every
@@ -31,6 +40,10 @@ fun TooltipIconButton(
     selected: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
+    val skipTvBackFocus = isTvEdition && label == stringResource(R.string.back)
+    var focused by remember { mutableStateOf(false) }
+
     TooltipBox(
         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(label) } },
@@ -39,11 +52,24 @@ fun TooltipIconButton(
         IconButton(
             onClick = onClick,
             enabled = enabled,
-            modifier = modifier,
-            colors = if (selected) {
-                IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-            } else {
-                IconButtonDefaults.iconButtonColors()
+            modifier = modifier
+                .onFocusChanged { focused = it.isFocused }
+                .then(
+                    if (skipTvBackFocus) {
+                        Modifier.focusProperties { canFocus = false }
+                    } else {
+                        Modifier
+                    },
+                ),
+            colors = when {
+                isTvEdition && focused -> IconButtonDefaults.iconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                selected -> IconButtonDefaults.iconButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary,
+                )
+                else -> IconButtonDefaults.iconButtonColors()
             },
         ) {
             Icon(icon, contentDescription = label)

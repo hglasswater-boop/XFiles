@@ -1,8 +1,11 @@
 package app.local1st.files.ui.dialogs
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -25,6 +28,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -129,75 +133,75 @@ fun MainDialogs(vm: MainViewModel) {
         )
 
         is DialogRequest.Details -> {
-    val isVideo = FileTypes.categoryOf(req.entry.name, req.entry.mime) == FileCategory.VIDEO
-    val videoMetadata by produceState<VideoMetadata?>(
-        initialValue = null,
-        req.entry.id,
-        req.entry.mtime,
-        req.entry.size,
-    ) {
-        if (isVideo) value = VideoMetadataReader.read(req.entry)
-    }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(req.entry.name) },
-        text = {
-            Column {
-                val displayLocation = when (req.entry.scheme) {
-                    XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
-                    XId.SCHEME_ROOT -> "root:${req.entry.path}"
-                    else -> req.entry.path
-                }
-                Text(stringResource(R.string.location, displayLocation))
-                if (!req.entry.isDir) {
-                    Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
-                }
-                Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
-                req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
-                videoMetadata?.let { metadata ->
-                    if (metadata.width != null && metadata.height != null) {
-                        Text(
-                            stringResource(
-                                R.string.video_resolution,
-                                "${metadata.width} × ${metadata.height}",
-                            ),
-                        )
-                    }
-                    metadata.frameRate?.let {
-                        Text(
-                            stringResource(
-                                R.string.video_frame_rate,
-                                formatVideoFrameRate(it),
-                            ),
-                        )
-                    }
-                    metadata.durationMs?.let {
-                        Text(
-                            stringResource(
-                                R.string.video_duration,
-                                formatVideoDuration(it),
-                            ),
-                        )
-                    }
-                    metadata.codec?.let {
-                        Text(stringResource(R.string.video_codec, it))
-                    }
-                    metadata.bitrate?.let {
-                        Text(
-                            stringResource(
-                                R.string.video_bitrate,
-                                formatVideoBitrate(it),
-                            ),
-                        )
-                    }
-                }
+            val isVideo = FileTypes.categoryOf(req.entry.name, req.entry.mime) == FileCategory.VIDEO
+            val videoMetadata by produceState<VideoMetadata?>(
+                initialValue = null,
+                req.entry.id,
+                req.entry.mtime,
+                req.entry.size,
+            ) {
+                if (isVideo) value = VideoMetadataReader.read(req.entry)
             }
-        },
-        confirmButton = {
-            TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
-        },
-    )
-}
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(req.entry.name) },
+                text = {
+                    Column {
+                        val displayLocation = when (req.entry.scheme) {
+                            XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
+                            XId.SCHEME_ROOT -> "root:${req.entry.path}"
+                            else -> req.entry.path
+                        }
+                        Text(stringResource(R.string.location, displayLocation))
+                        if (!req.entry.isDir) {
+                            Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
+                        }
+                        Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
+                        req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
+                        videoMetadata?.let { metadata ->
+                            if (metadata.width != null && metadata.height != null) {
+                                Text(
+                                    stringResource(
+                                        R.string.video_resolution,
+                                        "${metadata.width} × ${metadata.height}",
+                                    ),
+                                )
+                            }
+                            metadata.frameRate?.let {
+                                Text(
+                                    stringResource(
+                                        R.string.video_frame_rate,
+                                        formatVideoFrameRate(it),
+                                    ),
+                                )
+                            }
+                            metadata.durationMs?.let {
+                                Text(
+                                    stringResource(
+                                        R.string.video_duration,
+                                        formatVideoDuration(it),
+                                    ),
+                                )
+                            }
+                            metadata.codec?.let {
+                                Text(stringResource(R.string.video_codec, it))
+                            }
+                            metadata.bitrate?.let {
+                                Text(
+                                    stringResource(
+                                        R.string.video_bitrate,
+                                        formatVideoBitrate(it),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
+                },
+            )
+        }
 
         is DialogRequest.FolderSort -> FolderSortDialog(req.folder, dismiss)
 
@@ -421,8 +425,16 @@ private fun EntryMenuContent(
         }
         ?.path
         ?.let(Graph.smbConnections::find)
+    val contextMenuScroll = rememberScrollState()
+    val contextMenuMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.82f).dp
 
-    ContextMenuColumn(contextMenuOrder, Modifier.padding(bottom = 24.dp)) {
+    ContextMenuColumn(
+        contextMenuOrder,
+        Modifier
+            .heightIn(max = contextMenuMaxHeight)
+            .verticalScroll(contextMenuScroll)
+            .padding(bottom = 24.dp),
+    ) {
         if (entry != null) {
             Text(
                 entry.name,

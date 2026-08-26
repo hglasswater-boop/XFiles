@@ -1,5 +1,7 @@
 package app.local1st.files.ui.main
 
+import android.app.Activity
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
@@ -66,6 +68,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -74,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.local1st.files.BuildConfig
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
@@ -85,6 +89,7 @@ import app.local1st.files.ui.dialogs.DialogRequest
 
 private val CompactTargetChipMaxWidth = 96.dp
 private val CompactIosChevronSize = 12.dp
+private const val TvExitBackWindowMs = 2_000L
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -112,7 +117,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     }
     var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
     var searchEntries by remember(vm) { mutableStateOf<Map<String, XEntry>>(emptyMap()) }
+    var lastTvRootBackAt by remember { mutableStateOf(0L) }
     val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
+    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
+    val context = LocalContext.current
 
     fun closeSearch(paneIndex: Int) {
         vm.panes[paneIndex].clearSelection()
@@ -155,6 +163,41 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     ) {
         vm.activeCtrl.clearSelection()
     }
+    BackHandler(
+        enabled = isTvEdition &&
+            pendingTransfer == null &&
+            searchPane != activePane &&
+            selectionCount == 0,
+    ) {
+        val controller = vm.activeCtrl
+        val paneState = controller.state.value
+        val focusedId = paneState.focusedDirId
+        val focusedIndex = focusedId?.let { id ->
+            paneState.nodes.indexOfLast { node -> node.entry.id == id }
+        } ?: -1
+        val focusedNode = paneState.nodes.getOrNull(focusedIndex)
+        val parentNode = if (focusedNode != null && focusedNode.depth > 0) {
+            paneState.nodes
+                .take(focusedIndex)
+                .lastOrNull { node -> node.depth == focusedNode.depth - 1 }
+        } else {
+            null
+        }
+
+        if (focusedNode != null && parentNode != null) {
+            if (focusedNode.entry.isContainer) controller.collapse(focusedNode.entry)
+            controller.revealPath(parentNode.entry.id, animate = false)
+            lastTvRootBackAt = 0L
+        } else {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastTvRootBackAt <= TvExitBackWindowMs) {
+                (context as? Activity)?.finish()
+            } else {
+                lastTvRootBackAt = now
+                vm.snackbar.tryEmit(context.getString(R.string.press_back_again_to_exit))
+            }
+        }
+    }
 
     // No top app bar at all: the panes extend under the status bar, and the few former
     // top-bar actions live elsewhere (search in the bottom toolbar, Settings in More).
@@ -162,7 +205,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     // The explicit background paints the pane gutters and rounded-corner gaps that
     // Scaffold used to cover.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val listPadding = PaddingValues(bottom = 120.dp)
+        val listPadding = PaddingValues(bottom = if (isTvEdition) 24.dp else 120.dp)
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 700.dp
@@ -312,8 +355,9 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 ),
         )
 
-        // Signature X-plore action bar, reimagined as an Expressive floating toolbar.
-        if (pendingTransfer == null) {
+        // Phones keep the bottom toolbar. TV exposes equivalent actions as edge focus targets so
+        // users can reach commands from any row without first travelling back to the list top.
+        if (!isTvEdition && pendingTransfer == null) {
             HorizontalFloatingToolbar(
                 expanded = true,
                 modifier = Modifier
@@ -335,9 +379,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                     style = MaterialTheme.typography.titleMedium,
                                     modifier = Modifier.align(Alignment.CenterVertically),
                                 )
-                                // Copy/move may start while the other pane is focused inside an
-                                // archive (including an APK). Destination mode then lets the user
-                                // switch panes and choose any writable folder before confirming.
                                 TooltipIconButton(
                                     label = copyTargetLabel,
                                     icon = Icons.Outlined.ContentCopy,
@@ -423,7 +464,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     }
                 },
             )
-        } else {
+        } else if (!isTvEdition) {
             val transfer = pendingTransfer
             if (transfer != null) {
                 HorizontalFloatingToolbar(
@@ -468,6 +509,49 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     },
                 )
             }
+        }
+
+        if (isTvEdition) {
+            EditionSideActionMenu(
+                selectionCount = selectionCount,
+                selectionAvailable = selectedEntries.isNotEmpty(),
+                canUseOtherPane = canUseOtherPane,
+                canShareSelection = canShareSelection,
+                copyTargetLabel = copyTargetLabel,
+                moveTargetLabel = moveTargetLabel,
+                compressTargetLabel = compressTargetLabel,
+                transferActive = pendingTransfer != null,
+                transferMove = pendingTransfer?.move == true,
+                transferSourceCount = pendingTransfer?.sources?.size ?: 0,
+                transferDestinationName = transferDestinationName,
+                canConfirmTransfer = canConfirmTransfer,
+                onNewFolder = { vm.requestNewFolder() },
+                onNewTextFile = { vm.requestNewTextFile() },
+                onSearch = {
+                    if (searchPane == activePane) {
+                        closeSearch(activePane)
+                    } else {
+                        searchPane?.let { previous -> vm.panes[previous].clearSelection() }
+                        searchEntries = emptyMap()
+                        searchPane = activePane
+                    }
+                },
+                onRefresh = { vm.activeCtrl.refreshAllExpanded() },
+                onMore = {
+                    vm.dialog.value = DialogRequest.EntryMenu(
+                        entry = vm.activeCtrl.focusedDirEntry(),
+                        showSettings = true,
+                    )
+                },
+                onClear = { vm.activeCtrl.clearSelection() },
+                onCopy = { vm.chooseTransferDestination(move = false, sources = selectedEntries) },
+                onMove = { vm.chooseTransferDestination(move = true, sources = selectedEntries) },
+                onDelete = { vm.requestDelete(selectedEntries) },
+                onCompress = { vm.requestCompress(selectedEntries) },
+                onShare = { vm.shareSelection(selectedEntries) },
+                onCancelTransfer = { vm.cancelTransferDestination() },
+                onConfirmTransfer = { vm.confirmTransferCurrentDestination() },
+            )
         }
 
         val requiredPanes = if (wideLayout) vm.panes.indices else listOf(activePane)
@@ -526,7 +610,6 @@ private fun OtherPaneTargetChip(
         writable -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onErrorContainer
     }
-    // iOS nav chevrons: thin, and they sit on the side the tap will go.
     val pointingRight = activePane == 0
     val chevron = if (pointingRight) {
         Icons.AutoMirrored.Outlined.ArrowForwardIos
@@ -534,7 +617,6 @@ private fun OtherPaneTargetChip(
         Icons.AutoMirrored.Outlined.ArrowBackIos
     }
 
-    // Alignment belongs to this direct Box child; TooltipBox does not expose a Box scope parent.
     Box(modifier) {
         TooltipBox(
             positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
@@ -543,8 +625,6 @@ private fun OtherPaneTargetChip(
             tooltip = { PlainTooltip { Text(tooltip) } },
             state = rememberTooltipState(),
         ) {
-            // Keep the visible pill aligned with the 40dp breadcrumb. Compose still expands the
-            // actual touch hit area to the platform's 48dp accessibility minimum.
             CompositionLocalProvider(
                 LocalMinimumInteractiveComponentSize provides CrumbBarHeight,
             ) {
