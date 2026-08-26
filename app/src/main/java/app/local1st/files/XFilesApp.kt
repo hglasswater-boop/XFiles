@@ -8,8 +8,6 @@ import coil3.SingletonImageLoader
 import coil3.gif.AnimatedImageDecoder
 import coil3.request.addLastModifiedToFileCacheKey
 import coil3.video.VideoFrameDecoder
-import androidx.media3.cast.Cast
-import androidx.media3.common.util.UnstableApi
 import app.local1st.files.core.ops.BackgroundJobs
 import app.local1st.files.core.ops.OpsService
 import app.local1st.files.core.thumb.AppIconFetcher
@@ -27,8 +25,7 @@ class XFilesApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        // Media3 Cast must be initialized before RemoteCastPlayer or MediaRouteButton is created.
-        Cast.getSingletonInstance(this).initialize()
+        initializeEditionFeatures(this)
         Graph.init(this)
         startOpsServiceWhenBusy()
     }
