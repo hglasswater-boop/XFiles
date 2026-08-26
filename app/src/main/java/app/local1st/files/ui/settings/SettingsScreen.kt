@@ -55,6 +55,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.local1st.files.BuildConfig
+import app.local1st.files.EditionUpdateSettingsSection
 import app.local1st.files.R
 import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.fs.priv.ShizukuGate
@@ -308,6 +309,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                 if (showShizukuHelp) {
                     ShizukuHelpCard(onOpenShizuku = { openShizuku(context) })
                 }
+
+                SectionHeader(stringResource(R.string.update_settings_title))
+                EditionUpdateSettingsSection()
 
                 SectionHeader(stringResource(R.string.about))
                 Card(Modifier.fillMaxWidth()) {
