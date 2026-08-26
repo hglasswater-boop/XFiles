@@ -3,6 +3,7 @@ package app.local1st.files.ui.browser
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import app.local1st.files.BuildConfig
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
@@ -49,7 +50,9 @@ private fun isSmbConnectionRoot(entry: XEntry): Boolean =
 private object FolderFileCountCache {
     private const val MAX_ENTRIES = 2048
     private val counts = ConcurrentHashMap<String, FolderDirectCounts>()
-    private val reads = Semaphore(4)
+    // TV devices are usually much slower at parallel SMB/directory IO than phones. Keep the
+    // feature, but serialize those background count reads so D-pad navigation stays responsive.
+    private val reads = Semaphore(if (BuildConfig.APPLICATION_ID.endsWith(".tv")) 1 else 4)
     private val invalidationStarted = AtomicBoolean(false)
 
     fun ensureInvalidationCollector() {
