@@ -4,11 +4,18 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -18,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -27,6 +35,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,20 +54,37 @@ private object TvSelfUpdater {
         "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/debug-latest"
     private const val PREFS = "tv_self_update"
     private const val LAST_AUTO_CHECK = "last_auto_check"
+    private const val AUTO_CHECK_ENABLED = "auto_check_enabled"
     private const val AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
     private val tvAssetPattern = Regex("^XFiles-TV-(.+)-b(\\d+)-debug\\.apk$")
 
-    fun autoCheckDue(context: Context): Boolean {
-        val last = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getLong(LAST_AUTO_CHECK, 0L)
-        return System.currentTimeMillis() - last >= AUTO_CHECK_INTERVAL_MS
-    }
+    fun isAutoCheckEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(AUTO_CHECK_ENABLED, true)
 
-    fun markAutoCheck(context: Context) {
+    fun setAutoCheckEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putLong(LAST_AUTO_CHECK, System.currentTimeMillis())
+            .putBoolean(AUTO_CHECK_ENABLED, enabled)
             .apply()
+    }
+
+    fun lastCheck(context: Context): Long =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(LAST_AUTO_CHECK, 0L)
+
+    fun autoCheckDue(context: Context): Boolean {
+        if (!isAutoCheckEnabled(context)) return false
+        return System.currentTimeMillis() - lastCheck(context) >= AUTO_CHECK_INTERVAL_MS
+    }
+
+    fun markChecked(context: Context): Long {
+        val now = System.currentTimeMillis()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(LAST_AUTO_CHECK, now)
+            .apply()
+        return now
     }
 
     suspend fun check(): TvRelease? = withContext(Dispatchers.IO) {
@@ -170,6 +197,190 @@ private object TvSelfUpdater {
 }
 
 @Composable
+fun EditionUpdateSettingsSection() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var autoCheckEnabled by remember { mutableStateOf(TvSelfUpdater.isAutoCheckEnabled(context)) }
+    var lastCheck by remember { mutableStateOf(TvSelfUpdater.lastCheck(context)) }
+    var checking by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var release by remember { mutableStateOf<TvRelease?>(null) }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                stringResource(
+                    R.string.update_current_version,
+                    BuildConfig.VERSION_NAME,
+                    BuildConfig.VERSION_CODE,
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.update_auto_check),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        stringResource(R.string.update_auto_check_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = autoCheckEnabled,
+                    onCheckedChange = { enabled ->
+                        autoCheckEnabled = enabled
+                        TvSelfUpdater.setAutoCheckEnabled(context, enabled)
+                    },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                if (lastCheck > 0L) {
+                    stringResource(
+                        R.string.update_last_checked,
+                        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                            .format(Date(lastCheck)),
+                    )
+                } else {
+                    stringResource(R.string.update_never_checked)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            statusMessage?.let { message ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                enabled = !checking,
+                onClick = {
+                    scope.launch {
+                        checking = true
+                        statusMessage = null
+                        runCatching { TvSelfUpdater.check() }
+                            .onSuccess { found ->
+                                lastCheck = TvSelfUpdater.markChecked(context)
+                                if (found == null) {
+                                    statusMessage = context.getString(R.string.update_up_to_date)
+                                } else {
+                                    release = found
+                                }
+                            }
+                            .onFailure { error ->
+                                statusMessage = context.getString(
+                                    R.string.update_check_failed,
+                                    error.message ?: error.javaClass.simpleName,
+                                )
+                            }
+                        checking = false
+                    }
+                },
+            ) {
+                Text(
+                    stringResource(
+                        if (checking) R.string.update_checking
+                        else R.string.update_check_now,
+                    ),
+                )
+            }
+        }
+    }
+
+    release?.let { available ->
+        EditionSettingsUpdateDialog(
+            available = available,
+            onDismiss = { release = null },
+        )
+    }
+}
+
+@Composable
+private fun EditionSettingsUpdateDialog(
+    available: TvRelease,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = { if (!downloading) onDismiss() },
+        title = { Text(stringResource(R.string.tv_update_available_title)) },
+        text = {
+            Column {
+                Text(
+                    stringResource(
+                        R.string.tv_update_available_message,
+                        available.versionName,
+                        available.buildNumber,
+                    ),
+                )
+                if (!TvSelfUpdater.canInstallPackages(context)) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.tv_update_install_permission_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                errorMessage?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.tv_update_error, it),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !downloading,
+                onClick = {
+                    if (!TvSelfUpdater.canInstallPackages(context)) {
+                        TvSelfUpdater.openInstallPermission(context)
+                        return@TextButton
+                    }
+                    scope.launch {
+                        downloading = true
+                        errorMessage = null
+                        runCatching { TvSelfUpdater.downloadAndValidate(context, available) }
+                            .onSuccess { TvSelfUpdater.launchInstaller(context, it) }
+                            .onFailure { errorMessage = it.message ?: it.javaClass.simpleName }
+                        downloading = false
+                    }
+                },
+            ) {
+                Text(
+                    stringResource(
+                        if (downloading) R.string.tv_update_downloading
+                        else R.string.tv_update_install,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !downloading, onClick = onDismiss) {
+                Text(stringResource(R.string.tv_update_later))
+            }
+        },
+    )
+}
+
+@Composable
 fun EditionStartupUpdateCheck() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -181,7 +392,7 @@ fun EditionStartupUpdateCheck() {
         if (!TvSelfUpdater.autoCheckDue(context)) return@LaunchedEffect
         runCatching { TvSelfUpdater.check() }
             .onSuccess {
-                TvSelfUpdater.markAutoCheck(context)
+                TvSelfUpdater.markChecked(context)
                 release = it
             }
     }
