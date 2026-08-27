@@ -2,6 +2,8 @@ package app.local1st.files.ui.main
 
 import androidx.compose.runtime.Composable
 
+internal fun requestEditionSideRail(left: Boolean) = Unit
+
 @Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun EditionSideActionMenu(
