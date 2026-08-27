@@ -21,6 +21,7 @@ internal fun EditionSideActionMenu(
     onNewTextFile: () -> Unit,
     onSearch: () -> Unit,
     onRefresh: () -> Unit,
+    onSettings: () -> Unit,
     onMore: () -> Unit,
     onClear: () -> Unit,
     onCopy: () -> Unit,
