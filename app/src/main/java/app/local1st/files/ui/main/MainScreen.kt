@@ -118,8 +118,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
     var searchEntries by remember(vm) { mutableStateOf<Map<String, XEntry>>(emptyMap()) }
     var lastTvRootBackAt by remember { mutableStateOf(0L) }
-    val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
     val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
+    val wideLayout = !isTvEdition && LocalConfiguration.current.screenWidthDp >= 700
     val context = LocalContext.current
 
     fun closeSearch(paneIndex: Int) {
@@ -208,7 +208,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
         val listPadding = PaddingValues(bottom = if (isTvEdition) 24.dp else 120.dp)
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val wide = maxWidth >= 700.dp
+            val wide = !isTvEdition && maxWidth >= 700.dp
             if (wide) {
                 Row(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
                     vm.panes.forEachIndexed { index, pane ->
@@ -262,9 +262,9 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 }
                 HorizontalPager(
                     state = pagerState,
-                    // The inactive pane's data restores off the critical path, but composing its
-                    // full tree here would still charge that work to phone startup. Pager will
-                    // compose it naturally when the user begins to swipe toward it.
+                    // TV intentionally uses this single-page path even on wide displays. The
+                    // inactive pane remains available as an operation target without paying the
+                    // cost of composing both pane trees at once.
                     beyondViewportPageCount = 0,
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
@@ -537,6 +537,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     }
                 },
                 onRefresh = { vm.activeCtrl.refreshAllExpanded() },
+                onSettings = { vm.openSettings() },
                 onMore = {
                     vm.dialog.value = DialogRequest.EntryMenu(
                         entry = vm.activeCtrl.focusedDirEntry(),
