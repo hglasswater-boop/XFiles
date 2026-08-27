@@ -66,6 +66,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -327,7 +332,31 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             }
                         },
                         contentPadding = listPadding,
-                        modifier = Modifier.padding(horizontal = 4.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .then(
+                                if (isTvEdition && searchPane != page) {
+                                    Modifier.onPreviewKeyEvent { event ->
+                                        if (event.type != KeyEventType.KeyDown) {
+                                            false
+                                        } else {
+                                            when (event.key) {
+                                                Key.DirectionLeft -> {
+                                                    requestEditionSideRail(left = true)
+                                                    true
+                                                }
+                                                Key.DirectionRight -> {
+                                                    requestEditionSideRail(left = false)
+                                                    true
+                                                }
+                                                else -> false
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            ),
                     )
                 }
             }

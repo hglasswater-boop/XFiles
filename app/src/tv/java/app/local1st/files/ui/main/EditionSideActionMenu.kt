@@ -1,6 +1,5 @@
 package app.local1st.files.ui.main
 
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +52,22 @@ private data class TvRailAction(
     val enabled: Boolean = true,
     val onClick: () -> Unit,
 )
+
+private data class TvRailOpenRequest(
+    val left: Int = 0,
+    val right: Int = 0,
+)
+
+private val tvRailOpenRequest = mutableStateOf(TvRailOpenRequest())
+
+internal fun requestEditionSideRail(left: Boolean) {
+    val current = tvRailOpenRequest.value
+    tvRailOpenRequest.value = if (left) {
+        current.copy(left = current.left + 1)
+    } else {
+        current.copy(right = current.right + 1)
+    }
+}
 
 @Composable
 internal fun EditionSideActionMenu(
@@ -166,15 +181,18 @@ internal fun EditionSideActionMenu(
         )
     }
 
+    val railOpenRequest = tvRailOpenRequest.value
     Box(Modifier.fillMaxSize()) {
         FocusRevealRail(
             alignment = Alignment.CenterStart,
             status = leftStatus,
             actions = leftActions,
+            openRequest = railOpenRequest.left,
         )
         FocusRevealRail(
             alignment = Alignment.CenterEnd,
             actions = rightActions,
+            openRequest = railOpenRequest.right,
         )
     }
 }
@@ -184,36 +202,34 @@ private fun BoxScope.FocusRevealRail(
     alignment: Alignment,
     status: String? = null,
     actions: List<TvRailAction>,
+    openRequest: Int,
 ) {
     var visible by remember { mutableStateOf(false) }
+    var railHadFocus by remember { mutableStateOf(false) }
     val firstEnabledIndex = actions.indexOfFirst { it.enabled }
     val firstActionRequester = remember(actions.size, firstEnabledIndex) { FocusRequester() }
+
+    LaunchedEffect(openRequest, firstEnabledIndex) {
+        if (openRequest > 0 && firstEnabledIndex >= 0) {
+            visible = true
+        }
+    }
 
     Box(
         modifier = Modifier
             .align(alignment)
             .fillMaxHeight()
-            .width(if (visible) 104.dp else 12.dp)
+            .width(if (visible) 104.dp else 0.dp)
             .focusGroup()
-            .onFocusChanged { state -> visible = state.hasFocus },
-    ) {
-        Box(
-            Modifier
-                .align(
-                    if (alignment == Alignment.CenterStart) {
-                        Alignment.CenterStart
-                    } else {
-                        Alignment.CenterEnd
-                    },
-                )
-                .fillMaxHeight()
-                .width(12.dp)
-                .onFocusChanged { state ->
-                    if (state.isFocused) visible = true
+            .onFocusChanged { state ->
+                if (state.hasFocus) {
+                    railHadFocus = true
+                } else if (railHadFocus) {
+                    railHadFocus = false
+                    visible = false
                 }
-                .focusable(),
-        )
-
+            },
+    ) {
         if (visible) {
             Surface(
                 modifier = Modifier
