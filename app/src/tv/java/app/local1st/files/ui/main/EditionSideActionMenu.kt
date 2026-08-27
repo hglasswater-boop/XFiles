@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +72,7 @@ internal fun EditionSideActionMenu(
     onNewTextFile: () -> Unit,
     onSearch: () -> Unit,
     onRefresh: () -> Unit,
+    onSettings: () -> Unit,
     onMore: () -> Unit,
     onClear: () -> Unit,
     onCopy: () -> Unit,
@@ -159,6 +161,7 @@ internal fun EditionSideActionMenu(
         )
         else -> listOf(
             TvRailAction(stringResource(R.string.refresh), Icons.Outlined.Refresh, onClick = onRefresh),
+            TvRailAction(stringResource(R.string.settings), Icons.Outlined.Settings, onClick = onSettings),
             TvRailAction(stringResource(R.string.more), Icons.Outlined.MoreVert, onClick = onMore),
         )
     }
