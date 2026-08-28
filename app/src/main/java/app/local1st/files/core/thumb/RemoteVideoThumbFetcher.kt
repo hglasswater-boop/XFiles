@@ -177,8 +177,8 @@ class RemoteVideoThumbFetcher(
             ?.let { fitEmbeddedVideoArtwork(it, THUMB_SIZE) }
     }
 
-    private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? =
-        if (Build.VERSION.SDK_INT >= 27) {
+    private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? {
+        val sync = if (Build.VERSION.SDK_INT >= 27) {
             retriever.getScaledFrameAtTime(
                 timeUs,
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
@@ -189,6 +189,27 @@ class RemoteVideoThumbFetcher(
             retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?.let(::scaleDown)
         }
+        if (sync != null && !isNearlyBlackVideoThumbnail(sync)) return sync
+
+        // Some files have black keyframes even though the surrounding decoded frames are fine.
+        // Only pay for an arbitrary-frame decode after the cheap sync-frame probe came back dark.
+        val closest = if (Build.VERSION.SDK_INT >= 27) {
+            retriever.getScaledFrameAtTime(
+                timeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST,
+                THUMB_SIZE,
+                THUMB_SIZE,
+            )
+        } else {
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                ?.let(::scaleDown)
+        }
+        if (closest != null) {
+            if (sync !== closest) sync?.recycle()
+            return closest
+        }
+        return sync
+    }
 
     private fun scaleDown(src: Bitmap): Bitmap {
         val maxDim = maxOf(src.width, src.height)
@@ -214,7 +235,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v11:$id:$mtime:$size"
+            "remote-video-thumb-v12:$id:$mtime:$size"
         }
     }
 
@@ -225,7 +246,7 @@ class RemoteVideoThumbFetcher(
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v11|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v12|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
