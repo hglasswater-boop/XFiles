@@ -1,0 +1,132 @@
+name: Temporary TV D-pad focus patch
+
+on:
+  push:
+    branches:
+      - fix/tv-down-focus-navigation
+    paths:
+      - .github/workflows/tmp-fix-tv-dpad.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/tv-down-focus-navigation
+          fetch-depth: 0
+
+      - name: Patch TV focus behavior
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          entry_path = Path('app/src/tv/java/app/local1st/files/ui/browser/EntryRow.kt')
+          text = entry_path.read_text()
+          old = '''                modifier = Modifier
+                    .width(SelectionWidth)
+                    .heightIn(min = rowMinHeight)
+                    .clickable(enabled = enabled, onClick = onToggleSelect),'''
+          new = '''                modifier = Modifier
+                    .width(SelectionWidth)
+                    .heightIn(min = rowMinHeight)
+                    // TV rows must remain a single D-pad focus target. The trailing selection
+                    // affordance is still clickable, but must not trap directional focus inside
+                    // the current row and block Up/Down navigation.
+                    .focusProperties { canFocus = false }
+                    .clickable(enabled = enabled, onClick = onToggleSelect),'''
+          if old not in text:
+              raise SystemExit('EntryRow selection modifier pattern not found')
+          text = text.replace('import androidx.compose.ui.focus.onFocusChanged\n', 'import androidx.compose.ui.focus.focusProperties\nimport androidx.compose.ui.focus.onFocusChanged\n')
+          text = text.replace(old, new, 1)
+          entry_path.write_text(text)
+
+          rail_path = Path('app/src/tv/java/app/local1st/files/ui/main/EditionSideActionMenu.kt')
+          text = rail_path.read_text()
+          text = text.replace(
+              'import androidx.compose.ui.graphics.vector.ImageVector\n',
+              'import androidx.compose.ui.graphics.vector.ImageVector\nimport androidx.compose.ui.input.key.Key\nimport androidx.compose.ui.input.key.KeyEventType\nimport androidx.compose.ui.input.key.key\nimport androidx.compose.ui.input.key.onPreviewKeyEvent\nimport androidx.compose.ui.input.key.type\n',
+          )
+          text = text.replace(
+              '''    val firstEnabledIndex = actions.indexOfFirst { it.enabled }
+    val firstActionRequester = remember(actions.size, firstEnabledIndex) { FocusRequester() }
+''',
+              '''    val firstEnabledIndex = actions.indexOfFirst { it.enabled }
+    val enabledSignature = actions.map { it.enabled }
+    val actionRequesters = remember(actions.size, enabledSignature) {
+        List(actions.size) { FocusRequester() }
+    }
+''',
+          )
+          old = '''                    actions.forEachIndexed { index, action ->
+                        TvActionButton(
+                            action = action,
+                            modifier = if (index == firstEnabledIndex) {
+                                Modifier.focusRequester(firstActionRequester)
+                            } else {
+                                Modifier
+                            },
+                        )
+                    }
+'''
+          new = '''                    actions.forEachIndexed { index, action ->
+                        TvActionButton(
+                            action = action,
+                            modifier = Modifier
+                                .focusRequester(actionRequesters[index])
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type != KeyEventType.KeyDown) {
+                                        false
+                                    } else {
+                                        when (event.key) {
+                                            Key.DirectionDown -> {
+                                                actions.indices
+                                                    .firstOrNull { it > index && actions[it].enabled }
+                                                    ?.let { next -> actionRequesters[next].requestFocus() }
+                                                // Keep focus in the rail at the bottom instead of
+                                                // falling through to the browser and closing it.
+                                                true
+                                            }
+                                            Key.DirectionUp -> {
+                                                actions.indices
+                                                    .lastOrNull { it < index && actions[it].enabled }
+                                                    ?.let { previous -> actionRequesters[previous].requestFocus() }
+                                                // Likewise, stay on the first action at the top.
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    }
+                                },
+                        )
+                    }
+'''
+          if old not in text:
+              raise SystemExit('Rail action loop pattern not found')
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              '''                if (visible && firstEnabledIndex >= 0) {
+                    runCatching { firstActionRequester.requestFocus() }
+                }
+''',
+              '''                if (visible && firstEnabledIndex >= 0) {
+                    runCatching { actionRequesters[firstEnabledIndex].requestFocus() }
+                }
+''',
+              1,
+          )
+          rail_path.write_text(text)
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/tv/java/app/local1st/files/ui/browser/EntryRow.kt \
+                  app/src/tv/java/app/local1st/files/ui/main/EditionSideActionMenu.kt
+          git commit -m "Fix TV vertical D-pad focus navigation"
+          git push origin HEAD:fix/tv-down-focus-navigation
