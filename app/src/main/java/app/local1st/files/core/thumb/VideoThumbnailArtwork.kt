@@ -72,10 +72,16 @@ internal fun videoThumbnailBrightnessScore(bitmap: Bitmap): Double {
 
 internal fun isNearlyBlackVideoThumbnail(bitmap: Bitmap): Boolean {
     if (bitmap.width <= 0 || bitmap.height <= 0) return true
-    val stepX = (bitmap.width / 12).coerceAtLeast(1)
-    val stepY = (bitmap.height / 12).coerceAtLeast(1)
+
+    // Sample a little more densely than the ranking score. The old test only rejected frames
+    // with average luma < 22 and < 5% lit pixels, which allowed mostly-black title cards with a
+    // small logo/text patch to count as usable. Track both the dark area and genuinely visible
+    // area so black-heavy frames are rejected without treating normal letterboxing as black.
+    val stepX = (bitmap.width / 16).coerceAtLeast(1)
+    val stepY = (bitmap.height / 16).coerceAtLeast(1)
     var sum = 0.0
     var count = 0
+    var dark = 0
     var visiblyLit = 0
     var y = stepY / 2
     while (y < bitmap.height) {
@@ -86,14 +92,19 @@ internal fun isNearlyBlackVideoThumbnail(bitmap: Bitmap): Boolean {
                 0.7152 * Color.green(pixel) +
                 0.0722 * Color.blue(pixel)
             sum += luma
-            if (luma >= 50.0) visiblyLit++
+            if (luma < 32.0) dark++
+            if (luma >= 55.0) visiblyLit++
             count++
             x += stepX
         }
         y += stepY
     }
     if (count == 0) return true
+
     val average = sum / count
+    val darkFraction = dark.toDouble() / count
     val litFraction = visiblyLit.toDouble() / count
-    return average < 22.0 && litFraction < 0.05
+
+    return (average < 36.0 && litFraction < 0.18) ||
+        (darkFraction > 0.82 && average < 48.0 && litFraction < 0.25)
 }
