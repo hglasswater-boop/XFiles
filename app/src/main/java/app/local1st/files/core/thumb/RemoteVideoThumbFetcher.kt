@@ -214,7 +214,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v10:$id:$mtime:$size"
+            "remote-video-thumb-v11:$id:$mtime:$size"
         }
     }
 
@@ -225,7 +225,7 @@ class RemoteVideoThumbFetcher(
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v10|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v11|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
