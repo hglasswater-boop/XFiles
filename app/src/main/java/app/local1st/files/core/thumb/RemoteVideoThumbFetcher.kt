@@ -86,36 +86,35 @@ class RemoteVideoThumbFetcher(
         return try {
             retriever.setDataSource(source)
 
-            var best: Bitmap? = null
-            var bestScore = -1.0
+            var bestBlack: Bitmap? = null
+            var bestBlackScore = -1.0
 
-            fun consider(candidate: Bitmap?): Bitmap? {
-                val bitmap = candidate ?: return null
+            fun rememberBlackFallback(bitmap: Bitmap) {
                 val score = videoThumbnailBrightnessScore(bitmap)
-                if (score > bestScore) {
-                    if (best != null && best !== bitmap) best?.recycle()
-                    best = bitmap
-                    bestScore = score
-                } else if (best !== bitmap) {
+                if (score > bestBlackScore) {
+                    if (bestBlack != null && bestBlack !== bitmap) bestBlack?.recycle()
+                    bestBlack = bitmap
+                    bestBlackScore = score
+                } else if (bestBlack !== bitmap) {
                     bitmap.recycle()
                 }
-                return best
             }
 
             retriever.embeddedPicture
                 ?.let(::decodeEmbeddedPicture)
-                ?.let(::consider)
-                ?.takeIf { !isNearlyBlackVideoThumbnail(it) }
-                ?.let { return it }
+                ?.let { artwork ->
+                    if (!isNearlyBlackVideoThumbnail(artwork)) return artwork
+                    rememberBlackFallback(artwork)
+                }
 
             val durationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?.takeIf { it > 0L }
             val candidatesUs = if (durationMs != null) {
-                // Start with the common positions so normal videos stay cheap. If those are black,
-                // progressively fan out across the timeline before finally accepting the brightest
-                // black frame as the fallback thumbnail.
+                // Start with common positions so normal videos stay cheap. Only if they are black
+                // do we fan out across the timeline. If every probe is dark, keep the brightest
+                // dark frame rather than falling back to a generic icon.
                 longArrayOf(
                     durationMs * 250L,
                     durationMs * 500L,
@@ -142,13 +141,15 @@ class RemoteVideoThumbFetcher(
             }
 
             for (timeUs in candidatesUs) {
-                val candidate = consider(frameAt(retriever, timeUs)) ?: continue
-                if (!isNearlyBlackVideoThumbnail(candidate)) return candidate
+                val frame = frameAt(retriever, timeUs) ?: continue
+                if (!isNearlyBlackVideoThumbnail(frame)) {
+                    bestBlack?.recycle()
+                    return frame
+                }
+                rememberBlackFallback(frame)
             }
 
-            // The user prefers a real thumbnail even when every sampled point is dark. We therefore
-            // keep the brightest sampled frame instead of falling back to the generic video icon.
-            best
+            bestBlack
         } catch (_: Exception) {
             null
         } finally {
