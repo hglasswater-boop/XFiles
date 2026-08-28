@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
+import app.local1st.files.ui.browser.requestTvBrowserFocusReturn
 
 private data class TvRailAction(
     val label: String,
@@ -296,6 +297,24 @@ private fun BoxScope.FocusRevealRail(
                                                 actions.indices
                                                     .lastOrNull { it < index && actions[it].enabled }
                                                     ?.let { previous -> actionRequesters[previous].requestFocus() }
+                                                true
+                                            }
+                                            Key.DirectionLeft -> {
+                                                if (alignment == Alignment.CenterEnd) {
+                                                    visible = false
+                                                    railHadFocus = false
+                                                    railHasFocus = false
+                                                    requestTvBrowserFocusReturn()
+                                                }
+                                                true
+                                            }
+                                            Key.DirectionRight -> {
+                                                if (alignment == Alignment.CenterStart) {
+                                                    visible = false
+                                                    railHadFocus = false
+                                                    railHasFocus = false
+                                                    requestTvBrowserFocusReturn()
+                                                }
                                                 true
                                             }
                                             else -> false

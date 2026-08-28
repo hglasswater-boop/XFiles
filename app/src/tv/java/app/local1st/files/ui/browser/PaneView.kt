@@ -95,6 +95,13 @@ private val SearchHeaderHeight = 64.dp
 private const val SEARCH_DEBOUNCE_MS = 400L
 private const val SEARCH_MIN_QUERY_LENGTH = 2
 
+// Side rails explicitly hand D-pad focus back to the active browser pane through this bridge.
+private val tvBrowserFocusReturnRequest = mutableStateOf(0)
+
+internal fun requestTvBrowserFocusReturn() {
+    tvBrowserFocusReturnRequest.value += 1
+}
+
 private enum class PaneSearchPhase { IDLE, SEARCHING, DONE }
 
 /**
@@ -329,6 +336,8 @@ fun PaneView(
     var tvInitialFocusRequested by rememberSaveable(controller) { mutableStateOf(false) }
     val tvRowFocusRequesters = remember(controller) { mutableMapOf<String, FocusRequester>() }
     var tvRequestedRowKey by remember(controller) { mutableStateOf<String?>(null) }
+    var tvFocusedRowKey by remember(controller) { mutableStateOf<String?>(null) }
+    val tvFocusReturnRequest = tvBrowserFocusReturnRequest.value
 
     LaunchedEffect(isTv, active, searchActive, displayNodes.firstOrNull()?.key) {
         if (
@@ -352,6 +361,24 @@ fun PaneView(
                     return@LaunchedEffect
                 }
             }
+        }
+    }
+
+    LaunchedEffect(
+        tvFocusReturnRequest,
+        active,
+        searchActive,
+        displayNodes.firstOrNull()?.key,
+    ) {
+        if (
+            tvFocusReturnRequest > 0 &&
+            active &&
+            !searchActive &&
+            displayNodes.isNotEmpty()
+        ) {
+            tvRequestedRowKey = tvFocusedRowKey
+                ?.takeIf { focused -> displayNodes.any { it.key == focused } }
+                ?: displayNodes.first().key
         }
     }
 
@@ -426,7 +453,44 @@ fun PaneView(
     }
 
     Surface(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .then(
+                if (isTv && active && !searchActive) {
+                    Modifier.onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown || displayNodes.isEmpty()) {
+                            false
+                        } else {
+                            val focusedIndex = tvFocusedRowKey?.let { focusedKey ->
+                                displayNodes.indexOfFirst { it.key == focusedKey }
+                            } ?: -1
+                            when (event.key) {
+                                Key.DirectionDown -> {
+                                    val targetIndex = if (focusedIndex >= 0) {
+                                        (focusedIndex + 1).coerceAtMost(displayNodes.lastIndex)
+                                    } else {
+                                        0
+                                    }
+                                    tvRequestedRowKey = displayNodes[targetIndex].key
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    val targetIndex = if (focusedIndex >= 0) {
+                                        (focusedIndex - 1).coerceAtLeast(0)
+                                    } else {
+                                        0
+                                    }
+                                    tvRequestedRowKey = displayNodes[targetIndex].key
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            ),
         color = if (active) MaterialTheme.colorScheme.surface
         else MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RoundedCornerShape(16.dp),
@@ -607,33 +671,10 @@ fun PaneView(
                                                 Modifier
                                                     .focusRequester(requester)
                                                     .onFocusChanged { focusState ->
-                                                        if (
-                                                            focusState.isFocused &&
-                                                            tvRequestedRowKey == rawNode.key
-                                                        ) {
-                                                            tvRequestedRowKey = null
-                                                        }
-                                                    }
-                                                    .onPreviewKeyEvent { event ->
-                                                        if (event.type != KeyEventType.KeyDown) {
-                                                            false
-                                                        } else {
-                                                            when (event.key) {
-                                                                Key.DirectionDown -> {
-                                                                    if (index < displayNodes.lastIndex) {
-                                                                        tvRequestedRowKey =
-                                                                            displayNodes[index + 1].key
-                                                                    }
-                                                                    true
-                                                                }
-                                                                Key.DirectionUp -> {
-                                                                    if (index > 0) {
-                                                                        tvRequestedRowKey =
-                                                                            displayNodes[index - 1].key
-                                                                    }
-                                                                    true
-                                                                }
-                                                                else -> false
+                                                        if (focusState.isFocused) {
+                                                            tvFocusedRowKey = rawNode.key
+                                                            if (tvRequestedRowKey == rawNode.key) {
+                                                                tvRequestedRowKey = null
                                                             }
                                                         }
                                                     }
