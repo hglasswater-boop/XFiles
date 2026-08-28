@@ -1,6 +1,5 @@
 package app.local1st.files.ui.browser
 
-import android.content.pm.PackageManager
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -128,9 +127,9 @@ fun PaneView(
     val state by controller.state.collectAsStateWithLifecycle()
     val display by BrowserDisplaySettings.state(Graph.appContext).collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val isTv = remember(context) {
-        context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
-    }
+    // TV source-set code must always use TV D-pad behavior. Some Google TV devices do not
+    // advertise FEATURE_LEANBACK consistently, which previously disabled vertical navigation.
+    val isTv = true
     val initialScrollIndex = state.initialScrollIndex
     var breadcrumbSortTarget by remember(controller) {
         mutableStateOf<Pair<String, String>?>(null)
@@ -328,7 +327,6 @@ fun PaneView(
     val tvInitialFocusRequester = remember { FocusRequester() }
     var tvInitialFocusRequested by rememberSaveable(controller) { mutableStateOf(false) }
     val tvRowFocusRequesters = remember(controller) { mutableMapOf<String, FocusRequester>() }
-    var tvFocusedRowKey by remember(controller) { mutableStateOf<String?>(null) }
     var tvRequestedRowKey by remember(controller) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(isTv, active, displayNodes.size, searchActive) {
@@ -482,37 +480,7 @@ fun PaneView(
                                 if (searchActive) Modifier.padding(top = listTopInset)
                                 else Modifier,
                             )
-                            .then(
-                                if (isTv && active && !searchActive) {
-                                    Modifier.onPreviewKeyEvent { event ->
-                                        if (event.type != KeyEventType.KeyDown) {
-                                            false
-                                        } else {
-                                            val currentKey = tvRequestedRowKey ?: tvFocusedRowKey
-                                            val currentIndex = displayNodes.indexOfFirst {
-                                                it.key == currentKey
-                                            }
-                                            when (event.key) {
-                                                Key.DirectionDown -> {
-                                                    if (currentIndex >= 0 && currentIndex < displayNodes.lastIndex) {
-                                                        tvRequestedRowKey = displayNodes[currentIndex + 1].key
-                                                    }
-                                                    currentIndex >= 0
-                                                }
-                                                Key.DirectionUp -> {
-                                                    if (currentIndex > 0) {
-                                                        tvRequestedRowKey = displayNodes[currentIndex - 1].key
-                                                    }
-                                                    currentIndex >= 0
-                                                }
-                                                else -> false
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Modifier
-                                },
-                            ),
+,
                     ) {
                         if (showingSearchResults && allSearchTargets.isNotEmpty()) {
                             item(key = "search-select-all") {
@@ -627,10 +595,33 @@ fun PaneView(
                                                 Modifier
                                                     .focusRequester(requester)
                                                     .onFocusChanged { focusState ->
-                                                        if (focusState.isFocused) {
-                                                            tvFocusedRowKey = rawNode.key
-                                                            if (tvRequestedRowKey == rawNode.key) {
-                                                                tvRequestedRowKey = null
+                                                        if (
+                                                            focusState.isFocused &&
+                                                            tvRequestedRowKey == rawNode.key
+                                                        ) {
+                                                            tvRequestedRowKey = null
+                                                        }
+                                                    }
+                                                    .onPreviewKeyEvent { event ->
+                                                        if (event.type != KeyEventType.KeyDown) {
+                                                            false
+                                                        } else {
+                                                            when (event.key) {
+                                                                Key.DirectionDown -> {
+                                                                    if (index < displayNodes.lastIndex) {
+                                                                        tvRequestedRowKey =
+                                                                            displayNodes[index + 1].key
+                                                                    }
+                                                                    true
+                                                                }
+                                                                Key.DirectionUp -> {
+                                                                    if (index > 0) {
+                                                                        tvRequestedRowKey =
+                                                                            displayNodes[index - 1].key
+                                                                    }
+                                                                    true
+                                                                }
+                                                                else -> false
                                                             }
                                                         }
                                                     }
