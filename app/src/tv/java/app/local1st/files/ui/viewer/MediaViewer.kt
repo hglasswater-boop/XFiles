@@ -2,6 +2,7 @@ package app.local1st.files.ui.viewer
 
 import android.content.Context
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -139,6 +140,8 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     var hasPrevious by remember { mutableStateOf(false) }
     var hasNext by remember { mutableStateOf(false) }
 
+    BackHandler { onClose() }
+
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onEvents(p: Player, events: Player.Events) {
@@ -195,6 +198,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 hasPrevious = hasPrevious,
                 hasNext = hasNext,
                 onClose = onClose,
+                tvRemoteControls = true,
             )
         }
     } else {
