@@ -42,3 +42,58 @@ internal fun fitEmbeddedVideoArtwork(src: Bitmap, targetWidth: Int): Bitmap {
     if (out !== src) src.recycle()
     return out
 }
+
+/**
+ * Lightweight luma sampling used to avoid persisting black title cards, broken decoder output,
+ * or effectively empty embedded artwork as a video's representative thumbnail.
+ */
+internal fun videoThumbnailBrightnessScore(bitmap: Bitmap): Double {
+    if (bitmap.width <= 0 || bitmap.height <= 0) return 0.0
+    val stepX = (bitmap.width / 12).coerceAtLeast(1)
+    val stepY = (bitmap.height / 12).coerceAtLeast(1)
+    var sum = 0.0
+    var count = 0
+    var y = stepY / 2
+    while (y < bitmap.height) {
+        var x = stepX / 2
+        while (x < bitmap.width) {
+            val pixel = bitmap.getPixel(x, y)
+            val luma = 0.2126 * Color.red(pixel) +
+                0.7152 * Color.green(pixel) +
+                0.0722 * Color.blue(pixel)
+            sum += luma
+            count++
+            x += stepX
+        }
+        y += stepY
+    }
+    return if (count > 0) sum / count else 0.0
+}
+
+internal fun isNearlyBlackVideoThumbnail(bitmap: Bitmap): Boolean {
+    if (bitmap.width <= 0 || bitmap.height <= 0) return true
+    val stepX = (bitmap.width / 12).coerceAtLeast(1)
+    val stepY = (bitmap.height / 12).coerceAtLeast(1)
+    var sum = 0.0
+    var count = 0
+    var visiblyLit = 0
+    var y = stepY / 2
+    while (y < bitmap.height) {
+        var x = stepX / 2
+        while (x < bitmap.width) {
+            val pixel = bitmap.getPixel(x, y)
+            val luma = 0.2126 * Color.red(pixel) +
+                0.7152 * Color.green(pixel) +
+                0.0722 * Color.blue(pixel)
+            sum += luma
+            if (luma >= 50.0) visiblyLit++
+            count++
+            x += stepX
+        }
+        y += stepY
+    }
+    if (count == 0) return true
+    val average = sum / count
+    val litFraction = visiblyLit.toDouble() / count
+    return average < 22.0 && litFraction < 0.05
+}
