@@ -272,7 +272,7 @@ class VideoThumbFetcher(
 
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb-v6:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v7:${data.path}:${data.mtime}:${data.size}"
     }
 
     companion object {
@@ -292,7 +292,7 @@ class VideoThumbFetcher(
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v6|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
+                .digest("v7|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             val dir = File(context.cacheDir, "video_thumbs")
             dir.mkdirs()
