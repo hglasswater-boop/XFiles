@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.local1st.files.R
+import app.local1st.files.ui.browser.requestTvBrowserFocusReturn
 
 private data class TvRailAction(
     val label: String,
@@ -62,17 +63,35 @@ private data class TvRailAction(
 private data class TvRailOpenRequest(
     val left: Int = 0,
     val right: Int = 0,
+    val close: Int = 0,
 )
 
 private val tvRailOpenRequest = mutableStateOf(TvRailOpenRequest())
+private val tvRailVisible = mutableStateOf(false)
 
 internal fun requestEditionSideRail(left: Boolean) {
+    tvRailVisible.value = true
     val current = tvRailOpenRequest.value
     tvRailOpenRequest.value = if (left) {
         current.copy(left = current.left + 1)
     } else {
         current.copy(right = current.right + 1)
     }
+}
+
+internal fun isEditionSideRailOpen(): Boolean = tvRailVisible.value
+
+internal fun dismissEditionSideRail(): Boolean {
+    if (!tvRailVisible.value) return false
+    tvRailVisible.value = false
+    val current = tvRailOpenRequest.value
+    tvRailOpenRequest.value = current.copy(close = current.close + 1)
+    requestTvBrowserFocusReturn()
+    return true
+}
+
+private fun markEditionSideRailClosed() {
+    tvRailVisible.value = false
 }
 
 @Composable
@@ -194,11 +213,13 @@ internal fun EditionSideActionMenu(
             status = leftStatus,
             actions = leftActions,
             openRequest = railOpenRequest.left,
+            closeRequest = railOpenRequest.close,
         )
         FocusRevealRail(
             alignment = Alignment.CenterEnd,
             actions = rightActions,
             openRequest = railOpenRequest.right,
+            closeRequest = railOpenRequest.close,
         )
     }
 }
@@ -209,6 +230,7 @@ private fun BoxScope.FocusRevealRail(
     status: String? = null,
     actions: List<TvRailAction>,
     openRequest: Int,
+    closeRequest: Int,
 ) {
     var visible by remember { mutableStateOf(false) }
     var railHadFocus by remember { mutableStateOf(false) }
@@ -225,6 +247,14 @@ private fun BoxScope.FocusRevealRail(
         }
     }
 
+    LaunchedEffect(closeRequest) {
+        if (closeRequest > 0) {
+            visible = false
+            railHadFocus = false
+            railHasFocus = false
+        }
+    }
+
     // Moving focus between rail buttons can briefly report hasFocus=false on the parent.
     // Defer collapse for a few frames so Up/Down navigation can complete before deciding that
     // focus really left the rail.
@@ -234,6 +264,7 @@ private fun BoxScope.FocusRevealRail(
             if (!railHasFocus) {
                 railHadFocus = false
                 visible = false
+                markEditionSideRailClosed()
             }
         }
     }
@@ -296,6 +327,18 @@ private fun BoxScope.FocusRevealRail(
                                                 actions.indices
                                                     .lastOrNull { it < index && actions[it].enabled }
                                                     ?.let { previous -> actionRequesters[previous].requestFocus() }
+                                                true
+                                            }
+                                            Key.DirectionLeft -> {
+                                                if (alignment == Alignment.CenterEnd) {
+                                                    dismissEditionSideRail()
+                                                }
+                                                true
+                                            }
+                                            Key.DirectionRight -> {
+                                                if (alignment == Alignment.CenterStart) {
+                                                    dismissEditionSideRail()
+                                                }
                                                 true
                                             }
                                             else -> false

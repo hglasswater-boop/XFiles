@@ -25,35 +25,13 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: true
+          # Branch builds consume the latest cache from main without spending time uploading it.
+          # Main refreshes the Gradle dependency/build cache for subsequent runs.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Compute Android build number
         id: build_number
         run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore incremental Android build state
-        id: incremental-restore
-        uses: actions/cache/restore@v5
-        with:
-          path: |
-            .gradle
-            app/build
-            vendor/bundletool-shaded/build
-          key: xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-${{ github.run_id }}
-          restore-keys: |
-            xfiles-incremental-${{ runner.os }}-${{ hashFiles('settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'vendor/**/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}-
-
-      - name: Warm incremental debug builds
-        run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
-
-      - name: Save incremental Android build state
-        uses: actions/cache/save@v5
-        with:
-          path: |
-            .gradle
-            app/build
-            vendor/bundletool-shaded/build
-          key: ${{ steps.incremental-restore.outputs.cache-primary-key }}
 
       - name: Require stable signing secrets
         env:
@@ -73,6 +51,8 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
+      # Build once, already signed. The previous workflow assembled both flavors once to warm
+      # app/build and then assembled the exact same tasks again with signing enabled.
       - name: Assemble stable-signed debug APKs
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
@@ -151,6 +131,6 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Run unit tests for both editions
         run: ./gradlew :app:testMobileDebugUnitTest :app:testTvDebugUnitTest

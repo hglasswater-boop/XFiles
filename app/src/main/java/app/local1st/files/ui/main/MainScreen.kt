@@ -126,6 +126,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
     val wideLayout = !isTvEdition && LocalConfiguration.current.screenWidthDp >= 700
     val context = LocalContext.current
+    val editionSideRailOpen = isTvEdition && isEditionSideRailOpen()
 
     fun closeSearch(paneIndex: Int) {
         vm.panes[paneIndex].clearSelection()
@@ -202,6 +203,12 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 vm.snackbar.tryEmit(context.getString(R.string.press_back_again_to_exit))
             }
         }
+    }
+
+    // TV Back closes an open side rail before any browser/root Back behavior can run.
+    BackHandler(enabled = editionSideRailOpen) {
+        dismissEditionSideRail()
+        lastTvRootBackAt = 0L
     }
 
     // No top app bar at all: the panes extend under the status bar, and the few former

@@ -4,6 +4,10 @@ import androidx.compose.runtime.Composable
 
 internal fun requestEditionSideRail(left: Boolean) = Unit
 
+internal fun isEditionSideRailOpen(): Boolean = false
+
+internal fun dismissEditionSideRail(): Boolean = false
+
 @Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun EditionSideActionMenu(
