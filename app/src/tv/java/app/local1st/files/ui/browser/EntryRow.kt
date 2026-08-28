@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -312,6 +313,8 @@ fun EntryRow(
                 modifier = Modifier
                     .width(SelectionWidth)
                     .heightIn(min = rowMinHeight)
+                    // Keep each TV row as one D-pad focus target.
+                    .focusProperties { canFocus = false }
                     .clickable(enabled = enabled, onClick = onToggleSelect),
             ) {
                 Icon(
