@@ -40,6 +40,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -207,7 +212,10 @@ private fun BoxScope.FocusRevealRail(
     var visible by remember { mutableStateOf(false) }
     var railHadFocus by remember { mutableStateOf(false) }
     val firstEnabledIndex = actions.indexOfFirst { it.enabled }
-    val firstActionRequester = remember(actions.size, firstEnabledIndex) { FocusRequester() }
+    val enabledSignature = actions.map { it.enabled }
+    val actionRequesters = remember(actions.size, enabledSignature) {
+        List(actions.size) { FocusRequester() }
+    }
 
     LaunchedEffect(openRequest, firstEnabledIndex) {
         if (openRequest > 0 && firstEnabledIndex >= 0) {
@@ -258,18 +266,36 @@ private fun BoxScope.FocusRevealRail(
                     actions.forEachIndexed { index, action ->
                         TvActionButton(
                             action = action,
-                            modifier = if (index == firstEnabledIndex) {
-                                Modifier.focusRequester(firstActionRequester)
-                            } else {
-                                Modifier
-                            },
+                            modifier = Modifier
+                                .focusRequester(actionRequesters[index])
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type != KeyEventType.KeyDown) {
+                                        false
+                                    } else {
+                                        when (event.key) {
+                                            Key.DirectionDown -> {
+                                                actions.indices
+                                                    .firstOrNull { it > index && actions[it].enabled }
+                                                    ?.let { next -> actionRequesters[next].requestFocus() }
+                                                true
+                                            }
+                                            Key.DirectionUp -> {
+                                                actions.indices
+                                                    .lastOrNull { it < index && actions[it].enabled }
+                                                    ?.let { previous -> actionRequesters[previous].requestFocus() }
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    }
+                                },
                         )
                     }
                 }
             }
             LaunchedEffect(visible, firstEnabledIndex) {
                 if (visible && firstEnabledIndex >= 0) {
-                    runCatching { firstActionRequester.requestFocus() }
+                    runCatching { actionRequesters[firstEnabledIndex].requestFocus() }
                 }
             }
         }
