@@ -17,8 +17,11 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -36,14 +39,24 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -57,12 +70,14 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.fs.priv.PrivilegedAccess
+import app.local1st.files.core.prefs.VideoPlayerSettings
 import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
@@ -111,9 +126,21 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     val startIndex = remember(playable, entry.id) {
         playable.indexOfFirst { it.id == entry.id }.coerceAtLeast(0)
     }
-    val player = remember {
+    var currentIndex by remember { mutableIntStateOf(startIndex) }
+    var rebuildPlayWhenReady by remember { mutableStateOf(true) }
+    val bufferPreset by VideoPlayerSettings.bufferPreset(context).collectAsState()
+    val player = remember(playable, bufferPreset) {
         val dataSourceFactory = DefaultDataSource.Factory(context, XFilesRemoteDataSource.Factory())
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                bufferPreset.minBufferMs,
+                bufferPreset.maxBufferMs,
+                bufferPreset.bufferForPlaybackMs,
+                bufferPreset.bufferForPlaybackAfterRebufferMs,
+            )
+            .build()
         ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory),
             )
@@ -126,15 +153,14 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                             ?: Uri.Builder().scheme(XId.SCHEME_ROOT).path(it.path).build()
                         MediaItem.fromUri(uri)
                     },
-                    startIndex,
+                    currentIndex.coerceIn(0, playable.lastIndex),
                     C.TIME_UNSET,
                 )
                 prepare()
-                playWhenReady = true
+                playWhenReady = rebuildPlayWhenReady
             }
     }
 
-    var currentIndex by remember { mutableIntStateOf(startIndex) }
     var playing by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf(MediaMetadata.EMPTY) }
     var hasPrevious by remember { mutableStateOf(false) }
@@ -191,14 +217,20 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             entry = currentEntry,
             onClose = onClose,
         ) {
-            VideoPlayerScreen(
+            TvVideoPlayer(
                 player = player,
                 entry = currentEntry,
                 playing = playing,
                 hasPrevious = hasPrevious,
                 hasNext = hasNext,
+                bufferPreset = bufferPreset,
+                onBufferPresetChanged = { preset ->
+                    if (preset == bufferPreset) return@TvVideoPlayer
+                    saveVideoResume(context, currentEntry, player)
+                    rebuildPlayWhenReady = player.playWhenReady
+                    VideoPlayerSettings.setBufferPreset(context, preset)
+                },
                 onClose = onClose,
-                tvRemoteControls = true,
             )
         }
     } else {
@@ -214,6 +246,126 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             onClose = onClose,
         )
     }
+}
+
+@Composable
+private fun TvVideoPlayer(
+    player: ExoPlayer,
+    entry: XEntry,
+    playing: Boolean,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
+    bufferPreset: VideoPlayerSettings.BufferPreset,
+    onBufferPresetChanged: (VideoPlayerSettings.BufferPreset) -> Unit,
+    onClose: () -> Unit,
+) {
+    val settingsFocusRequester = remember { FocusRequester() }
+    var settingsFocused by remember(entry.id) { mutableStateOf(false) }
+    var settingsOpen by remember(entry.id) { mutableStateOf(false) }
+    var requestSettingsFocus by remember(entry.id) { mutableStateOf(false) }
+
+    LaunchedEffect(requestSettingsFocus) {
+        if (!requestSettingsFocus) return@LaunchedEffect
+        repeat(TV_SETTINGS_FOCUS_RETRY_FRAMES) {
+            withFrameNanos { }
+            if (runCatching { settingsFocusRequester.requestFocus() }.getOrDefault(false)) {
+                requestSettingsFocus = false
+                return@LaunchedEffect
+            }
+        }
+        requestSettingsFocus = false
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || settingsFocused || settingsOpen) {
+                    false
+                } else if (event.key == Key.DirectionUp) {
+                    // Let VideoPlayerScreen reveal its chrome, then move focus to the TV settings
+                    // button on the next frame so the remote can actually reach the top-right action.
+                    requestSettingsFocus = true
+                    false
+                } else {
+                    false
+                }
+            },
+    ) {
+        VideoPlayerScreen(
+            player = player,
+            entry = entry,
+            playing = playing,
+            hasPrevious = hasPrevious,
+            hasNext = hasNext,
+            onClose = onClose,
+            tvRemoteControls = true,
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp),
+        ) {
+            FilledIconButton(
+                onClick = { settingsOpen = true },
+                modifier = Modifier
+                    .focusRequester(settingsFocusRequester)
+                    .onFocusChanged { settingsFocused = it.isFocused },
+            ) {
+                Icon(
+                    Icons.Outlined.Settings,
+                    contentDescription = "プレイヤー設定",
+                )
+            }
+            DropdownMenu(
+                expanded = settingsOpen,
+                onDismissRequest = { settingsOpen = false },
+            ) {
+                Text(
+                    "再生バッファ",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+                BufferPresetMenuItem(
+                    label = "標準（最大50秒）",
+                    selected = bufferPreset == VideoPlayerSettings.BufferPreset.STANDARD,
+                    onClick = {
+                        settingsOpen = false
+                        onBufferPresetChanged(VideoPlayerSettings.BufferPreset.STANDARD)
+                    },
+                )
+                BufferPresetMenuItem(
+                    label = "厚め（最大2分）",
+                    selected = bufferPreset == VideoPlayerSettings.BufferPreset.THICK,
+                    onClick = {
+                        settingsOpen = false
+                        onBufferPresetChanged(VideoPlayerSettings.BufferPreset.THICK)
+                    },
+                )
+                BufferPresetMenuItem(
+                    label = "最大（最大3分）",
+                    selected = bufferPreset == VideoPlayerSettings.BufferPreset.MAXIMUM,
+                    onClick = {
+                        settingsOpen = false
+                        onBufferPresetChanged(VideoPlayerSettings.BufferPreset.MAXIMUM)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BufferPresetMenuItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(if (selected) "✓  $label" else "　 $label") },
+        onClick = onClick,
+    )
 }
 
 private fun mediaUri(entry: XEntry) = when {
@@ -382,3 +534,4 @@ internal fun formatPlayTime(ms: Long): String {
 
 private const val VIDEO_RESUME_SAVE_INTERVAL_MS = 2_000L
 private const val VIDEO_RESUME_RESTORE_TOLERANCE_MS = 2_000L
+private const val TV_SETTINGS_FOCUS_RETRY_FRAMES = 6
