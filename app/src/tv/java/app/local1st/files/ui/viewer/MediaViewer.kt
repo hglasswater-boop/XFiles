@@ -3,7 +3,6 @@ package app.local1st.files.ui.viewer
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,16 +42,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -148,26 +139,8 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     var metadata by remember { mutableStateOf(MediaMetadata.EMPTY) }
     var hasPrevious by remember { mutableStateOf(false) }
     var hasNext by remember { mutableStateOf(false) }
-    val remoteFocusRequester = remember { FocusRequester() }
 
     BackHandler { onClose() }
-
-    LaunchedEffect(player, currentIndex) {
-        repeat(8) {
-            withFrameNanos { }
-            val focused = runCatching { remoteFocusRequester.requestFocus() }.getOrDefault(false)
-            if (focused) return@LaunchedEffect
-        }
-    }
-
-    fun seekByRemote(deltaMs: Long) {
-        val durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0L }
-        val target = player.currentPosition + deltaMs
-        player.seekTo(
-            if (durationMs != null) target.coerceIn(0L, durationMs)
-            else target.coerceAtLeast(0L),
-        )
-    }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -212,64 +185,34 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     val currentEntry = playable[currentIndex.coerceIn(0, playable.lastIndex)]
     val isVideo = isVideoEntry(currentEntry)
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) {
-                    false
-                } else {
-                    when (event.key) {
-                        Key.DirectionCenter, Key.Enter -> {
-                            if (player.isPlaying) player.pause() else player.play()
-                            true
-                        }
-                        Key.DirectionLeft -> {
-                            seekByRemote(-TV_REMOTE_SEEK_MS)
-                            true
-                        }
-                        Key.DirectionRight -> {
-                            seekByRemote(TV_REMOTE_SEEK_MS)
-                            true
-                        }
-                        // Keep focus inside the player. The TV player is operated directly by
-                        // the remote instead of navigating the phone-oriented touch controls.
-                        Key.DirectionUp, Key.DirectionDown -> true
-                        else -> false
-                    }
-                }
-            }
-            .focusRequester(remoteFocusRequester)
-            .focusable(),
-    ) {
-        if (isVideo) {
-            VideoCompatibilityGuard(
+    if (isVideo) {
+        VideoCompatibilityGuard(
+            player = player,
+            entry = currentEntry,
+            onClose = onClose,
+        ) {
+            VideoPlayerScreen(
                 player = player,
                 entry = currentEntry,
-                onClose = onClose,
-            ) {
-                VideoPlayerScreen(
-                    player = player,
-                    entry = currentEntry,
-                    playing = playing,
-                    hasPrevious = hasPrevious,
-                    hasNext = hasNext,
-                    onClose = onClose,
-                )
-            }
-        } else {
-            AudioPlayerScreen(
-                player = player,
-                entry = currentEntry,
-                metadata = metadata,
                 playing = playing,
-                trackNumber = currentIndex + 1,
-                trackCount = playable.size,
                 hasPrevious = hasPrevious,
                 hasNext = hasNext,
                 onClose = onClose,
+                tvRemoteControls = true,
             )
         }
+    } else {
+        AudioPlayerScreen(
+            player = player,
+            entry = currentEntry,
+            metadata = metadata,
+            playing = playing,
+            trackNumber = currentIndex + 1,
+            trackCount = playable.size,
+            hasPrevious = hasPrevious,
+            hasNext = hasNext,
+            onClose = onClose,
+        )
     }
 }
 
@@ -439,4 +382,3 @@ internal fun formatPlayTime(ms: Long): String {
 
 private const val VIDEO_RESUME_SAVE_INTERVAL_MS = 2_000L
 private const val VIDEO_RESUME_RESTORE_TOLERANCE_MS = 2_000L
-private const val TV_REMOTE_SEEK_MS = 10_000L
