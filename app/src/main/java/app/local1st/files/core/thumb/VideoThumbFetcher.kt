@@ -224,8 +224,8 @@ class VideoThumbFetcher(
             ?.let { fitEmbeddedVideoArtwork(it, THUMB_SIZE) }
     }
 
-    private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? =
-        if (Build.VERSION.SDK_INT >= 27) {
+    private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? {
+        val sync = if (Build.VERSION.SDK_INT >= 27) {
             retriever.getScaledFrameAtTime(
                 timeUs,
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
@@ -236,6 +236,27 @@ class VideoThumbFetcher(
             retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?.let(::scaleDown)
         }
+        if (sync != null && !isNearlyBlackVideoThumbnail(sync)) return sync
+
+        // A dark keyframe does not imply the requested point in the video is dark. Decode the
+        // closest arbitrary frame only when the cheaper sync-frame probe failed the black test.
+        val closest = if (Build.VERSION.SDK_INT >= 27) {
+            retriever.getScaledFrameAtTime(
+                timeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST,
+                THUMB_SIZE,
+                THUMB_SIZE,
+            )
+        } else {
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                ?.let(::scaleDown)
+        }
+        if (closest != null) {
+            if (sync !== closest) sync?.recycle()
+            return closest
+        }
+        return sync
+    }
 
     private fun scaleDown(src: Bitmap): Bitmap {
         val maxDim = maxOf(src.width, src.height)
@@ -272,7 +293,7 @@ class VideoThumbFetcher(
 
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb-v7:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v8:${data.path}:${data.mtime}:${data.size}"
     }
 
     companion object {
@@ -292,7 +313,7 @@ class VideoThumbFetcher(
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v7|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
+                .digest("v8|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             val dir = File(context.cacheDir, "video_thumbs")
             dir.mkdirs()
