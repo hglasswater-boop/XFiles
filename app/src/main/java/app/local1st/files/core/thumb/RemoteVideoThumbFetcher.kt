@@ -3,7 +3,6 @@ package app.local1st.files.core.thumb
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
@@ -89,27 +88,34 @@ class RemoteVideoThumbFetcher(
 
             retriever.embeddedPicture
                 ?.let(::decodeEmbeddedPicture)
-                ?.let { return it }
+                ?.let { artwork ->
+                    if (!isNearlyBlackVideoThumbnail(artwork)) return artwork
+                    artwork.recycle()
+                }
 
             val durationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?.takeIf { it > 0L }
             val candidatesUs = if (durationMs != null) {
+                // Keep the old 25/50/75% probes first so normal files stay cheap. Only if all of
+                // those are black do we fan out toward the beginning/end of the video.
                 longArrayOf(
                     durationMs * 250L,
                     durationMs * 500L,
                     durationMs * 750L,
+                    durationMs * 100L,
+                    durationMs * 900L,
                 )
             } else {
-                longArrayOf(60_000_000L, 180_000_000L, -1L)
+                longArrayOf(60_000_000L, 180_000_000L, 300_000_000L, -1L)
             }
 
             var best: Bitmap? = null
             var bestScore = -1.0
             for (timeUs in candidatesUs) {
                 val frame = frameAt(retriever, timeUs) ?: continue
-                val score = brightnessScore(frame)
+                val score = videoThumbnailBrightnessScore(frame)
                 if (score > bestScore) {
                     if (best != null && best !== frame) best.recycle()
                     best = frame
@@ -117,9 +123,19 @@ class RemoteVideoThumbFetcher(
                 } else if (best !== frame) {
                     frame.recycle()
                 }
-                if (best != null && !isNearlyBlack(best)) return best
+                if (best != null && !isNearlyBlackVideoThumbnail(best)) return best
             }
-            best
+
+            // Returning an all-black "best" frame only makes the cache permanently remember the
+            // failure. Prefer no thumbnail so the UI falls back to its video icon instead.
+            best?.let {
+                if (isNearlyBlackVideoThumbnail(it)) {
+                    it.recycle()
+                    null
+                } else {
+                    it
+                }
+            }
         } catch (_: Exception) {
             null
         } finally {
@@ -160,55 +176,6 @@ class RemoteVideoThumbFetcher(
                 ?.let(::scaleDown)
         }
 
-    private fun brightnessScore(bitmap: Bitmap): Double {
-        val stepX = (bitmap.width / 12).coerceAtLeast(1)
-        val stepY = (bitmap.height / 12).coerceAtLeast(1)
-        var sum = 0.0
-        var count = 0
-        var y = stepY / 2
-        while (y < bitmap.height) {
-            var x = stepX / 2
-            while (x < bitmap.width) {
-                val pixel = bitmap.getPixel(x, y)
-                val luma = 0.2126 * Color.red(pixel) +
-                    0.7152 * Color.green(pixel) +
-                    0.0722 * Color.blue(pixel)
-                sum += luma
-                count++
-                x += stepX
-            }
-            y += stepY
-        }
-        return if (count > 0) sum / count else 0.0
-    }
-
-    private fun isNearlyBlack(bitmap: Bitmap): Boolean {
-        val stepX = (bitmap.width / 12).coerceAtLeast(1)
-        val stepY = (bitmap.height / 12).coerceAtLeast(1)
-        var sum = 0.0
-        var count = 0
-        var visiblyLit = 0
-        var y = stepY / 2
-        while (y < bitmap.height) {
-            var x = stepX / 2
-            while (x < bitmap.width) {
-                val pixel = bitmap.getPixel(x, y)
-                val luma = 0.2126 * Color.red(pixel) +
-                    0.7152 * Color.green(pixel) +
-                    0.0722 * Color.blue(pixel)
-                sum += luma
-                if (luma >= 50.0) visiblyLit++
-                count++
-                x += stepX
-            }
-            y += stepY
-        }
-        if (count == 0) return true
-        val average = sum / count
-        val litFraction = visiblyLit.toDouble() / count
-        return average < 22.0 && litFraction < 0.05
-    }
-
     private fun scaleDown(src: Bitmap): Bitmap {
         val maxDim = maxOf(src.width, src.height)
         if (maxDim <= THUMB_SIZE) return src
@@ -233,7 +200,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v8:$id:$mtime:$size"
+            "remote-video-thumb-v9:$id:$mtime:$size"
         }
     }
 
@@ -244,7 +211,7 @@ class RemoteVideoThumbFetcher(
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v8|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v9|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
