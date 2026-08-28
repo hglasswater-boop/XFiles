@@ -393,14 +393,19 @@ fun PaneView(
         if (listState.layoutInfo.visibleItemsInfo.none { it.key == targetKey }) {
             listState.scrollToItem(targetIndex)
         }
-        withFrameNanos { }
 
         val requester = if (targetIndex == 0) {
             tvInitialFocusRequester
         } else {
             tvRowFocusRequesters.getOrPut(targetKey) { FocusRequester() }
         }
-        runCatching { requester.requestFocus() }
+        repeat(8) {
+            withFrameNanos { }
+            val focused = runCatching { requester.requestFocus() }.getOrDefault(false)
+            if (focused) return@LaunchedEffect
+        }
+        // Allow the same D-pad target to be requested again after a transient focus failure.
+        if (tvRequestedRowKey == targetKey) tvRequestedRowKey = null
     }
 
     LaunchedEffect(controller, listState, state.treeVersion) {
