@@ -51,7 +51,10 @@ class MainActivity : ComponentActivity() {
                 LOCAL_NETWORK_PERMISSION_REQUEST,
             )
         }
-        if (savedInstanceState == null) incomingIntents.trySend(intent)
+        if (savedInstanceState == null) {
+            forceStartupUpdateCheck()
+            incomingIntents.trySend(intent)
+        }
         setContent {
             Root(incomingIntentFlow)
         }
@@ -63,8 +66,22 @@ class MainActivity : ComponentActivity() {
         incomingIntents.trySend(intent)
     }
 
+    private fun forceStartupUpdateCheck() {
+        // Mobile and TV each keep their updater preferences in a flavor-specific store. Clearing
+        // only the throttle timestamp preserves the user's auto-check toggle while making a fresh
+        // app launch perform the requested update check instead of waiting up to 24 hours.
+        UPDATE_PREFS.forEach { name ->
+            getSharedPreferences(name, MODE_PRIVATE)
+                .edit()
+                .remove(LAST_AUTO_CHECK_KEY)
+                .apply()
+        }
+    }
+
     private companion object {
         const val LOCAL_NETWORK_PERMISSION_REQUEST = 1001
+        const val LAST_AUTO_CHECK_KEY = "last_auto_check"
+        val UPDATE_PREFS = arrayOf("mobile_self_update", "tv_self_update")
     }
 }
 
