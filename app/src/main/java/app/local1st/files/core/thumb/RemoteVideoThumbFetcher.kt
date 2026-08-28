@@ -86,56 +86,69 @@ class RemoteVideoThumbFetcher(
         return try {
             retriever.setDataSource(source)
 
+            var best: Bitmap? = null
+            var bestScore = -1.0
+
+            fun consider(candidate: Bitmap?): Bitmap? {
+                val bitmap = candidate ?: return null
+                val score = videoThumbnailBrightnessScore(bitmap)
+                if (score > bestScore) {
+                    if (best != null && best !== bitmap) best?.recycle()
+                    best = bitmap
+                    bestScore = score
+                } else if (best !== bitmap) {
+                    bitmap.recycle()
+                }
+                return best
+            }
+
             retriever.embeddedPicture
                 ?.let(::decodeEmbeddedPicture)
-                ?.let { artwork ->
-                    if (!isNearlyBlackVideoThumbnail(artwork)) return artwork
-                    artwork.recycle()
-                }
+                ?.let(::consider)
+                ?.takeIf { !isNearlyBlackVideoThumbnail(it) }
+                ?.let { return it }
 
             val durationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 ?.takeIf { it > 0L }
             val candidatesUs = if (durationMs != null) {
-                // Keep the old 25/50/75% probes first so normal files stay cheap. Only if all of
-                // those are black do we fan out toward the beginning/end of the video.
+                // Start with the common positions so normal videos stay cheap. If those are black,
+                // progressively fan out across the timeline before finally accepting the brightest
+                // black frame as the fallback thumbnail.
                 longArrayOf(
                     durationMs * 250L,
                     durationMs * 500L,
                     durationMs * 750L,
                     durationMs * 100L,
                     durationMs * 900L,
+                    durationMs * 50L,
+                    durationMs * 150L,
+                    durationMs * 350L,
+                    durationMs * 650L,
+                    durationMs * 850L,
+                    durationMs * 950L,
                 )
             } else {
-                longArrayOf(60_000_000L, 180_000_000L, 300_000_000L, -1L)
+                longArrayOf(
+                    30_000_000L,
+                    60_000_000L,
+                    120_000_000L,
+                    180_000_000L,
+                    300_000_000L,
+                    600_000_000L,
+                    -1L,
+                )
             }
 
-            var best: Bitmap? = null
-            var bestScore = -1.0
             for (timeUs in candidatesUs) {
-                val frame = frameAt(retriever, timeUs) ?: continue
-                val score = videoThumbnailBrightnessScore(frame)
-                if (score > bestScore) {
-                    if (best != null && best !== frame) best.recycle()
-                    best = frame
-                    bestScore = score
-                } else if (best !== frame) {
-                    frame.recycle()
-                }
-                if (best != null && !isNearlyBlackVideoThumbnail(best)) return best
+                val candidate = consider(frameAt(retriever, timeUs)) ?: continue
+                if (!isNearlyBlackVideoThumbnail(candidate)) return candidate
             }
 
-            // Returning an all-black "best" frame only makes the cache permanently remember the
-            // failure. Prefer no thumbnail so the UI falls back to its video icon instead.
-            best?.let {
-                if (isNearlyBlackVideoThumbnail(it)) {
-                    it.recycle()
-                    null
-                } else {
-                    it
-                }
-            }
+            // The user prefers a real thumbnail even when every sampled point is dark. We therefore
+            // keep the brightest sampled frame instead of falling back to the generic video icon.
+            best
         } catch (_: Exception) {
             null
         } finally {
@@ -200,7 +213,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v9:$id:$mtime:$size"
+            "remote-video-thumb-v10:$id:$mtime:$size"
         }
     }
 
@@ -211,7 +224,7 @@ class RemoteVideoThumbFetcher(
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v9|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
+                .digest("v10|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             return File(File(context.cacheDir, "remote_video_thumbs"), "$digest.jpg")
         }
