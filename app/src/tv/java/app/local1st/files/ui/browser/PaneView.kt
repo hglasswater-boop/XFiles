@@ -1,6 +1,5 @@
 package app.local1st.files.ui.browser
 
-import android.content.pm.PackageManager
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -128,9 +127,9 @@ fun PaneView(
     val state by controller.state.collectAsStateWithLifecycle()
     val display by BrowserDisplaySettings.state(Graph.appContext).collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val isTv = remember(context) {
-        context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
-    }
+    // TV source-set code must always use TV D-pad behavior. Some Google TV devices do not
+    // advertise FEATURE_LEANBACK consistently, which previously disabled vertical navigation.
+    val isTv = true
     val initialScrollIndex = state.initialScrollIndex
     var breadcrumbSortTarget by remember(controller) {
         mutableStateOf<Pair<String, String>?>(null)
