@@ -135,11 +135,25 @@ class VideoThumbFetcher(
                 retriever.setDataSource(data.path)
             }
 
+            var bestBlack: Bitmap? = null
+            var bestBlackScore = -1.0
+
+            fun rememberBlackFallback(bitmap: Bitmap) {
+                val score = videoThumbnailBrightnessScore(bitmap)
+                if (score > bestBlackScore) {
+                    if (bestBlack != null && bestBlack !== bitmap) bestBlack?.recycle()
+                    bestBlack = bitmap
+                    bestBlackScore = score
+                } else if (bestBlack !== bitmap) {
+                    bitmap.recycle()
+                }
+            }
+
             retriever.embeddedPicture
                 ?.let(::decodeEmbeddedPicture)
                 ?.let { artwork ->
                     if (!isNearlyBlackVideoThumbnail(artwork)) return artwork
-                    artwork.recycle()
+                    rememberBlackFallback(artwork)
                 }
 
             val durationMs = retriever
@@ -153,34 +167,35 @@ class VideoThumbFetcher(
                     durationMs * 750L,
                     durationMs * 100L,
                     durationMs * 900L,
+                    durationMs * 50L,
+                    durationMs * 150L,
+                    durationMs * 350L,
+                    durationMs * 650L,
+                    durationMs * 850L,
+                    durationMs * 950L,
                 )
             } else {
-                longArrayOf(60_000_000L, 180_000_000L, 300_000_000L, -1L)
+                longArrayOf(
+                    30_000_000L,
+                    60_000_000L,
+                    120_000_000L,
+                    180_000_000L,
+                    300_000_000L,
+                    600_000_000L,
+                    -1L,
+                )
             }
 
-            var best: Bitmap? = null
-            var bestScore = -1.0
             for (timeUs in candidatesUs) {
                 val frame = frameAt(retriever, timeUs) ?: continue
-                val score = videoThumbnailBrightnessScore(frame)
-                if (score > bestScore) {
-                    if (best != null && best !== frame) best.recycle()
-                    best = frame
-                    bestScore = score
-                } else if (best !== frame) {
-                    frame.recycle()
+                if (!isNearlyBlackVideoThumbnail(frame)) {
+                    bestBlack?.recycle()
+                    return frame
                 }
-                if (best != null && !isNearlyBlackVideoThumbnail(best)) return best
+                rememberBlackFallback(frame)
             }
 
-            best?.let {
-                if (isNearlyBlackVideoThumbnail(it)) {
-                    it.recycle()
-                    null
-                } else {
-                    it
-                }
-            }
+            bestBlack
         } catch (_: Exception) {
             null
         } finally {
@@ -257,7 +272,7 @@ class VideoThumbFetcher(
 
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb-v5:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v6:${data.path}:${data.mtime}:${data.size}"
     }
 
     companion object {
@@ -277,7 +292,7 @@ class VideoThumbFetcher(
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v5|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
+                .digest("v6|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             val dir = File(context.cacheDir, "video_thumbs")
             dir.mkdirs()
