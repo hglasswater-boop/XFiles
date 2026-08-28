@@ -27,6 +27,6 @@ jobs:
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add app/src/tv/java/app/local1st/files/ui/viewer/MediaViewer.kt
-          git commit -m "Add Google TV remote-first media controls"
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt app/src/tv/java/app/local1st/files/ui/viewer/MediaViewer.kt
+          git commit -m "Polish Google TV player remote controls"
           git push origin HEAD:feat/tv-player-remote-controls
