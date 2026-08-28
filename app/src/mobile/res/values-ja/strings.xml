@@ -11,7 +11,7 @@
     <string name="update_settings_title">アップデート</string>
     <string name="update_current_version">現在のバージョン: %1$s (%2$d)</string>
     <string name="update_auto_check">アップデートを自動確認</string>
-    <string name="update_auto_check_summary">XFiles 起動時、24時間に1回まで GitHub の最新版を確認します。</string>
+    <string name="update_auto_check_summary">XFiles を起動するたびに GitHub の最新版を確認します。</string>
     <string name="update_last_checked">最終確認: %1$s</string>
     <string name="update_never_checked">最終確認: まだ確認していません</string>
     <string name="update_check_now">今すぐ確認</string>
