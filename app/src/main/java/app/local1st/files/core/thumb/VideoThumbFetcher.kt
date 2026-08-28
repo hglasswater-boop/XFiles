@@ -137,17 +137,49 @@ class VideoThumbFetcher(
 
             retriever.embeddedPicture
                 ?.let(::decodeEmbeddedPicture)
-                ?.let { return it }
+                ?.let { artwork ->
+                    if (!isNearlyBlackVideoThumbnail(artwork)) return artwork
+                    artwork.recycle()
+                }
 
-            if (Build.VERSION.SDK_INT >= 27) {
-                retriever.getScaledFrameAtTime(
-                    -1,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                    THUMB_SIZE,
-                    THUMB_SIZE,
+            val durationMs = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()
+                ?.takeIf { it > 0L }
+            val candidatesUs = if (durationMs != null) {
+                longArrayOf(
+                    durationMs * 250L,
+                    durationMs * 500L,
+                    durationMs * 750L,
+                    durationMs * 100L,
+                    durationMs * 900L,
                 )
             } else {
-                retriever.getFrameAtTime(-1)?.let(::scaleDown)
+                longArrayOf(60_000_000L, 180_000_000L, 300_000_000L, -1L)
+            }
+
+            var best: Bitmap? = null
+            var bestScore = -1.0
+            for (timeUs in candidatesUs) {
+                val frame = frameAt(retriever, timeUs) ?: continue
+                val score = videoThumbnailBrightnessScore(frame)
+                if (score > bestScore) {
+                    if (best != null && best !== frame) best.recycle()
+                    best = frame
+                    bestScore = score
+                } else if (best !== frame) {
+                    frame.recycle()
+                }
+                if (best != null && !isNearlyBlackVideoThumbnail(best)) return best
+            }
+
+            best?.let {
+                if (isNearlyBlackVideoThumbnail(it)) {
+                    it.recycle()
+                    null
+                } else {
+                    it
+                }
             }
         } catch (_: Exception) {
             null
@@ -176,6 +208,19 @@ class VideoThumbFetcher(
             ?.let(::scaleDown)
             ?.let { fitEmbeddedVideoArtwork(it, THUMB_SIZE) }
     }
+
+    private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? =
+        if (Build.VERSION.SDK_INT >= 27) {
+            retriever.getScaledFrameAtTime(
+                timeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                THUMB_SIZE,
+                THUMB_SIZE,
+            )
+        } else {
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?.let(::scaleDown)
+        }
 
     private fun scaleDown(src: Bitmap): Bitmap {
         val maxDim = maxOf(src.width, src.height)
@@ -212,7 +257,7 @@ class VideoThumbFetcher(
 
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb-v4:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v5:${data.path}:${data.mtime}:${data.size}"
     }
 
     companion object {
@@ -232,7 +277,7 @@ class VideoThumbFetcher(
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest("v4|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
+                .digest("v5|${data.path}|${data.mtime}|${data.size}".encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
             val dir = File(context.cacheDir, "video_thumbs")
             dir.mkdirs()
