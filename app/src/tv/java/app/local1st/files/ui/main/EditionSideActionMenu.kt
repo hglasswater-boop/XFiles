@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -211,6 +212,7 @@ private fun BoxScope.FocusRevealRail(
 ) {
     var visible by remember { mutableStateOf(false) }
     var railHadFocus by remember { mutableStateOf(false) }
+    var railHasFocus by remember { mutableStateOf(false) }
     val firstEnabledIndex = actions.indexOfFirst { it.enabled }
     val enabledSignature = actions.map { it.enabled }
     val actionRequesters = remember(actions.size, enabledSignature) {
@@ -223,6 +225,19 @@ private fun BoxScope.FocusRevealRail(
         }
     }
 
+    // Moving focus between rail buttons can briefly report hasFocus=false on the parent.
+    // Defer collapse for a few frames so Up/Down navigation can complete before deciding that
+    // focus really left the rail.
+    LaunchedEffect(railHasFocus, railHadFocus) {
+        if (!railHasFocus && railHadFocus) {
+            repeat(3) { withFrameNanos { } }
+            if (!railHasFocus) {
+                railHadFocus = false
+                visible = false
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .align(alignment)
@@ -230,11 +245,9 @@ private fun BoxScope.FocusRevealRail(
             .width(if (visible) 104.dp else 0.dp)
             .focusGroup()
             .onFocusChanged { state ->
+                railHasFocus = state.hasFocus
                 if (state.hasFocus) {
                     railHadFocus = true
-                } else if (railHadFocus) {
-                    railHadFocus = false
-                    visible = false
                 }
             },
     ) {
@@ -295,6 +308,7 @@ private fun BoxScope.FocusRevealRail(
             }
             LaunchedEffect(visible, firstEnabledIndex) {
                 if (visible && firstEnabledIndex >= 0) {
+                    withFrameNanos { }
                     runCatching { actionRequesters[firstEnabledIndex].requestFocus() }
                 }
             }

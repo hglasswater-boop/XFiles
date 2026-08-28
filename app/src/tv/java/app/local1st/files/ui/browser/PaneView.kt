@@ -54,6 +54,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
@@ -329,7 +330,7 @@ fun PaneView(
     val tvRowFocusRequesters = remember(controller) { mutableMapOf<String, FocusRequester>() }
     var tvRequestedRowKey by remember(controller) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(isTv, active, displayNodes.size, searchActive) {
+    LaunchedEffect(isTv, active, searchActive, displayNodes.firstOrNull()?.key) {
         if (
             isTv &&
             active &&
@@ -337,9 +338,20 @@ fun PaneView(
             !tvInitialFocusRequested &&
             displayNodes.isNotEmpty()
         ) {
-            withFrameNanos { }
-            runCatching { tvInitialFocusRequester.requestFocus() }
-            tvInitialFocusRequested = true
+            val firstKey = displayNodes.first().key
+            snapshotFlow {
+                listState.layoutInfo.visibleItemsInfo.any { it.key == firstKey }
+            }.first { it }
+            repeat(8) {
+                withFrameNanos { }
+                val focused = runCatching {
+                    tvInitialFocusRequester.requestFocus()
+                }.getOrDefault(false)
+                if (focused) {
+                    tvInitialFocusRequested = true
+                    return@LaunchedEffect
+                }
+            }
         }
     }
 
@@ -861,6 +873,9 @@ private fun BreadcrumbBar(
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     modifier = Modifier
+                        // Back handles parent navigation on TV. Keep breadcrumbs out of the
+                        // D-pad focus graph so startup focus cannot get stranded in the header.
+                        .focusProperties { canFocus = false }
                         .combinedClickable(
                             onClick = { onCrumbClick(id) },
                             onLongClick = { onCrumbLongClick(id, name) },
