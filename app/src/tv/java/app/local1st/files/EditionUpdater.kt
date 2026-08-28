@@ -30,7 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
+import app.local1st.files.core.util.SelfUpdateInstaller
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -155,17 +155,7 @@ private object TvSelfUpdater {
     }
 
     fun launchInstaller(context: Context, apk: File) {
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            apk,
-        )
-        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            data = uri
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+        SelfUpdateInstaller.install(context, apk)
     }
 
     @Suppress("DEPRECATION")
