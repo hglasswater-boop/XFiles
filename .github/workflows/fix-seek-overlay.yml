@@ -24,80 +24,92 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
           text = path.read_text()
 
-          pattern = re.compile(
-              r'(    fun stepSeconds\(delta: Int\) \{\n'
-              r'        seekGate\.request\(clampMs\(anchorMs\(\) \+ delta \* 1000L\)\)\n'
-              r'        interactionTick\+\+\n'
-              r'    \}\n)'
-              r'(    fun togglePlayback\(\) \{)'
-          )
-          replacement = '''\\1    fun updateTapSeekLabel(deltaSeconds: Int) {
-              val accumulatedSeconds = tapSeekLabel
+          replacements = [
+              (
+                  '''    fun stepSeconds(delta: Int) {
+              seekGate.request(clampMs(anchorMs() + delta * 1000L))
+              interactionTick++
+          }
+          fun togglePlayback() {
+          ''',
+                  '''    fun stepSeconds(delta: Int) {
+              seekGate.request(clampMs(anchorMs() + delta * 1000L))
+              interactionTick++
+          }
+          fun updateTapSeekLabel(deltaSeconds: Int) {
+              val currentSeconds = tapSeekLabel
                   ?.removeSuffix("秒")
+                  ?.removePrefix("+")
                   ?.toIntOrNull()
-                  ?.plus(deltaSeconds)
-                  ?: deltaSeconds
+                  ?: 0
+              val accumulatedSeconds = currentSeconds + deltaSeconds
               tapSeekLabel = when {
                   accumulatedSeconds > 0 -> "+${accumulatedSeconds}秒"
                   accumulatedSeconds < 0 -> "${accumulatedSeconds}秒"
                   else -> "0秒"
               }
           }
-          \\2'''
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit('stepSeconds insertion point did not match exactly once')
+          fun togglePlayback() {
+          ''',
+                  'seek label helper',
+              ),
+              (
+                  '''                                    Key.DirectionLeft -> {
+                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
+                                              tapSeekLabel = "-${TV_REMOTE_SEEK_SECONDS}秒"
+                                              controlsVisible = true
+                                              true
+                                          }
+                                          Key.DirectionRight -> {
+                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
+                                              tapSeekLabel = "+${TV_REMOTE_SEEK_SECONDS}秒"
+                                              controlsVisible = true
+                                              true
+                                          }
+          ''',
+                  '''                                    Key.DirectionLeft -> {
+                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
+                                              updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
+                                              controlsVisible = false
+                                              true
+                                          }
+                                          Key.DirectionRight -> {
+                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
+                                              updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
+                                              controlsVisible = false
+                                              true
+                                          }
+          ''',
+                  'TV 10-second seek controls',
+              ),
+              (
+                  '''                                tapSeekLabel = if (deltaSeconds > 0) {
+                                      "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                  } else {
+                                      "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                  }
+          ''',
+                  '''                                updateTapSeekLabel(deltaSeconds)
+          ''',
+                  'mobile double-tap seek label',
+              ),
+          ]
 
-          text, left_count = re.subn(
-              r'(Key\.DirectionLeft -> \{\n\s+stepSeconds\(-TV_REMOTE_SEEK_SECONDS\)\n)'
-              r'\s+tapSeekLabel = "-\$\{TV_REMOTE_SEEK_SECONDS\}秒"\n'
-              r'\s+controlsVisible = true',
-              r'\\1                                    updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)\n                                    controlsVisible = false',
-              text,
-              count=1,
-          )
-          text, right_count = re.subn(
-              r'(Key\.DirectionRight -> \{\n\s+stepSeconds\(TV_REMOTE_SEEK_SECONDS\)\n)'
-              r'\s+tapSeekLabel = "\+\$\{TV_REMOTE_SEEK_SECONDS\}秒"\n'
-              r'\s+controlsVisible = true',
-              r'\\1                                    updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)\n                                    controlsVisible = false',
-              text,
-              count=1,
-          )
-          if left_count != 1 or right_count != 1:
-              raise SystemExit(f'TV remote seek patch mismatch: left={left_count}, right={right_count}')
-
-          text, mobile_count = re.subn(
-              r'\s+tapSeekLabel = if \(deltaSeconds > 0\) \{\n'
-              r'\s+"\+\$\{DOUBLE_TAP_SEEK_SECONDS\}秒"\n'
-              r'\s+\} else \{\n'
-              r'\s+"-\$\{DOUBLE_TAP_SEEK_SECONDS\}秒"\n'
-              r'\s+\}',
-              '\n                                updateTapSeekLabel(deltaSeconds)',
-              text,
-              count=1,
-          )
-          if mobile_count != 1:
-              raise SystemExit(f'mobile double-tap patch mismatch: {mobile_count}')
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
+              text = text.replace(old, new, 1)
 
           path.write_text(text)
           PY
 
           git diff --check
           git diff -- app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
-
-      - name: Commit fix
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
-          git commit -m "Keep seek controls hidden and accumulate 10s overlay"
-          git push origin HEAD:main
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -139,6 +151,15 @@ jobs:
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
+
+      - name: Commit verified fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          git rm .github/workflows/fix-seek-overlay.yml
+          git commit -m "Keep 10s seek controls hidden and accumulate overlay"
+          git push origin HEAD:main
 
       - name: Name debug APKs
         id: apk
