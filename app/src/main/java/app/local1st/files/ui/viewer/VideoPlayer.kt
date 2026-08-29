@@ -149,6 +149,8 @@ fun VideoPlayerScreen(
     var scrubLabel by remember { mutableStateOf<String?>(null) }
     var volumeLabel by remember { mutableStateOf<String?>(null) }
     var tapSeekLabel by remember { mutableStateOf<String?>(null) }
+    var tapSeekAccumSeconds by remember { mutableIntStateOf(0) }
+    var tapSeekLastAtMs by remember { mutableLongStateOf(0L) }
     var volumeAdjusting by remember { mutableStateOf(false) }
     var interactionTick by remember { mutableIntStateOf(0) }
     var sliderPos by remember { mutableStateOf<Float?>(null) }
@@ -210,6 +212,8 @@ fun VideoPlayerScreen(
         if (tapSeekLabel != null) {
             delay(DOUBLE_TAP_LABEL_MS)
             tapSeekLabel = null
+            tapSeekAccumSeconds = 0
+            tapSeekLastAtMs = 0L
         }
     }
 
@@ -280,17 +284,28 @@ fun VideoPlayerScreen(
         interactionTick++
     }
     fun updateTapSeekLabel(deltaSeconds: Int) {
-        val currentSeconds = tapSeekLabel
-            ?.removeSuffix("秒")
-            ?.removePrefix("+")
-            ?.toIntOrNull()
-            ?: 0
-        val accumulatedSeconds = currentSeconds + deltaSeconds
+        val now = SystemClock.elapsedRealtime()
+        val withinSequence =
+            tapSeekLastAtMs > 0L && now - tapSeekLastAtMs <= DOUBLE_TAP_ACCUMULATION_WINDOW_MS
+        tapSeekAccumSeconds =
+            if (withinSequence) tapSeekAccumSeconds + deltaSeconds else deltaSeconds
+        tapSeekLastAtMs = now
         tapSeekLabel = when {
-            accumulatedSeconds > 0 -> "+${accumulatedSeconds}秒"
-            accumulatedSeconds < 0 -> "${accumulatedSeconds}秒"
+            tapSeekAccumSeconds > 0 -> "+${tapSeekAccumSeconds}秒"
+            tapSeekAccumSeconds < 0 -> "${tapSeekAccumSeconds}秒"
             else -> "0秒"
         }
+    }
+    fun tapSeekDelta(xFraction: Float): Int? = when {
+        xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
+        xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
+        else -> null
+    }
+    fun performTapSeek(deltaSeconds: Int) {
+        controlsVisible = false
+        seekGate.request(clampMs(anchorMs() + deltaSeconds * 1000L))
+        updateTapSeekLabel(deltaSeconds)
+        interactionTick++
     }
     fun togglePlayback() {
         when {
@@ -397,22 +412,23 @@ fun VideoPlayerScreen(
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
-                            // Double-tap is reserved for seeking and must not reveal playback controls.
-                            controlsVisible = false
-                            val xFraction = offset.x / size.width
-                            val deltaSeconds = when {
-                                xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS
-                                xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS
-                                else -> null
-                            }
-                            if (deltaSeconds != null) {
-                                val target = clampMs(anchorMs() + deltaSeconds * 1000L)
-                                seekGate.request(target)
-                                updateTapSeekLabel(deltaSeconds)
-                                interactionTick++
+                            // Start a repeated seek sequence. Extra taps on the same edge keep
+                            // adding another 10 seconds without showing playback controls.
+                            tapSeekDelta(offset.x / size.width)?.let(::performTapSeek)
+                        },
+                        onTap = { offset ->
+                            val deltaSeconds = tapSeekDelta(offset.x / size.width)
+                            val now = SystemClock.elapsedRealtime()
+                            val continuingSeek =
+                                deltaSeconds != null &&
+                                    tapSeekLastAtMs > 0L &&
+                                    now - tapSeekLastAtMs <= DOUBLE_TAP_ACCUMULATION_WINDOW_MS
+                            if (continuingSeek) {
+                                performTapSeek(deltaSeconds!!)
+                            } else {
+                                controlsVisible = !controlsVisible
                             }
                         },
-                        onTap = { controlsVisible = !controlsVisible },
                     )
                 },
         ) {
@@ -1039,7 +1055,8 @@ private const val EDGE_GUARD_DP = 24
 private const val TIME_SWIPE_MS_PER_DP = 40L
 private const val DOUBLE_TAP_SEEK_SECONDS = 10
 private const val DOUBLE_TAP_SEEK_EDGE_FRACTION = 0.30f
-private const val DOUBLE_TAP_LABEL_MS = 700L
+private const val DOUBLE_TAP_LABEL_MS = 1200L
+private const val DOUBLE_TAP_ACCUMULATION_WINDOW_MS = 1200L
 private const val VOLUME_REGION_START_FRACTION = 0.5f
 private const val VOLUME_FULL_SCALE_FRACTION = 0.7f
 private const val VOLUME_LABEL_MS = 900L
