@@ -279,6 +279,19 @@ fun VideoPlayerScreen(
         seekGate.request(clampMs(anchorMs() + delta * 1000L))
         interactionTick++
     }
+    fun updateTapSeekLabel(deltaSeconds: Int) {
+        val currentSeconds = tapSeekLabel
+            ?.removeSuffix("秒")
+            ?.removePrefix("+")
+            ?.toIntOrNull()
+            ?: 0
+        val accumulatedSeconds = currentSeconds + deltaSeconds
+        tapSeekLabel = when {
+            accumulatedSeconds > 0 -> "+${accumulatedSeconds}秒"
+            accumulatedSeconds < 0 -> "${accumulatedSeconds}秒"
+            else -> "0秒"
+        }
+    }
     fun togglePlayback() {
         when {
             player.isPlaying -> player.pause()
@@ -332,14 +345,14 @@ fun VideoPlayerScreen(
                                     }
                                     Key.DirectionLeft -> {
                                         stepSeconds(-TV_REMOTE_SEEK_SECONDS)
-                                        tapSeekLabel = "-${TV_REMOTE_SEEK_SECONDS}秒"
-                                        controlsVisible = true
+                                        updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
+                                        controlsVisible = false
                                         true
                                     }
                                     Key.DirectionRight -> {
                                         stepSeconds(TV_REMOTE_SEEK_SECONDS)
-                                        tapSeekLabel = "+${TV_REMOTE_SEEK_SECONDS}秒"
-                                        controlsVisible = true
+                                        updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
+                                        controlsVisible = false
                                         true
                                     }
                                     Key.DirectionUp -> {
@@ -395,11 +408,7 @@ fun VideoPlayerScreen(
                             if (deltaSeconds != null) {
                                 val target = clampMs(anchorMs() + deltaSeconds * 1000L)
                                 seekGate.request(target)
-                                tapSeekLabel = if (deltaSeconds > 0) {
-                                    "+${DOUBLE_TAP_SEEK_SECONDS}秒"
-                                } else {
-                                    "-${DOUBLE_TAP_SEEK_SECONDS}秒"
-                                }
+                                updateTapSeekLabel(deltaSeconds)
                                 interactionTick++
                             }
                         },
