@@ -23,21 +23,19 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
           text = path.read_text()
 
-          old = '''    fun stepSeconds(delta: Int) {
-              seekGate.request(clampMs(anchorMs() + delta * 1000L))
-              interactionTick++
-          }
-          fun togglePlayback() {
-          '''
-          new = '''    fun stepSeconds(delta: Int) {
-              seekGate.request(clampMs(anchorMs() + delta * 1000L))
-              interactionTick++
-          }
-          fun updateTapSeekLabel(deltaSeconds: Int) {
+          pattern = re.compile(
+              r'(    fun stepSeconds\(delta: Int\) \{\n'
+              r'        seekGate\.request\(clampMs\(anchorMs\(\) \+ delta \* 1000L\)\)\n'
+              r'        interactionTick\+\+\n'
+              r'    \}\n)'
+              r'(    fun togglePlayback\(\) \{)'
+          )
+          replacement = '''\\1    fun updateTapSeekLabel(deltaSeconds: Int) {
               val accumulatedSeconds = tapSeekLabel
                   ?.removeSuffix("秒")
                   ?.toIntOrNull()
@@ -49,55 +47,42 @@ jobs:
                   else -> "0秒"
               }
           }
-          fun togglePlayback() {
-          '''
-          if text.count(old) != 1:
+          \\2'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
               raise SystemExit('stepSeconds insertion point did not match exactly once')
-          text = text.replace(old, new)
 
-          old = '''                                    Key.DirectionLeft -> {
-                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
-                                              tapSeekLabel = "-${TV_REMOTE_SEEK_SECONDS}秒"
-                                              controlsVisible = true
-                                              true
-                                          }
-                                          Key.DirectionRight -> {
-                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
-                                              tapSeekLabel = "+${TV_REMOTE_SEEK_SECONDS}秒"
-                                              controlsVisible = true
-                                              true
-                                          }
-          '''
-          new = '''                                    Key.DirectionLeft -> {
-                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
-                                              updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
-                                              controlsVisible = false
-                                              true
-                                          }
-                                          Key.DirectionRight -> {
-                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
-                                              updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
-                                              controlsVisible = false
-                                              true
-                                          }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit('TV remote seek block did not match exactly once')
-          text = text.replace(old, new)
+          text, left_count = re.subn(
+              r'(Key\.DirectionLeft -> \{\n\s+stepSeconds\(-TV_REMOTE_SEEK_SECONDS\)\n)'
+              r'\s+tapSeekLabel = "-\$\{TV_REMOTE_SEEK_SECONDS\}秒"\n'
+              r'\s+controlsVisible = true',
+              r'\\1                                    updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)\n                                    controlsVisible = false',
+              text,
+              count=1,
+          )
+          text, right_count = re.subn(
+              r'(Key\.DirectionRight -> \{\n\s+stepSeconds\(TV_REMOTE_SEEK_SECONDS\)\n)'
+              r'\s+tapSeekLabel = "\+\$\{TV_REMOTE_SEEK_SECONDS\}秒"\n'
+              r'\s+controlsVisible = true',
+              r'\\1                                    updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)\n                                    controlsVisible = false',
+              text,
+              count=1,
+          )
+          if left_count != 1 or right_count != 1:
+              raise SystemExit(f'TV remote seek patch mismatch: left={left_count}, right={right_count}')
 
-          old = '''                                tapSeekLabel = if (deltaSeconds > 0) {
-                                      "+${DOUBLE_TAP_SEEK_SECONDS}秒"
-                                  } else {
-                                      "-${DOUBLE_TAP_SEEK_SECONDS}秒"
-                                  }
-                                  interactionTick++
-          '''
-          new = '''                                updateTapSeekLabel(deltaSeconds)
-                                  interactionTick++
-          '''
-          if text.count(old) != 1:
-              raise SystemExit('double-tap seek label block did not match exactly once')
-          text = text.replace(old, new)
+          text, mobile_count = re.subn(
+              r'\s+tapSeekLabel = if \(deltaSeconds > 0\) \{\n'
+              r'\s+"\+\$\{DOUBLE_TAP_SEEK_SECONDS\}秒"\n'
+              r'\s+\} else \{\n'
+              r'\s+"-\$\{DOUBLE_TAP_SEEK_SECONDS\}秒"\n'
+              r'\s+\}',
+              '\n                                updateTapSeekLabel(deltaSeconds)',
+              text,
+              count=1,
+          )
+          if mobile_count != 1:
+              raise SystemExit(f'mobile double-tap patch mismatch: {mobile_count}')
 
           path.write_text(text)
           PY
