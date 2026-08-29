@@ -303,8 +303,10 @@ fun VideoPlayerScreen(
     }
     fun performTapSeek(deltaSeconds: Int) {
         controlsVisible = false
-        seekGate.request(clampMs(anchorMs() + deltaSeconds * 1000L))
+        // Mark the tap-seek sequence before asking ExoPlayer to seek. A seek can briefly make
+        // playback report as not playing, and that state must not resurrect the playback chrome.
         updateTapSeekLabel(deltaSeconds)
+        seekGate.request(clampMs(anchorMs() + deltaSeconds * 1000L))
         interactionTick++
     }
     fun togglePlayback() {
@@ -323,7 +325,11 @@ fun VideoPlayerScreen(
     }
 
     LaunchedEffect(playing) {
-        if (!playing && !scrubbing && sliderPos == null) controlsVisible = true
+        // A 10-second tap seek can transiently report !playing while the new position is loaded.
+        // Keep the chrome hidden for that seek sequence; a normal pause still reveals controls.
+        if (!playing && !scrubbing && sliderPos == null && tapSeekLabel == null) {
+            controlsVisible = true
+        }
     }
     val interacting = scrubbing || volumeAdjusting || cardDragging || sliderPos != null
     LaunchedEffect(controlsVisible, playing, interacting, interactionTick) {
