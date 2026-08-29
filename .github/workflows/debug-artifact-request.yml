@@ -5,7 +5,7 @@ on:
     types: [created]
 
 permissions:
-  contents: write
+  contents: read
   issues: write
   pull-requests: write
 
@@ -30,59 +30,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: main
-          fetch-depth: 0
-
-      - name: Patch 10-second tap seek control suppression
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
-          text = path.read_text()
-          old1 = '''    fun performTapSeek(deltaSeconds: Int) {
-        controlsVisible = false
-        seekGate.request(clampMs(anchorMs() + deltaSeconds * 1000L))
-        updateTapSeekLabel(deltaSeconds)
-        interactionTick++
-    }
-'''
-          new1 = '''    fun performTapSeek(deltaSeconds: Int) {
-        controlsVisible = false
-        // Mark the tap-seek sequence before asking ExoPlayer to seek. A seek can briefly make
-        // playback report as not playing, and that state must not resurrect the playback chrome.
-        updateTapSeekLabel(deltaSeconds)
-        seekGate.request(clampMs(anchorMs() + deltaSeconds * 1000L))
-        interactionTick++
-    }
-'''
-          old2 = '''    LaunchedEffect(playing) {
-        if (!playing && !scrubbing && sliderPos == null) controlsVisible = true
-    }
-'''
-          new2 = '''    LaunchedEffect(playing) {
-        // A 10-second tap seek can transiently report !playing while the new position is loaded.
-        // Keep the chrome hidden for that seek sequence; a normal pause still reveals controls.
-        if (!playing && !scrubbing && sliderPos == null && tapSeekLabel == null) {
-            controlsVisible = true
-        }
-    }
-'''
-          assert old1 in text, 'performTapSeek anchor not found'
-          assert old2 in text, 'playing effect anchor not found'
-          path.write_text(text.replace(old1, new1, 1).replace(old2, new2, 1))
-          PY
-          grep -n "Mark the tap-seek sequence" app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
-          grep -n "tapSeekLabel == null" app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
-
-      - name: Commit source fix
-        id: source_commit
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
-          git commit -m "Keep controls hidden after 10s tap seek"
-          git push origin HEAD:main
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -145,36 +92,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-
-      - name: Replace rolling debug release
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          REPO="${{ github.repository }}"
-          AUTH="Authorization: Bearer $GITHUB_TOKEN"
-          ACCEPT="Accept: application/vnd.github+json"
-          CODE=$(curl -sS -o "$RUNNER_TEMP/debug-latest.json" -w '%{http_code}' -H "$AUTH" -H "$ACCEPT" "https://api.github.com/repos/${REPO}/releases/tags/debug-latest")
-          if [ "$CODE" = "200" ]; then
-            ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' "$RUNNER_TEMP/debug-latest.json")
-            if [ -n "$ID" ]; then
-              curl -sS -X DELETE -H "$AUTH" -H "$ACCEPT" "https://api.github.com/repos/${REPO}/releases/${ID}"
-            fi
-          fi
-          curl -sS -X DELETE -H "$AUTH" -H "$ACCEPT" -o /dev/null -w '' "https://api.github.com/repos/${REPO}/git/refs/tags/debug-latest" || true
-
-      - name: Publish rolling debug release
-        uses: softprops/action-gh-release@v3
-        with:
-          token: ${{ github.token }}
-          tag_name: debug-latest
-          target_commitish: ${{ steps.source_commit.outputs.sha }}
-          name: XFiles debug build ${{ steps.build_number.outputs.value }}
-          prerelease: true
-          body: Signed mobile and Google TV debug APKs with the 10-second tap-seek control suppression fix.
-          files: |
-            ${{ steps.apk.outputs.mobile_name }}
-            ${{ steps.apk.outputs.tv_name }}
 
       - name: Publish ready marker
         env:
