@@ -304,10 +304,11 @@ private fun EditionSettingsUpdateDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var downloading by remember { mutableStateOf(false) }
+    var preparingInstall by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
-        onDismissRequest = { if (!downloading) onDismiss() },
+        onDismissRequest = { if (!downloading && !preparingInstall) onDismiss() },
         title = { Text(stringResource(R.string.mobile_update_available_title)) },
         text = {
             Column {
@@ -337,7 +338,7 @@ private fun EditionSettingsUpdateDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = !downloading,
+                enabled = !downloading && !preparingInstall,
                 onClick = {
                     if (!MobileSelfUpdater.canInstallPackages(context)) {
                         MobileSelfUpdater.openInstallPermission(context)
@@ -345,24 +346,43 @@ private fun EditionSettingsUpdateDialog(
                     }
                     scope.launch {
                         downloading = true
+                        preparingInstall = false
                         errorMessage = null
-                        runCatching { MobileSelfUpdater.downloadAndValidate(context, available) }
-                            .onSuccess { MobileSelfUpdater.launchInstaller(context, it) }
-                            .onFailure { errorMessage = it.message ?: it.javaClass.simpleName }
+                        val apk = runCatching {
+                            MobileSelfUpdater.downloadAndValidate(context, available)
+                        }.getOrElse { error ->
+                            downloading = false
+                            errorMessage = error.message ?: error.javaClass.simpleName
+                            return@launch
+                        }
                         downloading = false
+                        preparingInstall = true
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                MobileSelfUpdater.launchInstaller(context, apk)
+                            }
+                        }.onSuccess {
+                            onDismiss()
+                        }.onFailure { error ->
+                            preparingInstall = false
+                            errorMessage = error.message ?: error.javaClass.simpleName
+                        }
                     }
                 },
             ) {
                 Text(
                     stringResource(
-                        if (downloading) R.string.mobile_update_downloading
-                        else R.string.mobile_update_install,
+                        when {
+                            downloading -> R.string.mobile_update_downloading
+                            preparingInstall -> R.string.mobile_update_preparing_install
+                            else -> R.string.mobile_update_install
+                        },
                     ),
                 )
             }
         },
         dismissButton = {
-            TextButton(enabled = !downloading, onClick = onDismiss) {
+            TextButton(enabled = !downloading && !preparingInstall, onClick = onDismiss) {
                 Text(stringResource(R.string.mobile_update_later))
             }
         },
@@ -375,6 +395,7 @@ fun EditionStartupUpdateCheck() {
     val scope = rememberCoroutineScope()
     var release by remember { mutableStateOf<MobileRelease?>(null) }
     var downloading by remember { mutableStateOf(false) }
+    var preparingInstall by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -388,7 +409,7 @@ fun EditionStartupUpdateCheck() {
 
     val available = release ?: return
     AlertDialog(
-        onDismissRequest = { if (!downloading) release = null },
+        onDismissRequest = { if (!downloading && !preparingInstall) release = null },
         title = { Text(stringResource(R.string.mobile_update_available_title)) },
         text = {
             Column {
@@ -418,7 +439,7 @@ fun EditionStartupUpdateCheck() {
         },
         confirmButton = {
             TextButton(
-                enabled = !downloading,
+                enabled = !downloading && !preparingInstall,
                 onClick = {
                     if (!MobileSelfUpdater.canInstallPackages(context)) {
                         MobileSelfUpdater.openInstallPermission(context)
@@ -426,24 +447,43 @@ fun EditionStartupUpdateCheck() {
                     }
                     scope.launch {
                         downloading = true
+                        preparingInstall = false
                         errorMessage = null
-                        runCatching { MobileSelfUpdater.downloadAndValidate(context, available) }
-                            .onSuccess { MobileSelfUpdater.launchInstaller(context, it) }
-                            .onFailure { errorMessage = it.message ?: it.javaClass.simpleName }
+                        val apk = runCatching {
+                            MobileSelfUpdater.downloadAndValidate(context, available)
+                        }.getOrElse { error ->
+                            downloading = false
+                            errorMessage = error.message ?: error.javaClass.simpleName
+                            return@launch
+                        }
                         downloading = false
+                        preparingInstall = true
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                MobileSelfUpdater.launchInstaller(context, apk)
+                            }
+                        }.onSuccess {
+                            release = null
+                        }.onFailure { error ->
+                            preparingInstall = false
+                            errorMessage = error.message ?: error.javaClass.simpleName
+                        }
                     }
                 },
             ) {
                 Text(
                     stringResource(
-                        if (downloading) R.string.mobile_update_downloading
-                        else R.string.mobile_update_install,
+                        when {
+                            downloading -> R.string.mobile_update_downloading
+                            preparingInstall -> R.string.mobile_update_preparing_install
+                            else -> R.string.mobile_update_install
+                        },
                     ),
                 )
             }
         },
         dismissButton = {
-            TextButton(enabled = !downloading, onClick = { release = null }) {
+            TextButton(enabled = !downloading && !preparingInstall, onClick = { release = null }) {
                 Text(stringResource(R.string.mobile_update_later))
             }
         },

@@ -5,6 +5,7 @@
     <string name="mobile_update_install_permission_hint">The first update requires allowing XFiles to install unknown apps in Android settings.</string>
     <string name="mobile_update_install">Download and update</string>
     <string name="mobile_update_downloading">Downloading…</string>
+    <string name="mobile_update_preparing_install">Preparing update…</string>
     <string name="mobile_update_later">Later</string>
     <string name="mobile_update_error">Update failed: %1$s</string>
 

@@ -5,6 +5,7 @@
     <string name="mobile_update_install_permission_hint">初回更新時だけ、Android の設定で「XFiles からの不明なアプリのインストール」を許可してください。</string>
     <string name="mobile_update_install">ダウンロードして更新</string>
     <string name="mobile_update_downloading">ダウンロード中…</string>
+    <string name="mobile_update_preparing_install">更新を準備中…</string>
     <string name="mobile_update_later">あとで</string>
     <string name="mobile_update_error">更新に失敗しました: %1$s</string>
 
