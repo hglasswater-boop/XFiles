@@ -19,6 +19,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.prefs.ThemeMode
+import app.local1st.files.core.util.SharedIntentResolver
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.browser.LocalDirectoryObserverSet
 import app.local1st.files.ui.browser.SMB_POLL_INTERVAL_MS
@@ -27,12 +28,14 @@ import app.local1st.files.ui.browser.expandedSmbDirectoryIds
 import app.local1st.files.ui.main.AppHost
 import app.local1st.files.ui.main.MainViewModel
 import app.local1st.files.ui.theme.XFilesTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -101,7 +104,30 @@ private fun Root(incomingIntents: Flow<Intent>) {
         val lifecycleOwner = LocalLifecycleOwner.current
 
         LaunchedEffect(vm, incomingIntents) {
-            incomingIntents.collect(vm::openExternalIntent)
+            incomingIntents.collect { incoming ->
+                when (incoming.action) {
+                    Intent.ACTION_SEND,
+                    Intent.ACTION_SEND_MULTIPLE,
+                    -> {
+                        val shared = withContext(Dispatchers.IO) {
+                            runCatching { SharedIntentResolver.resolve(Graph.appContext, incoming) }
+                        }
+                        shared.fold(
+                            onSuccess = { entries ->
+                                if (entries.isNotEmpty()) {
+                                    vm.chooseTransferDestination(move = false, sources = entries)
+                                }
+                            },
+                            onFailure = { error ->
+                                vm.snackbar.tryEmit(
+                                    error.message ?: Graph.appContext.getString(R.string.generic_error),
+                                )
+                            },
+                        )
+                    }
+                    else -> vm.openExternalIntent(incoming)
+                }
+            }
         }
         LaunchedEffect(vm, lifecycleOwner) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
