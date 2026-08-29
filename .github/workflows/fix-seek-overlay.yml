@@ -1,0 +1,191 @@
+name: Apply seek overlay fix
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  fix:
+    if: github.event.comment.body == '/fix-seek-overlay'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch 10-second seek UI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          text = path.read_text()
+
+          old = '''    fun stepSeconds(delta: Int) {
+              seekGate.request(clampMs(anchorMs() + delta * 1000L))
+              interactionTick++
+          }
+          fun togglePlayback() {
+          '''
+          new = '''    fun stepSeconds(delta: Int) {
+              seekGate.request(clampMs(anchorMs() + delta * 1000L))
+              interactionTick++
+          }
+          fun updateTapSeekLabel(deltaSeconds: Int) {
+              val accumulatedSeconds = tapSeekLabel
+                  ?.removeSuffix("秒")
+                  ?.toIntOrNull()
+                  ?.plus(deltaSeconds)
+                  ?: deltaSeconds
+              tapSeekLabel = when {
+                  accumulatedSeconds > 0 -> "+${accumulatedSeconds}秒"
+                  accumulatedSeconds < 0 -> "${accumulatedSeconds}秒"
+                  else -> "0秒"
+              }
+          }
+          fun togglePlayback() {
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('stepSeconds insertion point did not match exactly once')
+          text = text.replace(old, new)
+
+          old = '''                                    Key.DirectionLeft -> {
+                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
+                                              tapSeekLabel = "-${TV_REMOTE_SEEK_SECONDS}秒"
+                                              controlsVisible = true
+                                              true
+                                          }
+                                          Key.DirectionRight -> {
+                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
+                                              tapSeekLabel = "+${TV_REMOTE_SEEK_SECONDS}秒"
+                                              controlsVisible = true
+                                              true
+                                          }
+          '''
+          new = '''                                    Key.DirectionLeft -> {
+                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
+                                              updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
+                                              controlsVisible = false
+                                              true
+                                          }
+                                          Key.DirectionRight -> {
+                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
+                                              updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
+                                              controlsVisible = false
+                                              true
+                                          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('TV remote seek block did not match exactly once')
+          text = text.replace(old, new)
+
+          old = '''                                tapSeekLabel = if (deltaSeconds > 0) {
+                                      "+${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                  } else {
+                                      "-${DOUBLE_TAP_SEEK_SECONDS}秒"
+                                  }
+                                  interactionTick++
+          '''
+          new = '''                                updateTapSeekLabel(deltaSeconds)
+                                  interactionTick++
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('double-tap seek label block did not match exactly once')
+          text = text.replace(old, new)
+
+          path.write_text(text)
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          git commit -m "Keep seek controls hidden and accumulate 10s overlay"
+          git push origin HEAD:main
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Compute Android build number
+        id: build_number
+        run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Require stable signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -eu
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+
+      - name: Decode stable signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
+
+      - name: Build signed debug APKs
+        env:
+          XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
+          XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
+
+      - name: Name debug APKs
+        id: apk
+        run: |
+          set -eu
+          VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
+          MOBILE_NAME="XFiles-${VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          TV_NAME="XFiles-TV-${VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
+          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
+          echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "tv_name=$TV_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: XFiles-seek-overlay-fix-apks
+          path: |
+            ${{ steps.apk.outputs.mobile_name }}
+            ${{ steps.apk.outputs.tv_name }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Publish ready marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            "repos/${{ github.repository }}/issues/27/comments" \
+            -f body="<!-- xfiles-seek-overlay-fix -->
+          SEEK_FIX_RUN_ID=${{ github.run_id }}
+          DEBUG_BUILD_NUMBER=${{ steps.build_number.outputs.value }}
+          DEBUG_APK=${{ steps.apk.outputs.mobile_name }}
+          DEBUG_TV_APK=${{ steps.apk.outputs.tv_name }}
+          STATUS=ready"
