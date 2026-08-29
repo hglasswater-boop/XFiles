@@ -1,8 +1,10 @@
 name: Apply seek overlay fix
 
 on:
-  issue_comment:
-    types: [created]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-seek-overlay.yml
 
 permissions:
   contents: write
@@ -10,7 +12,6 @@ permissions:
 
 jobs:
   fix:
-    if: github.event.comment.body == '/fix-seek-overlay'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout latest main
