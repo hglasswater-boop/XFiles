@@ -261,7 +261,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                     shape = CircleShape,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(12.dp),
+                        .padding(top = 12.dp, end = 64.dp),
                 ) {
                     CompositionLocalProvider(LocalContentColor provides Color.White) {
                         MediaRouteButton()
