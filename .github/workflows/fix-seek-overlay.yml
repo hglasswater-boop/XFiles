@@ -26,86 +26,93 @@ jobs:
           from pathlib import Path
 
           path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
-          text = path.read_text()
+          lines = path.read_text().splitlines()
 
-          replacements = [
-              (
-                  '''    fun stepSeconds(delta: Int) {
-              seekGate.request(clampMs(anchorMs() + delta * 1000L))
-              interactionTick++
-          }
-          fun togglePlayback() {
-          ''',
-                  '''    fun stepSeconds(delta: Int) {
-              seekGate.request(clampMs(anchorMs() + delta * 1000L))
-              interactionTick++
-          }
-          fun updateTapSeekLabel(deltaSeconds: Int) {
-              val currentSeconds = tapSeekLabel
-                  ?.removeSuffix("秒")
-                  ?.removePrefix("+")
-                  ?.toIntOrNull()
-                  ?: 0
-              val accumulatedSeconds = currentSeconds + deltaSeconds
-              tapSeekLabel = when {
-                  accumulatedSeconds > 0 -> "+${accumulatedSeconds}秒"
-                  accumulatedSeconds < 0 -> "${accumulatedSeconds}秒"
-                  else -> "0秒"
-              }
-          }
-          fun togglePlayback() {
-          ''',
-                  'seek label helper',
-              ),
-              (
-                  '''                                    Key.DirectionLeft -> {
-                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
-                                              tapSeekLabel = "-${TV_REMOTE_SEEK_SECONDS}秒"
-                                              controlsVisible = true
-                                              true
-                                          }
-                                          Key.DirectionRight -> {
-                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
-                                              tapSeekLabel = "+${TV_REMOTE_SEEK_SECONDS}秒"
-                                              controlsVisible = true
-                                              true
-                                          }
-          ''',
-                  '''                                    Key.DirectionLeft -> {
-                                              stepSeconds(-TV_REMOTE_SEEK_SECONDS)
-                                              updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
-                                              controlsVisible = false
-                                              true
-                                          }
-                                          Key.DirectionRight -> {
-                                              stepSeconds(TV_REMOTE_SEEK_SECONDS)
-                                              updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
-                                              controlsVisible = false
-                                              true
-                                          }
-          ''',
-                  'TV 10-second seek controls',
-              ),
-              (
-                  '''                                tapSeekLabel = if (deltaSeconds > 0) {
-                                      "+${DOUBLE_TAP_SEEK_SECONDS}秒"
-                                  } else {
-                                      "-${DOUBLE_TAP_SEEK_SECONDS}秒"
-                                  }
-          ''',
-                  '''                                updateTapSeekLabel(deltaSeconds)
-          ''',
-                  'mobile double-tap seek label',
-              ),
-          ]
+          def replace_block(old, new, label):
+              matches = [i for i in range(len(lines) - len(old) + 1) if lines[i:i + len(old)] == old]
+              if len(matches) != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {len(matches)}')
+              i = matches[0]
+              lines[i:i + len(old)] = new
 
-          for old, new, label in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
-              text = text.replace(old, new, 1)
+          replace_block(
+              [
+                  "    fun stepSeconds(delta: Int) {",
+                  "        seekGate.request(clampMs(anchorMs() + delta * 1000L))",
+                  "        interactionTick++",
+                  "    }",
+                  "    fun togglePlayback() {",
+              ],
+              [
+                  "    fun stepSeconds(delta: Int) {",
+                  "        seekGate.request(clampMs(anchorMs() + delta * 1000L))",
+                  "        interactionTick++",
+                  "    }",
+                  "    fun updateTapSeekLabel(deltaSeconds: Int) {",
+                  "        val currentSeconds = tapSeekLabel",
+                  "            ?.removeSuffix(\"秒\")",
+                  "            ?.removePrefix(\"+\")",
+                  "            ?.toIntOrNull()",
+                  "            ?: 0",
+                  "        val accumulatedSeconds = currentSeconds + deltaSeconds",
+                  "        tapSeekLabel = when {",
+                  "            accumulatedSeconds > 0 -> \"+${accumulatedSeconds}秒\"",
+                  "            accumulatedSeconds < 0 -> \"${accumulatedSeconds}秒\"",
+                  "            else -> \"0秒\"",
+                  "        }",
+                  "    }",
+                  "    fun togglePlayback() {",
+              ],
+              "seek label helper",
+          )
 
-          path.write_text(text)
+          replace_block(
+              [
+                  "                                    Key.DirectionLeft -> {",
+                  "                                        stepSeconds(-TV_REMOTE_SEEK_SECONDS)",
+                  "                                        tapSeekLabel = \"-${TV_REMOTE_SEEK_SECONDS}秒\"",
+                  "                                        controlsVisible = true",
+                  "                                        true",
+                  "                                    }",
+                  "                                    Key.DirectionRight -> {",
+                  "                                        stepSeconds(TV_REMOTE_SEEK_SECONDS)",
+                  "                                        tapSeekLabel = \"+${TV_REMOTE_SEEK_SECONDS}秒\"",
+                  "                                        controlsVisible = true",
+                  "                                        true",
+                  "                                    }",
+              ],
+              [
+                  "                                    Key.DirectionLeft -> {",
+                  "                                        stepSeconds(-TV_REMOTE_SEEK_SECONDS)",
+                  "                                        updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)",
+                  "                                        controlsVisible = false",
+                  "                                        true",
+                  "                                    }",
+                  "                                    Key.DirectionRight -> {",
+                  "                                        stepSeconds(TV_REMOTE_SEEK_SECONDS)",
+                  "                                        updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)",
+                  "                                        controlsVisible = false",
+                  "                                        true",
+                  "                                    }",
+              ],
+              "TV 10-second seek controls",
+          )
+
+          replace_block(
+              [
+                  "                                tapSeekLabel = if (deltaSeconds > 0) {",
+                  "                                    \"+${DOUBLE_TAP_SEEK_SECONDS}秒\"",
+                  "                                } else {",
+                  "                                    \"-${DOUBLE_TAP_SEEK_SECONDS}秒\"",
+                  "                                }",
+              ],
+              [
+                  "                                updateTapSeekLabel(deltaSeconds)",
+              ],
+              "mobile double-tap seek label",
+          )
+
+          path.write_text("\n".join(lines) + "\n")
           PY
 
           git diff --check
