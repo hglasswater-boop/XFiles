@@ -1,0 +1,132 @@
+name: Fix mobile seek accumulation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-mobile-seek-accumulation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch mobile repeated seek accumulation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          text = path.read_text()
+
+          old = '''    var tapSeekLabel by remember { mutableStateOf<String?>(null) }\n    var volumeAdjusting by remember { mutableStateOf(false) }'''
+          new = '''    var tapSeekLabel by remember { mutableStateOf<String?>(null) }\n    var tapSeekAccumSeconds by remember { mutableIntStateOf(0) }\n    var tapSeekLastAtMs by remember { mutableLongStateOf(0L) }\n    var volumeAdjusting by remember { mutableStateOf(false) }'''
+          assert old in text, 'tap seek state anchor not found'
+          text = text.replace(old, new, 1)
+
+          old = '''    LaunchedEffect(tapSeekLabel) {\n        if (tapSeekLabel != null) {\n            delay(DOUBLE_TAP_LABEL_MS)\n            tapSeekLabel = null\n        }\n    }'''
+          new = '''    LaunchedEffect(tapSeekLabel) {\n        if (tapSeekLabel != null) {\n            delay(DOUBLE_TAP_LABEL_MS)\n            tapSeekLabel = null\n            tapSeekAccumSeconds = 0\n            tapSeekLastAtMs = 0L\n        }\n    }'''
+          assert old in text, 'tap seek label effect not found'
+          text = text.replace(old, new, 1)
+
+          old = '''    fun updateTapSeekLabel(deltaSeconds: Int) {\n        val currentSeconds = tapSeekLabel\n            ?.removeSuffix("秒")\n            ?.removePrefix("+")\n            ?.toIntOrNull()\n            ?: 0\n        val accumulatedSeconds = currentSeconds + deltaSeconds\n        tapSeekLabel = when {\n            accumulatedSeconds > 0 -> "+${accumulatedSeconds}秒"\n            accumulatedSeconds < 0 -> "${accumulatedSeconds}秒"\n            else -> "0秒"\n        }\n    }'''
+          new = '''    fun updateTapSeekLabel(deltaSeconds: Int) {\n        val now = SystemClock.elapsedRealtime()\n        val withinSequence =\n            tapSeekLastAtMs > 0L && now - tapSeekLastAtMs <= DOUBLE_TAP_ACCUMULATION_WINDOW_MS\n        tapSeekAccumSeconds =\n            if (withinSequence) tapSeekAccumSeconds + deltaSeconds else deltaSeconds\n        tapSeekLastAtMs = now\n        tapSeekLabel = when {\n            tapSeekAccumSeconds > 0 -> "+${tapSeekAccumSeconds}秒"\n            tapSeekAccumSeconds < 0 -> "${tapSeekAccumSeconds}秒"\n            else -> "0秒"\n        }\n    }\n    fun tapSeekDelta(xFraction: Float): Int? = when {\n        xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS\n        xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS\n        else -> null\n    }\n    fun performTapSeek(deltaSeconds: Int) {\n        controlsVisible = false\n        seekGate.request(clampMs(anchorMs() + deltaSeconds * 1000L))\n        updateTapSeekLabel(deltaSeconds)\n        interactionTick++\n    }'''
+          assert old in text, 'old accumulation function not found'
+          text = text.replace(old, new, 1)
+
+          old = '''                        onDoubleTap = { offset ->\n                            // Double-tap is reserved for seeking and must not reveal playback controls.\n                            controlsVisible = false\n                            val xFraction = offset.x / size.width\n                            val deltaSeconds = when {\n                                xFraction <= DOUBLE_TAP_SEEK_EDGE_FRACTION -> -DOUBLE_TAP_SEEK_SECONDS\n                                xFraction >= 1f - DOUBLE_TAP_SEEK_EDGE_FRACTION -> DOUBLE_TAP_SEEK_SECONDS\n                                else -> null\n                            }\n                            if (deltaSeconds != null) {\n                                val target = clampMs(anchorMs() + deltaSeconds * 1000L)\n                                seekGate.request(target)\n                                updateTapSeekLabel(deltaSeconds)\n                                interactionTick++\n                            }\n                        },\n                        onTap = { controlsVisible = !controlsVisible },'''
+          new = '''                        onDoubleTap = { offset ->\n                            // Start a repeated seek sequence. Extra taps on the same edge keep\n                            // adding another 10 seconds without showing playback controls.\n                            tapSeekDelta(offset.x / size.width)?.let(::performTapSeek)\n                        },\n                        onTap = { offset ->\n                            val deltaSeconds = tapSeekDelta(offset.x / size.width)\n                            val now = SystemClock.elapsedRealtime()\n                            val continuingSeek =\n                                deltaSeconds != null &&\n                                    tapSeekLastAtMs > 0L &&\n                                    now - tapSeekLastAtMs <= DOUBLE_TAP_ACCUMULATION_WINDOW_MS\n                            if (continuingSeek) {\n                                performTapSeek(deltaSeconds!!)\n                            } else {\n                                controlsVisible = !controlsVisible\n                            }\n                        },'''
+          assert old in text, 'mobile tap gesture block not found'
+          text = text.replace(old, new, 1)
+
+          old = 'private const val DOUBLE_TAP_LABEL_MS = 700L'
+          new = '''private const val DOUBLE_TAP_LABEL_MS = 1200L\nprivate const val DOUBLE_TAP_ACCUMULATION_WINDOW_MS = 1200L'''
+          assert old in text, 'double tap label constant not found'
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+          grep -F 'var tapSeekAccumSeconds by remember { mutableIntStateOf(0) }' app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          grep -F 'DOUBLE_TAP_ACCUMULATION_WINDOW_MS = 1200L' app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          grep -F 'performTapSeek(deltaSeconds!!)' app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Compute Android build number
+        id: build_number
+        run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Require stable signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -eu
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+
+      - name: Decode stable signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
+
+      - name: Build signed debug APKs
+        env:
+          XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
+          XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
+
+      - name: Name APKs
+        id: apk
+        run: |
+          set -eu
+          VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
+          MOBILE_NAME="XFiles-${VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          TV_NAME="XFiles-TV-${VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
+          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
+          echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "tv_name=$TV_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: XFiles-mobile-seek-accumulation-fix
+          path: |
+            ${{ steps.apk.outputs.mobile_name }}
+            ${{ steps.apk.outputs.tv_name }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Commit verified fix and remove temporary workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt
+          git rm .github/workflows/fix-mobile-seek-accumulation.yml
+          git commit -m 'Fix mobile repeated 10s seek accumulation'
+          git push origin HEAD:main
