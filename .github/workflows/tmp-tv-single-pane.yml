@@ -18,6 +18,9 @@ jobs:
         with:
           ref: perf/tv-true-single-pane
           fetch-depth: 0
+      - name: Fix patch matcher
+        run: |
+          sed -i 's/vm = vm.replace("panes.forEach", "livePanes.forEach")/vm = vm.replace("panes.forEach {", "livePanes.forEach {")/' .github/scripts/apply-tv-single-pane.py
       - name: Apply patch
         run: python3 .github/scripts/apply-tv-single-pane.py
       - name: Commit patch if needed
