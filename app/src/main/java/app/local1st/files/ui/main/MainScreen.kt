@@ -106,8 +106,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val sessionReady by vm.sessionReady.collectAsStateWithLifecycle()
     val activePane by vm.activePane.collectAsStateWithLifecycle()
     val pendingTransfer by vm.pendingTransfer.collectAsStateWithLifecycle()
+    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
     val activeState by vm.panes[activePane].state.collectAsStateWithLifecycle()
-    val otherPaneController = vm.panes[1 - activePane]
+    // TV uses the current pane as its operation destination. There is no hidden destination pane.
+    val otherPaneController = if (isTvEdition) vm.activeCtrl else vm.panes[1 - activePane]
     val otherPaneState by otherPaneController.state.collectAsStateWithLifecycle()
     val otherPaneDestination = otherPaneController.focusedDirEntry()
     val otherPaneName = paneLocationName(otherPaneDestination, otherPaneState.focusedDirId)
@@ -123,7 +125,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
     var searchEntries by remember(vm) { mutableStateOf<Map<String, XEntry>>(emptyMap()) }
     var lastTvRootBackAt by remember { mutableStateOf(0L) }
-    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
     val wideLayout = !isTvEdition && LocalConfiguration.current.screenWidthDp >= 700
     val context = LocalContext.current
     val editionSideRailOpen = isTvEdition && isEditionSideRailOpen()
@@ -274,9 +275,9 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 }
                 HorizontalPager(
                     state = pagerState,
-                    // TV intentionally uses this single-page path even on wide displays. The
-                    // inactive pane remains available as an operation target without paying the
-                    // cost of composing both pane trees at once.
+                    // TV has one live pane only. Disable pager gestures so the dormant controller
+                    // cannot be surfaced accidentally; mobile compact mode keeps normal paging.
+                    userScrollEnabled = !isTvEdition,
                     beyondViewportPageCount = 0,
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
@@ -307,29 +308,33 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         } else {
                             Alignment.TopEnd
                         },
-                        headerOverlay = {
-                            val targetPane = 1 - page
-                            val targetController = vm.panes[targetPane]
-                            val targetState = if (targetPane == activePane) {
-                                activeState
-                            } else {
-                                otherPaneState
+                        headerOverlay = if (isTvEdition) {
+                            null
+                        } else {
+                            {
+                                val targetPane = 1 - page
+                                val targetController = vm.panes[targetPane]
+                                val targetState = if (targetPane == activePane) {
+                                    activeState
+                                } else {
+                                    otherPaneState
+                                }
+                                val targetDestination = targetController.focusedDirEntry()
+                                OtherPaneTargetChip(
+                                    name = paneLocationName(
+                                        targetDestination,
+                                        targetState.focusedDirId,
+                                    ),
+                                    path = paneLocationPath(
+                                        targetDestination,
+                                        targetState.focusedDirId,
+                                    ),
+                                    ready = targetDestination != null,
+                                    writable = isFileOperationDestination(targetDestination),
+                                    activePane = page,
+                                    onClick = { vm.setActivePane(targetPane) },
+                                )
                             }
-                            val targetDestination = targetController.focusedDirEntry()
-                            OtherPaneTargetChip(
-                                name = paneLocationName(
-                                    targetDestination,
-                                    targetState.focusedDirId,
-                                ),
-                                path = paneLocationPath(
-                                    targetDestination,
-                                    targetState.focusedDirId,
-                                ),
-                                ready = targetDestination != null,
-                                writable = isFileOperationDestination(targetDestination),
-                                activePane = page,
-                                onClick = { vm.setActivePane(targetPane) },
-                            )
                         },
                         searchActive = searchPane == page,
                         onSearchClose = { closeSearch(page) },

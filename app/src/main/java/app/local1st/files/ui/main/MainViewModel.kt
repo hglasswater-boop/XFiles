@@ -3,6 +3,7 @@ package app.local1st.files.ui.main
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import app.local1st.files.BuildConfig
 import app.local1st.files.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -67,6 +68,7 @@ private const val INITIAL_PANE_LAYOUT_TIMEOUT_MS = 1_000L
 private data class PaneInitialLayout(val pane: Int, val treeVersion: Long)
 
 class MainViewModel : ViewModel() {
+    private val singlePaneEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
     private fun text(@androidx.annotation.StringRes id: Int, vararg formatArgs: Any): String =
         Graph.appContext.getString(id, *formatArgs)
 
@@ -118,7 +120,10 @@ class MainViewModel : ViewModel() {
     val snackbar = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     val activeCtrl: PaneController get() = panes[activePane.value]
-    val inactiveCtrl: PaneController get() = panes[1 - activePane.value]
+    val inactiveCtrl: PaneController get() =
+        if (singlePaneEdition) activeCtrl else panes[1 - activePane.value]
+    private val livePanes: List<PaneController>
+        get() = if (singlePaneEdition) listOf(activeCtrl) else panes
 
     /** Startup restore, or null while storage access is still missing (see [onStorageAccessGranted]). */
     private var restoreJob: Job? = null
@@ -143,7 +148,7 @@ class MainViewModel : ViewModel() {
         }
         viewModelScope.launch {
             Graph.opEngine.events.collect { event ->
-                panes.forEach { pane ->
+                livePanes.forEach { pane ->
                     pane.removeEntries(event.removedEntryIds)
                     pane.refreshDirty(event.dirtyDirIds)
                 }
@@ -166,7 +171,7 @@ class MainViewModel : ViewModel() {
                 // Invalidate before reloading: cached root:// listings must not stay
                 // browsable after disabling (nor keep gate errors after re-enabling),
                 // and pinned root:// favorites survive the roots rebuild.
-                panes.forEach {
+                livePanes.forEach {
                     it.invalidateScheme(XId.SCHEME_ROOT)
                     it.reloadRoots()
                 }
@@ -178,7 +183,7 @@ class MainViewModel : ViewModel() {
                 SuTransport.reset()
                 // A transport change can alter both root:// capabilities and the apps://
                 // Android/data fallback, so neither scheme may retain the old transport's data.
-                panes.forEach {
+                livePanes.forEach {
                     it.invalidateScheme(XId.SCHEME_ROOT)
                     it.invalidateScheme(XId.SCHEME_APPS)
                     it.reloadRoots()
@@ -188,13 +193,13 @@ class MainViewModel : ViewModel() {
         // Rebuild roots when favorites change so pinned shortcuts (dis)appear immediately.
         viewModelScope.launch {
             Graph.favorites.filterNotNull().distinctUntilChanged().drop(1).collect {
-                panes.forEach { it.reloadRoots() }
+                livePanes.forEach { it.reloadRoots() }
             }
         }
         // Connection edits in Settings must invalidate cached SMB listings immediately.
         viewModelScope.launch {
             Graph.smbConnections.connections.drop(1).collect {
-                panes.forEach { pane ->
+                livePanes.forEach { pane ->
                     pane.invalidateScheme(XId.SCHEME_SMB)
                     pane.reloadRoots()
                 }
@@ -319,7 +324,12 @@ class MainViewModel : ViewModel() {
             val background = arrayOfNulls<Job>(panes.size)
             val wide = Graph.appContext.resources.configuration.screenWidthDp >=
                 WIDE_PANES_MIN_WIDTH_DP
-            if (wide) {
+            if (singlePaneEdition) {
+                val active = activePane.value.coerceIn(0, panes.lastIndex)
+                background[active] = restorePane(active, panes[active], paneRoots, listings)
+                sessionReady.value = true
+                awaitPaneInitialLayout(active, panes[active].state.value.treeVersion)
+            } else if (wide) {
                 coroutineScope {
                     panes.forEachIndexed { index, pane ->
                         launch {
@@ -386,7 +396,9 @@ class MainViewModel : ViewModel() {
     }
 
     fun setActivePane(index: Int) {
-        activePane.value = index
+        // Google TV is intentionally a true single-pane browser. Keep the restored pane active
+        // instead of waking the dormant second controller through pager/focus side effects.
+        if (!singlePaneEdition) activePane.value = index
     }
 
     /** Pin or unpin an entry as a top-level favorite shortcut. */
@@ -534,7 +546,7 @@ class MainViewModel : ViewModel() {
             result.fold(
                 onSuccess = {
                     snackbar.tryEmit(text(if (enabled) R.string.component_enabled else R.string.component_disabled, entry.name))
-                    XId.parent(entry.id)?.let { parent -> panes.forEach { it.refresh(parent) } }
+                    XId.parent(entry.id)?.let { parent -> livePanes.forEach { it.refresh(parent) } }
                 },
                 onFailure = { snackbar.tryEmit(it.message ?: text(R.string.cannot_change, entry.name)) },
             )
@@ -721,7 +733,7 @@ fun chooseTransferDestination(
     pendingTransfer.value = PendingTransfer(
         sources = sources,
         move = move,
-        startDirId = panes[1 - sourcePane].state.value.focusedDirId,
+        startDirId = inactiveCtrl.state.value.focusedDirId,
         sourcePane = sourcePane,
     )
 }
@@ -815,7 +827,7 @@ fun confirmTransfer(destDir: XEntry) {
             result.fold(
                 onSuccess = {
                     activeCtrl.expand(parent)
-                    panes.forEach { it.refresh(parent.id) }
+                    livePanes.forEach { it.refresh(parent.id) }
                 },
                 onFailure = { snackbar.tryEmit(it.message ?: text(R.string.cannot_create_folder)) },
             )
@@ -844,7 +856,7 @@ fun confirmTransfer(destDir: XEntry) {
             result.fold(
                 onSuccess = { entry ->
                     activeCtrl.expand(parent)
-                    panes.forEach { it.refresh(parent.id) }
+                    livePanes.forEach { it.refresh(parent.id) }
                     showViewer(ViewerRequest.Text(entry, startEditing = true))
                 },
                 onFailure = { error ->
@@ -871,7 +883,7 @@ fun confirmTransfer(destDir: XEntry) {
             }
             result.fold(
                 onSuccess = {
-                    XId.parent(entry.id)?.let { parent -> panes.forEach { it.refresh(parent) } }
+                    XId.parent(entry.id)?.let { parent -> livePanes.forEach { it.refresh(parent) } }
                 },
                 onFailure = { snackbar.tryEmit(it.message ?: text(R.string.rename_failed)) },
             )
