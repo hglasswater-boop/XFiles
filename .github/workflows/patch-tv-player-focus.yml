@@ -1,0 +1,237 @@
+name: Apply TV player focus patch
+
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Apply TV focus patch workflow'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Patch TV player focus behavior
+        shell: python
+        run: |
+          from pathlib import Path
+
+          common_path = Path('app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt')
+          common = common_path.read_text()
+          old_remote_keys = '''                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) {
+                                false
+                            } else {
+                                when (event.key) {
+                                    Key.DirectionCenter, Key.Enter -> {
+                                        togglePlayback()
+                                        controlsVisible = true
+                                        true
+                                    }
+                                    Key.DirectionLeft -> {
+                                        stepSeconds(-TV_REMOTE_SEEK_SECONDS)
+                                        updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
+                                        controlsVisible = false
+                                        true
+                                    }
+                                    Key.DirectionRight -> {
+                                        stepSeconds(TV_REMOTE_SEEK_SECONDS)
+                                        updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
+                                        controlsVisible = false
+                                        true
+                                    }
+                                    Key.DirectionUp -> {
+                                        controlsVisible = true
+                                        interactionTick++
+                                        true
+                                    }
+                                    Key.DirectionDown -> {
+                                        controlsVisible = false
+                                        showPlayerSettings = false
+                                        interactionTick++
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
+                        }
+'''
+          new_remote_keys = '''                        .onPreviewKeyEvent { event ->
+                            // While the TV chrome is visible, let the focused Slider/buttons handle
+                            // D-pad events themselves. Hidden-mode shortcuts remain available.
+                            if (event.type != KeyEventType.KeyDown || controlsVisible) {
+                                false
+                            } else {
+                                when (event.key) {
+                                    Key.DirectionCenter, Key.Enter -> {
+                                        togglePlayback()
+                                        controlsVisible = true
+                                        true
+                                    }
+                                    Key.DirectionLeft -> {
+                                        stepSeconds(-TV_REMOTE_SEEK_SECONDS)
+                                        updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
+                                        true
+                                    }
+                                    Key.DirectionRight -> {
+                                        stepSeconds(TV_REMOTE_SEEK_SECONDS)
+                                        updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
+                                        true
+                                    }
+                                    Key.DirectionUp -> {
+                                        controlsVisible = true
+                                        interactionTick++
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
+                        }
+'''
+          if old_remote_keys not in common:
+              raise SystemExit('VideoPlayer.kt remote-key block not found')
+          common_path.write_text(common.replace(old_remote_keys, new_remote_keys, 1))
+
+          tv_path = Path('app/src/tv/java/app/local1st/files/ui/viewer/MediaViewer.kt')
+          tv = tv_path.read_text()
+          tv = tv.replace('import androidx.compose.ui.focus.FocusRequester\n', 'import androidx.compose.ui.focus.FocusDirection\n')
+          tv = tv.replace('import androidx.compose.ui.focus.focusRequester\n', '')
+          tv = tv.replace('import androidx.compose.ui.platform.LocalContext\n', 'import androidx.compose.ui.platform.LocalContext\nimport androidx.compose.ui.platform.LocalFocusManager\n')
+
+          start = tv.index('@Composable\nprivate fun TvVideoPlayer(')
+          end = tv.index('\n@Composable\nprivate fun BufferPresetMenuItem(', start)
+          new_tv_player = '''@Composable
+private fun TvVideoPlayer(
+    player: ExoPlayer,
+    entry: XEntry,
+    playing: Boolean,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
+    bufferPreset: VideoPlayerSettings.BufferPreset,
+    onBufferPresetChanged: (VideoPlayerSettings.BufferPreset) -> Unit,
+    onClose: () -> Unit,
+) {
+    val focusManager = LocalFocusManager.current
+    var settingsFocused by remember(entry.id) { mutableStateOf(false) }
+    var settingsOpen by remember(entry.id) { mutableStateOf(false) }
+    var settingsVisible by remember(entry.id) { mutableStateOf(false) }
+    var requestControlsFocus by remember(entry.id) { mutableStateOf(false) }
+
+    LaunchedEffect(requestControlsFocus) {
+        if (!requestControlsFocus) return@LaunchedEffect
+        repeat(TV_SETTINGS_FOCUS_RETRY_FRAMES) {
+            withFrameNanos { }
+            // The seek bar is the first useful focus target below the full-screen player root.
+            if (focusManager.moveFocus(FocusDirection.Down)) {
+                requestControlsFocus = false
+                return@LaunchedEffect
+            }
+        }
+        requestControlsFocus = false
+    }
+
+    LaunchedEffect(settingsVisible, settingsFocused, settingsOpen) {
+        if (!settingsVisible || settingsFocused || settingsOpen) return@LaunchedEffect
+        delay(TV_SETTINGS_AUTO_HIDE_MS)
+        if (!settingsFocused && !settingsOpen) settingsVisible = false
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || settingsFocused || settingsOpen) {
+                    false
+                } else if (event.key == Key.DirectionUp) {
+                    // First reveal the normal playback chrome and move focus into it. The settings
+                    // action appears alongside it but no longer steals focus from the seek bar.
+                    if (!settingsVisible) {
+                        settingsVisible = true
+                        requestControlsFocus = true
+                    }
+                    false
+                } else {
+                    false
+                }
+            },
+    ) {
+        VideoPlayerScreen(
+            player = player,
+            entry = entry,
+            playing = playing,
+            hasPrevious = hasPrevious,
+            hasNext = hasNext,
+            onClose = onClose,
+            tvRemoteControls = true,
+        )
+
+        if (settingsVisible || settingsFocused || settingsOpen) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+            ) {
+                FilledIconButton(
+                    onClick = { settingsOpen = true },
+                    modifier = Modifier.onFocusChanged { settingsFocused = it.isFocused },
+                ) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "プレイヤー設定",
+                    )
+                }
+                DropdownMenu(
+                    expanded = settingsOpen,
+                    onDismissRequest = { settingsOpen = false },
+                ) {
+                    Text(
+                        "再生バッファ",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                    BufferPresetMenuItem(
+                        label = "標準（最大50秒）",
+                        selected = bufferPreset == VideoPlayerSettings.BufferPreset.STANDARD,
+                        onClick = {
+                            settingsOpen = false
+                            onBufferPresetChanged(VideoPlayerSettings.BufferPreset.STANDARD)
+                        },
+                    )
+                    BufferPresetMenuItem(
+                        label = "厚め（最大2分）",
+                        selected = bufferPreset == VideoPlayerSettings.BufferPreset.THICK,
+                        onClick = {
+                            settingsOpen = false
+                            onBufferPresetChanged(VideoPlayerSettings.BufferPreset.THICK)
+                        },
+                    )
+                    BufferPresetMenuItem(
+                        label = "最大（最大3分）",
+                        selected = bufferPreset == VideoPlayerSettings.BufferPreset.MAXIMUM,
+                        onClick = {
+                            settingsOpen = false
+                            onBufferPresetChanged(VideoPlayerSettings.BufferPreset.MAXIMUM)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+'''
+          tv = tv[:start] + new_tv_player + tv[end:]
+          tv = tv.replace(
+              'private const val TV_SETTINGS_FOCUS_RETRY_FRAMES = 6',
+              'private const val TV_SETTINGS_FOCUS_RETRY_FRAMES = 6\nprivate const val TV_SETTINGS_AUTO_HIDE_MS = 4_000L',
+          )
+          tv_path.write_text(tv)
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/app/local1st/files/ui/viewer/VideoPlayer.kt app/src/tv/java/app/local1st/files/ui/viewer/MediaViewer.kt
+          git commit -m "Fix TV seek bar focus and settings visibility"
+          git push origin HEAD:main
