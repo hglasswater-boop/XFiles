@@ -1,0 +1,32 @@
+name: TV one-page patch
+
+on:
+  push:
+    branches:
+      - perf/tv-true-single-pane
+    paths:
+      - .github/workflows/tmp-tv-one-page.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/tv-true-single-pane
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 .github/scripts/apply-tv-one-page.py
+      - name: Commit patch if needed
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/app/local1st/files/ui/main/MainScreen.kt
+          git commit -m "Use one pager page on Google TV"
+          git push origin HEAD:perf/tv-true-single-pane
