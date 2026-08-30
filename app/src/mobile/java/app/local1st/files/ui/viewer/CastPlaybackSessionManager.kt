@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import app.local1st.files.core.cast.CastPlaybackKeepAliveService
 import app.local1st.files.core.fs.XEntry
 
 /**
@@ -19,7 +20,8 @@ import app.local1st.files.core.fs.XEntry
  *
  * A Cast receiver may still be reading media through [CastMediaRelay] after the viewer screen is
  * dismissed. Keeping the player stack and relay here lets that playback continue while the user
- * returns to the file browser. Local-only playback is still released as soon as the viewer closes.
+ * returns to the file browser. While playback is remote, a media-playback foreground service also
+ * keeps this process and relay eligible to run when XFiles itself is backgrounded.
  */
 @UnstableApi
 internal object CastPlaybackSessionManager {
@@ -35,6 +37,8 @@ internal object CastPlaybackSessionManager {
     private val lock = Any()
     private var activeSession: Session? = null
     private var viewerSession: Session? = null
+    private var serviceContext: Context? = null
+    private var keepAliveRunning = false
 
     fun acquire(
         context: Context,
@@ -42,10 +46,12 @@ internal object CastPlaybackSessionManager {
         mediaItems: List<MediaItem>,
         startIndex: Int,
     ): Session = synchronized(lock) {
+        serviceContext = context.applicationContext
         val ids = entries.map { it.id }
         val existing = activeSession
         if (existing != null && existing.entryIds == ids && isRemote(existing)) {
             viewerSession = existing
+            updateKeepAliveLocked()
             return@synchronized existing
         }
 
@@ -76,9 +82,14 @@ internal object CastPlaybackSessionManager {
         val lifecycleListener = object : Player.Listener {
             override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
                 synchronized(lock) {
-                    if (activeSession !== created || viewerSession === created) return
-                    if (deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+                    if (activeSession !== created) return
+
+                    if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+                        updateKeepAliveLocked()
+                    } else if (viewerSession !== created) {
                         destroyLocked(created)
+                    } else {
+                        updateKeepAliveLocked()
                     }
                 }
             }
@@ -102,6 +113,7 @@ internal object CastPlaybackSessionManager {
 
         activeSession = created
         viewerSession = created
+        updateKeepAliveLocked()
         if (existing != null) destroyDetachedLocked(existing)
         created
     }
@@ -111,6 +123,8 @@ internal object CastPlaybackSessionManager {
             if (viewerSession === session) viewerSession = null
             if (activeSession === session && !isRemote(session)) {
                 destroyLocked(session)
+            } else {
+                updateKeepAliveLocked()
             }
         }
     }
@@ -118,9 +132,23 @@ internal object CastPlaybackSessionManager {
     private fun isRemote(session: Session): Boolean =
         session.player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
 
+    private fun updateKeepAliveLocked() {
+        val context = serviceContext ?: return
+        val shouldRun = activeSession?.let(::isRemote) == true
+        if (shouldRun == keepAliveRunning) return
+
+        keepAliveRunning = shouldRun
+        if (shouldRun) {
+            CastPlaybackKeepAliveService.start(context)
+        } else {
+            CastPlaybackKeepAliveService.stop(context)
+        }
+    }
+
     private fun destroyLocked(session: Session) {
         if (activeSession === session) activeSession = null
         if (viewerSession === session) viewerSession = null
+        updateKeepAliveLocked()
         destroyDetachedLocked(session)
     }
 
