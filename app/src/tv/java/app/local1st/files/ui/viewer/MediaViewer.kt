@@ -49,8 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -58,6 +57,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -259,21 +259,29 @@ private fun TvVideoPlayer(
     onBufferPresetChanged: (VideoPlayerSettings.BufferPreset) -> Unit,
     onClose: () -> Unit,
 ) {
-    val settingsFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     var settingsFocused by remember(entry.id) { mutableStateOf(false) }
     var settingsOpen by remember(entry.id) { mutableStateOf(false) }
-    var requestSettingsFocus by remember(entry.id) { mutableStateOf(false) }
+    var settingsVisible by remember(entry.id) { mutableStateOf(false) }
+    var requestControlsFocus by remember(entry.id) { mutableStateOf(false) }
 
-    LaunchedEffect(requestSettingsFocus) {
-        if (!requestSettingsFocus) return@LaunchedEffect
+    LaunchedEffect(requestControlsFocus) {
+        if (!requestControlsFocus) return@LaunchedEffect
         repeat(TV_SETTINGS_FOCUS_RETRY_FRAMES) {
             withFrameNanos { }
-            if (runCatching { settingsFocusRequester.requestFocus() }.getOrDefault(false)) {
-                requestSettingsFocus = false
+            // The seek bar is the first useful focus target below the full-screen player root.
+            if (focusManager.moveFocus(FocusDirection.Down)) {
+                requestControlsFocus = false
                 return@LaunchedEffect
             }
         }
-        requestSettingsFocus = false
+        requestControlsFocus = false
+    }
+
+    LaunchedEffect(settingsVisible, settingsFocused, settingsOpen) {
+        if (!settingsVisible || settingsFocused || settingsOpen) return@LaunchedEffect
+        delay(TV_SETTINGS_AUTO_HIDE_MS)
+        if (!settingsFocused && !settingsOpen) settingsVisible = false
     }
 
     Box(
@@ -283,9 +291,11 @@ private fun TvVideoPlayer(
                 if (event.type != KeyEventType.KeyDown || settingsFocused || settingsOpen) {
                     false
                 } else if (event.key == Key.DirectionUp) {
-                    // Let VideoPlayerScreen reveal its chrome, then move focus to the TV settings
-                    // button on the next frame so the remote can actually reach the top-right action.
-                    requestSettingsFocus = true
+                    // Reveal normal controls first. Settings becomes available without taking focus.
+                    if (!settingsVisible) {
+                        settingsVisible = true
+                        requestControlsFocus = true
+                    }
                     false
                 } else {
                     false
@@ -302,55 +312,55 @@ private fun TvVideoPlayer(
             tvRemoteControls = true,
         )
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp),
-        ) {
-            FilledIconButton(
-                onClick = { settingsOpen = true },
+        if (settingsVisible || settingsFocused || settingsOpen) {
+            Box(
                 modifier = Modifier
-                    .focusRequester(settingsFocusRequester)
-                    .onFocusChanged { settingsFocused = it.isFocused },
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
             ) {
-                Icon(
-                    Icons.Outlined.Settings,
-                    contentDescription = "プレイヤー設定",
-                )
-            }
-            DropdownMenu(
-                expanded = settingsOpen,
-                onDismissRequest = { settingsOpen = false },
-            ) {
-                Text(
-                    "再生バッファ",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                BufferPresetMenuItem(
-                    label = "標準（最大50秒）",
-                    selected = bufferPreset == VideoPlayerSettings.BufferPreset.STANDARD,
-                    onClick = {
-                        settingsOpen = false
-                        onBufferPresetChanged(VideoPlayerSettings.BufferPreset.STANDARD)
-                    },
-                )
-                BufferPresetMenuItem(
-                    label = "厚め（最大2分）",
-                    selected = bufferPreset == VideoPlayerSettings.BufferPreset.THICK,
-                    onClick = {
-                        settingsOpen = false
-                        onBufferPresetChanged(VideoPlayerSettings.BufferPreset.THICK)
-                    },
-                )
-                BufferPresetMenuItem(
-                    label = "最大（最大3分）",
-                    selected = bufferPreset == VideoPlayerSettings.BufferPreset.MAXIMUM,
-                    onClick = {
-                        settingsOpen = false
-                        onBufferPresetChanged(VideoPlayerSettings.BufferPreset.MAXIMUM)
-                    },
-                )
+                FilledIconButton(
+                    onClick = { settingsOpen = true },
+                    modifier = Modifier.onFocusChanged { settingsFocused = it.isFocused },
+                ) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "プレイヤー設定",
+                    )
+                }
+                DropdownMenu(
+                    expanded = settingsOpen,
+                    onDismissRequest = { settingsOpen = false },
+                ) {
+                    Text(
+                        "再生バッファ",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                    BufferPresetMenuItem(
+                        label = "標準（最大50秒）",
+                        selected = bufferPreset == VideoPlayerSettings.BufferPreset.STANDARD,
+                        onClick = {
+                            settingsOpen = false
+                            onBufferPresetChanged(VideoPlayerSettings.BufferPreset.STANDARD)
+                        },
+                    )
+                    BufferPresetMenuItem(
+                        label = "厚め（最大2分）",
+                        selected = bufferPreset == VideoPlayerSettings.BufferPreset.THICK,
+                        onClick = {
+                            settingsOpen = false
+                            onBufferPresetChanged(VideoPlayerSettings.BufferPreset.THICK)
+                        },
+                    )
+                    BufferPresetMenuItem(
+                        label = "最大（最大3分）",
+                        selected = bufferPreset == VideoPlayerSettings.BufferPreset.MAXIMUM,
+                        onClick = {
+                            settingsOpen = false
+                            onBufferPresetChanged(VideoPlayerSettings.BufferPreset.MAXIMUM)
+                        },
+                    )
+                }
             }
         }
     }
@@ -535,3 +545,4 @@ internal fun formatPlayTime(ms: Long): String {
 private const val VIDEO_RESUME_SAVE_INTERVAL_MS = 2_000L
 private const val VIDEO_RESUME_RESTORE_TOLERANCE_MS = 2_000L
 private const val TV_SETTINGS_FOCUS_RETRY_FRAMES = 6
+private const val TV_SETTINGS_AUTO_HIDE_MS = 4_000L

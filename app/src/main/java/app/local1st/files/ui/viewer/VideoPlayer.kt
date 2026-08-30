@@ -355,7 +355,9 @@ fun VideoPlayerScreen(
                 if (tvRemoteControls) {
                     Modifier
                         .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) {
+                            // While the TV chrome is visible, let the focused Slider/buttons handle
+                            // D-pad events themselves. Hidden-mode shortcuts remain available.
+                            if (event.type != KeyEventType.KeyDown || controlsVisible) {
                                 false
                             } else {
                                 when (event.key) {
@@ -367,23 +369,15 @@ fun VideoPlayerScreen(
                                     Key.DirectionLeft -> {
                                         stepSeconds(-TV_REMOTE_SEEK_SECONDS)
                                         updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
-                                        controlsVisible = false
                                         true
                                     }
                                     Key.DirectionRight -> {
                                         stepSeconds(TV_REMOTE_SEEK_SECONDS)
                                         updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
-                                        controlsVisible = false
                                         true
                                     }
                                     Key.DirectionUp -> {
                                         controlsVisible = true
-                                        interactionTick++
-                                        true
-                                    }
-                                    Key.DirectionDown -> {
-                                        controlsVisible = false
-                                        showPlayerSettings = false
                                         interactionTick++
                                         true
                                     }
