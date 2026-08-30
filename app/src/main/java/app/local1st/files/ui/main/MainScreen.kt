@@ -260,12 +260,16 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     }
                 }
             } else {
-                val pagerState = rememberPagerState(initialPage = activePane) { 2 }
+                val tvPaneIndex = activePane
+                val pagerState = rememberPagerState(
+                    initialPage = if (isTvEdition) 0 else activePane,
+                ) { if (isTvEdition) 1 else 2 }
                 LaunchedEffect(pagerState, sessionReady) {
-                    if (!sessionReady) return@LaunchedEffect
+                    if (!sessionReady || isTvEdition) return@LaunchedEffect
                     snapshotFlow { pagerState.currentPage }.collect { vm.setActivePane(it) }
                 }
                 LaunchedEffect(activePane) {
+                    if (isTvEdition) return@LaunchedEffect
                     if (pagerState.currentPage != activePane &&
                         !pagerState.isScrollInProgress
                     ) {
@@ -281,11 +285,12 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     beyondViewportPageCount = 0,
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
-                    val pane = vm.panes[page]
+                    val paneIndex = if (isTvEdition) tvPaneIndex else page
+                    val pane = vm.panes[paneIndex]
                     PaneView(
                         controller = pane,
-                        active = activePane == page,
-                        onActivate = { vm.setActivePane(page) },
+                        active = activePane == paneIndex,
+                        onActivate = { vm.setActivePane(paneIndex) },
                         onOpenEntry = { entry ->
                             if (pendingTransfer != null && entry.isContainer) {
                                 pane.toggleExpand(entry)
@@ -299,11 +304,11 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             }
                         },
                         onInitialLayoutReady = { version ->
-                            initiallyLaidOutPanes = initiallyLaidOutPanes + page
-                            vm.onPaneInitialLayoutReady(page, version)
-                            if (page == activePane) startupContentReady = true
+                            initiallyLaidOutPanes = initiallyLaidOutPanes + paneIndex
+                            vm.onPaneInitialLayoutReady(paneIndex, version)
+                            if (paneIndex == activePane) startupContentReady = true
                         },
-                        breadcrumbAlignment = if (page == 0) {
+                        breadcrumbAlignment = if (isTvEdition || paneIndex == 0) {
                             Alignment.TopStart
                         } else {
                             Alignment.TopEnd
@@ -336,10 +341,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                 )
                             }
                         },
-                        searchActive = searchPane == page,
-                        onSearchClose = { closeSearch(page) },
+                        searchActive = searchPane == paneIndex,
+                        onSearchClose = { closeSearch(paneIndex) },
                         onSearchResultsChanged = { entries ->
-                            if (searchPane == page) {
+                            if (searchPane == paneIndex) {
                                 searchEntries = entries.associateBy { it.id }
                             }
                         },
@@ -347,7 +352,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
                             .then(
-                                if (isTvEdition && searchPane != page) {
+                                if (isTvEdition && searchPane != paneIndex) {
                                     Modifier.onPreviewKeyEvent { event ->
                                         if (event.type != KeyEventType.KeyDown) {
                                             false
