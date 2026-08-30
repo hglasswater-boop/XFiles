@@ -81,6 +81,7 @@ fun AppHost(vm: MainViewModel) {
                             // are not composed while another full-screen destination is active.
                             OpsHost()
                             MainDialogs(vm)
+                            EditionBrowserCastButton(Modifier.align(Alignment.BottomEnd))
                         }
 
                         is AppScreen.Search -> SearchScreen(
