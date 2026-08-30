@@ -106,8 +106,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val sessionReady by vm.sessionReady.collectAsStateWithLifecycle()
     val activePane by vm.activePane.collectAsStateWithLifecycle()
     val pendingTransfer by vm.pendingTransfer.collectAsStateWithLifecycle()
+    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
     val activeState by vm.panes[activePane].state.collectAsStateWithLifecycle()
-    val otherPaneController = vm.panes[1 - activePane]
+    // TV uses the current pane as its operation destination. There is no hidden destination pane.
+    val otherPaneController = if (isTvEdition) vm.activeCtrl else vm.panes[1 - activePane]
     val otherPaneState by otherPaneController.state.collectAsStateWithLifecycle()
     val otherPaneDestination = otherPaneController.focusedDirEntry()
     val otherPaneName = paneLocationName(otherPaneDestination, otherPaneState.focusedDirId)
@@ -123,7 +125,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
     var searchEntries by remember(vm) { mutableStateOf<Map<String, XEntry>>(emptyMap()) }
     var lastTvRootBackAt by remember { mutableStateOf(0L) }
-    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
     val wideLayout = !isTvEdition && LocalConfiguration.current.screenWidthDp >= 700
     val context = LocalContext.current
     val editionSideRailOpen = isTvEdition && isEditionSideRailOpen()
@@ -259,12 +260,16 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     }
                 }
             } else {
-                val pagerState = rememberPagerState(initialPage = activePane) { 2 }
+                val tvPaneIndex = activePane
+                val pagerState = rememberPagerState(
+                    initialPage = if (isTvEdition) 0 else activePane,
+                ) { if (isTvEdition) 1 else 2 }
                 LaunchedEffect(pagerState, sessionReady) {
-                    if (!sessionReady) return@LaunchedEffect
+                    if (!sessionReady || isTvEdition) return@LaunchedEffect
                     snapshotFlow { pagerState.currentPage }.collect { vm.setActivePane(it) }
                 }
                 LaunchedEffect(activePane) {
+                    if (isTvEdition) return@LaunchedEffect
                     if (pagerState.currentPage != activePane &&
                         !pagerState.isScrollInProgress
                     ) {
@@ -274,17 +279,18 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 }
                 HorizontalPager(
                     state = pagerState,
-                    // TV intentionally uses this single-page path even on wide displays. The
-                    // inactive pane remains available as an operation target without paying the
-                    // cost of composing both pane trees at once.
+                    // TV has one live pane only. Disable pager gestures so the dormant controller
+                    // cannot be surfaced accidentally; mobile compact mode keeps normal paging.
+                    userScrollEnabled = !isTvEdition,
                     beyondViewportPageCount = 0,
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
-                    val pane = vm.panes[page]
+                    val paneIndex = if (isTvEdition) tvPaneIndex else page
+                    val pane = vm.panes[paneIndex]
                     PaneView(
                         controller = pane,
-                        active = activePane == page,
-                        onActivate = { vm.setActivePane(page) },
+                        active = activePane == paneIndex,
+                        onActivate = { vm.setActivePane(paneIndex) },
                         onOpenEntry = { entry ->
                             if (pendingTransfer != null && entry.isContainer) {
                                 pane.toggleExpand(entry)
@@ -298,43 +304,47 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             }
                         },
                         onInitialLayoutReady = { version ->
-                            initiallyLaidOutPanes = initiallyLaidOutPanes + page
-                            vm.onPaneInitialLayoutReady(page, version)
-                            if (page == activePane) startupContentReady = true
+                            initiallyLaidOutPanes = initiallyLaidOutPanes + paneIndex
+                            vm.onPaneInitialLayoutReady(paneIndex, version)
+                            if (paneIndex == activePane) startupContentReady = true
                         },
-                        breadcrumbAlignment = if (page == 0) {
+                        breadcrumbAlignment = if (isTvEdition || paneIndex == 0) {
                             Alignment.TopStart
                         } else {
                             Alignment.TopEnd
                         },
-                        headerOverlay = {
-                            val targetPane = 1 - page
-                            val targetController = vm.panes[targetPane]
-                            val targetState = if (targetPane == activePane) {
-                                activeState
-                            } else {
-                                otherPaneState
+                        headerOverlay = if (isTvEdition) {
+                            null
+                        } else {
+                            {
+                                val targetPane = 1 - page
+                                val targetController = vm.panes[targetPane]
+                                val targetState = if (targetPane == activePane) {
+                                    activeState
+                                } else {
+                                    otherPaneState
+                                }
+                                val targetDestination = targetController.focusedDirEntry()
+                                OtherPaneTargetChip(
+                                    name = paneLocationName(
+                                        targetDestination,
+                                        targetState.focusedDirId,
+                                    ),
+                                    path = paneLocationPath(
+                                        targetDestination,
+                                        targetState.focusedDirId,
+                                    ),
+                                    ready = targetDestination != null,
+                                    writable = isFileOperationDestination(targetDestination),
+                                    activePane = page,
+                                    onClick = { vm.setActivePane(targetPane) },
+                                )
                             }
-                            val targetDestination = targetController.focusedDirEntry()
-                            OtherPaneTargetChip(
-                                name = paneLocationName(
-                                    targetDestination,
-                                    targetState.focusedDirId,
-                                ),
-                                path = paneLocationPath(
-                                    targetDestination,
-                                    targetState.focusedDirId,
-                                ),
-                                ready = targetDestination != null,
-                                writable = isFileOperationDestination(targetDestination),
-                                activePane = page,
-                                onClick = { vm.setActivePane(targetPane) },
-                            )
                         },
-                        searchActive = searchPane == page,
-                        onSearchClose = { closeSearch(page) },
+                        searchActive = searchPane == paneIndex,
+                        onSearchClose = { closeSearch(paneIndex) },
                         onSearchResultsChanged = { entries ->
-                            if (searchPane == page) {
+                            if (searchPane == paneIndex) {
                                 searchEntries = entries.associateBy { it.id }
                             }
                         },
@@ -342,7 +352,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
                             .then(
-                                if (isTvEdition && searchPane != page) {
+                                if (isTvEdition && searchPane != paneIndex) {
                                     Modifier.onPreviewKeyEvent { event ->
                                         if (event.type != KeyEventType.KeyDown) {
                                             false
