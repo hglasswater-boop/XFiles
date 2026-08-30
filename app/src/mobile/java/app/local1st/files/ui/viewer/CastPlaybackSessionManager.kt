@@ -3,6 +3,8 @@ package app.local1st.files.ui.viewer
 import android.content.Context
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.RemoteCastPlayer
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -55,6 +57,7 @@ internal object CastPlaybackSessionManager {
                     DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
                 ),
             )
+            .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .build()
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
             .setMediaItemConverter(
@@ -92,7 +95,7 @@ internal object CastPlaybackSessionManager {
         castPlayer.setMediaItems(
             mediaItems,
             startIndex.coerceIn(0, mediaItems.lastIndex.coerceAtLeast(0)),
-            androidx.media3.common.C.TIME_UNSET,
+            C.TIME_UNSET,
         )
         castPlayer.prepare()
         castPlayer.playWhenReady = true
