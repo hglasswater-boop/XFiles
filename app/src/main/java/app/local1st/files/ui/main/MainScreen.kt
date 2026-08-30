@@ -486,6 +486,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                 ) {
                                     vm.activeCtrl.refreshAllExpanded()
                                 }
+                                EditionBrowserCastButton()
                                 TooltipIconButton(
                                     stringResource(R.string.more),
                                     Icons.Outlined.MoreVert,
