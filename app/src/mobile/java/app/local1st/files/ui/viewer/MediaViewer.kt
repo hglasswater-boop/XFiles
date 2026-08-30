@@ -54,19 +54,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.MediaRouteButton
-import androidx.media3.cast.RemoteCastPlayer
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
@@ -139,51 +133,32 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 .build()
         }
     }
-    val relay = remember(playable) { CastMediaRelay(context, playable) }
-    val localPlayer = remember {
-        val dataSourceFactory = DefaultDataSource.Factory(context, XFilesRemoteDataSource.Factory())
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(
-                DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory),
-            )
-            .setAudioAttributes(AudioAttributes.DEFAULT, true)
-            .build()
+    val castSession = remember(playable, mediaItems, startIndex) {
+        CastPlaybackSessionManager.acquire(
+            context = context,
+            entries = playable,
+            mediaItems = mediaItems,
+            startIndex = startIndex,
+        )
     }
-    val remotePlayer = remember(relay, mediaItems) {
-        RemoteCastPlayer.Builder(context)
-            .setMediaItemConverter(
-                XFilesCastMediaItemConverter(
-                    relay = relay,
-                    originals = mediaItems.associateBy { it.mediaId },
-                ),
-            )
-            .build()
-    }
-    val player = remember(localPlayer, remotePlayer, mediaItems, startIndex) {
-        CastPlayer.Builder(context)
-            .setLocalPlayer(localPlayer)
-            .setRemotePlayer(remotePlayer)
-            .build()
-            .apply {
-                setMediaItems(mediaItems, startIndex, C.TIME_UNSET)
-                prepare()
-                playWhenReady = true
-            }
-    }
+    val localPlayer = castSession.localPlayer
+    val player = castSession.player
 
-    var currentIndex by remember { mutableIntStateOf(startIndex) }
-    var playing by remember { mutableStateOf(false) }
-    var metadata by remember { mutableStateOf(MediaMetadata.EMPTY) }
-    var hasPrevious by remember { mutableStateOf(false) }
-    var hasNext by remember { mutableStateOf(false) }
-    var remotePlayback by remember {
+    var currentIndex by remember(player) {
+        mutableIntStateOf(player.currentMediaItemIndex.coerceIn(0, playable.lastIndex))
+    }
+    var playing by remember(player) { mutableStateOf(player.isPlaying) }
+    var metadata by remember(player) { mutableStateOf(player.mediaMetadata) }
+    var hasPrevious by remember(player) { mutableStateOf(player.hasPreviousMediaItem()) }
+    var hasNext by remember(player) { mutableStateOf(player.hasNextMediaItem()) }
+    var remotePlayback by remember(player) {
         mutableStateOf(player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE)
     }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onEvents(p: Player, events: Player.Events) {
-                currentIndex = p.currentMediaItemIndex
+                currentIndex = p.currentMediaItemIndex.coerceIn(0, playable.lastIndex)
                 playing = p.isPlaying
                 metadata = p.mediaMetadata
                 hasPrevious = p.hasPreviousMediaItem()
@@ -204,10 +179,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         onDispose {
             saveCurrentVideoResume(context, playable, player)
             player.removeListener(listener)
-            runCatching { player.release() }
-            runCatching { remotePlayer.release() }
-            runCatching { localPlayer.release() }
-            relay.close()
+            CastPlaybackSessionManager.releaseViewer(castSession)
         }
     }
 
