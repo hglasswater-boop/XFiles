@@ -34,12 +34,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.util.UnstableApi
 import app.local1st.files.R
 import app.local1st.files.core.cast.CastPlaybackBridge
 import app.local1st.files.ui.viewer.CastPlaybackSessionManager
 import app.local1st.files.ui.viewer.MediaViewer
 
 /** Browser mini-player plus an in-app route back to the still-running remote playback controls. */
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 internal fun EditionCastPlaybackOverlay(browserVisible: Boolean) {
     val active by CastPlaybackSessionManager.activePlayback.collectAsStateWithLifecycle()
