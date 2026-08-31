@@ -128,6 +128,10 @@ fun AppHost(vm: MainViewModel) {
                     },
                 ),
         )
+
+        EditionCastPlaybackOverlay(
+            browserVisible = backStack.lastOrNull()?.screen == AppScreen.Browser,
+        )
     }
 }
 
