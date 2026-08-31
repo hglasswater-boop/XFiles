@@ -105,6 +105,7 @@ private fun Root(incomingIntents: Flow<Intent>) {
 
         LaunchedEffect(vm, incomingIntents) {
             incomingIntents.collect { incoming ->
+                if (handleEditionIntent(incoming)) return@collect
                 when (incoming.action) {
                     Intent.ACTION_SEND,
                     Intent.ACTION_SEND_MULTIPLE,
