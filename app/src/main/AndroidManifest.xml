@@ -60,12 +60,9 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".core.util.SelfUpdateInstallActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:noHistory="true" />
+        <receiver
+            android:name=".core.util.SelfUpdateInstallReceiver"
+            android:exported="false" />
 
         <activity-alias
             android:name=".OpenArchiveActivity"
