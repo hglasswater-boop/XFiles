@@ -19,4 +19,6 @@
     <string name="update_checking">Checking…</string>
     <string name="update_up_to_date">You already have the latest build.</string>
     <string name="update_check_failed">Update check failed: %1$s</string>
+
+    <string name="cast_now_playing">Casting now</string>
 </resources>
