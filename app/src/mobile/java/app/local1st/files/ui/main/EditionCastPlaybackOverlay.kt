@@ -39,6 +39,7 @@ import app.local1st.files.R
 import app.local1st.files.core.cast.CastPlaybackBridge
 import app.local1st.files.ui.viewer.CastPlaybackSessionManager
 import app.local1st.files.ui.viewer.MediaViewer
+import kotlinx.coroutines.flow.collect
 
 /** Browser mini-player plus an in-app route back to the still-running remote playback controls. */
 @androidx.annotation.OptIn(UnstableApi::class)
