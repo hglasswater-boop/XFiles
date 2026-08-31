@@ -19,4 +19,6 @@
     <string name="update_checking">確認中…</string>
     <string name="update_up_to_date">最新バージョンです。</string>
     <string name="update_check_failed">更新確認に失敗しました: %1$s</string>
+
+    <string name="cast_now_playing">キャスト中</string>
 </resources>
