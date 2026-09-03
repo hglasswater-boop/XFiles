@@ -179,7 +179,11 @@ class MainActivity : ComponentActivity() {
                     val output = Intent().apply {
                         data = uri
                         clipData = clips
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                        )
                     }
                     setResult(Activity.RESULT_OK, output)
                     finish()
