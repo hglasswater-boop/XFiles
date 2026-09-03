@@ -31,6 +31,24 @@ object IntentUtils {
         !entry.isDir && (entry.localPath != null || RemoteFileProvider.canServe(entry))
 
     /**
+     * Builds an Activity result containing readable content URIs for [entries]. The caller receives
+     * a temporary read grant through ClipData, including SMB-backed entries served by
+     * [RemoteFileProvider], without exposing XFiles credentials or internal filesystem objects.
+     */
+    fun pickerResult(context: Context, entries: List<XEntry>): Intent {
+        require(entries.isNotEmpty()) { "At least one entry is required" }
+        require(entries.all(::canExternalRead)) { "Every selected entry must be externally readable" }
+        val uris = entries.map { uriFor(context, it) }
+        val clips = ClipData.newUri(context.contentResolver, entries.first().name, uris.first())
+        uris.drop(1).forEach { clips.addItem(ClipData.Item(it)) }
+        return Intent().apply {
+            data = uris.first()
+            clipData = clips
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    /**
      * These are launched from the application context (see [app.local1st.files.di.Graph.appContext]),
      * which is not an Activity, so every started intent — including the chooser wrapper — must
      * carry FLAG_ACTIVITY_NEW_TASK or startActivity throws.
