@@ -47,6 +47,9 @@ class SmbRandomAccessOutputFile private constructor(
     }
 
     companion object {
+        private const val CLIPFORGE_PARTIAL_PREFIX = ".clipforge-partial-"
+        private const val STALE_PARTIAL_AGE_MS = 24L * 60L * 60L * 1000L
+
         private val SHARE_ACCESS: EnumSet<SMB2ShareAccess> = EnumSet.of(
             SMB2ShareAccess.FILE_SHARE_READ,
             SMB2ShareAccess.FILE_SHARE_WRITE,
@@ -73,6 +76,7 @@ class SmbRandomAccessOutputFile private constructor(
                     runCatching { connected.close() }
                     throw IOException("SMB share '${target.connection.share}' is not a disk share")
                 }
+                cleanupStaleClipForgePartials(connected, target.path)
                 val file = connected.openFile(
                     target.path.replace('/', '\\'),
                     EnumSet.of(AccessMask.GENERIC_READ, AccessMask.GENERIC_WRITE),
@@ -86,6 +90,27 @@ class SmbRandomAccessOutputFile private constructor(
                 runCatching { client.close() }
                 if (error is IOException) throw error
                 throw IOException(error.message ?: "SMB random-access output open failed", error)
+            }
+        }
+
+        private fun cleanupStaleClipForgePartials(share: DiskShare, outputPath: String) {
+            val parentPath = outputPath.substringBeforeLast('/', "")
+            val cutoff = System.currentTimeMillis() - STALE_PARTIAL_AGE_MS
+            runCatching {
+                share.list(parentPath.replace('/', '\\'))
+                    .asSequence()
+                    .filter { info ->
+                        info.fileName.startsWith(CLIPFORGE_PARTIAL_PREFIX) &&
+                            info.lastWriteTime.toEpochMillis().let { mtime -> mtime > 0L && mtime < cutoff }
+                    }
+                    .forEach { info ->
+                        val stalePath = if (parentPath.isBlank()) {
+                            info.fileName
+                        } else {
+                            "$parentPath/${info.fileName}"
+                        }
+                        runCatching { share.rm(stalePath.replace('/', '\\')) }
+                    }
             }
         }
 
