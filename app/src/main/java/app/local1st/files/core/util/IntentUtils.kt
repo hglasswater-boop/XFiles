@@ -32,8 +32,9 @@ object IntentUtils {
 
     /**
      * Builds an Activity result containing readable content URIs for [entries]. The caller receives
-     * a temporary read grant through ClipData, including SMB-backed entries served by
-     * [RemoteFileProvider], without exposing XFiles credentials or internal filesystem objects.
+     * read grants through ClipData, including SMB-backed entries served by [RemoteFileProvider],
+     * without exposing XFiles credentials or internal filesystem objects. Persistable permission is
+     * offered so a caller's foreground service can keep reading after its Activity is backgrounded.
      */
     fun pickerResult(context: Context, entries: List<XEntry>): Intent {
         require(entries.isNotEmpty()) { "At least one entry is required" }
@@ -44,7 +45,10 @@ object IntentUtils {
         return Intent().apply {
             data = uris.first()
             clipData = clips
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+            )
         }
     }
 

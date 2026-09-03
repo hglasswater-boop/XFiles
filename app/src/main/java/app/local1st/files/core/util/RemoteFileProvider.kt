@@ -16,19 +16,21 @@ import android.provider.OpenableColumns
 import android.system.ErrnoException
 import android.system.OsConstants
 import app.local1st.files.core.fs.SmbRandomAccessFile
+import app.local1st.files.core.fs.SmbRandomAccessOutputFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.di.Graph
 import java.io.FileNotFoundException
+import java.io.IOException
 import kotlin.math.min
 
 /**
- * Read-only content provider used when handing an SMB file to another Android app.
+ * Seekable SMB bridge for other Android apps.
  *
- * A normal FileProvider can only expose a real local path. SMB entries do not have one, so this
- * provider presents a seekable proxy file descriptor backed by SMBJ random-access reads. That lets
- * media players seek inside large remote videos without downloading the whole file first, while
- * ACTION_VIEW / ACTION_SEND still receive an ordinary content:// URI with a temporary read grant.
+ * Normal URIs are temporary read grants. Output URIs are created explicitly by XFiles after the
+ * user chooses an SMB destination. They point at a freshly-created hidden partial file, support
+ * random-access writes for containers such as MP4, and are committed with update(commit=true)
+ * only after the caller finishes successfully. delete() aborts and removes the partial file.
  */
 class RemoteFileProvider : ContentProvider() {
     private val callbackThread by lazy {
@@ -65,7 +67,11 @@ class RemoteFileProvider : ContentProvider() {
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-        if (mode != "r") throw FileNotFoundException("Remote files are read-only")
+        return if (isOutputUri(uri)) openOutputFile(uri, mode) else openReadFile(uri, mode)
+    }
+
+    private fun openReadFile(uri: Uri, mode: String): ParcelFileDescriptor {
+        if (mode != "r") throw FileNotFoundException("Remote input files are read-only")
         val id = requireSmbId(uri)
         val size = resolvedSize(uri, id)
         val remote = try {
@@ -100,7 +106,7 @@ class RemoteFileProvider : ContentProvider() {
                             count - total,
                         )
                     } catch (error: Throwable) {
-                        if (reconnects >= MAX_READ_RECONNECTS) {
+                        if (reconnects >= MAX_RECONNECTS) {
                             throw ErrnoException("SMB read", OsConstants.EIO, error)
                         }
                         reconnects += 1
@@ -108,7 +114,7 @@ class RemoteFileProvider : ContentProvider() {
                         currentRemote = try {
                             SmbRandomAccessFile.open(id, Graph.smbConnections)
                         } catch (reopenError: Throwable) {
-                            if (reconnects >= MAX_READ_RECONNECTS) {
+                            if (reconnects >= MAX_RECONNECTS) {
                                 throw ErrnoException("SMB reconnect", OsConstants.EIO, reopenError)
                             }
                             continue
@@ -128,18 +134,93 @@ class RemoteFileProvider : ContentProvider() {
                 currentRemote.close()
             }
         }
-        return try {
-            val storage = requireNotNull(context?.getSystemService(StorageManager::class.java))
-            storage.openProxyFileDescriptor(
-                ParcelFileDescriptor.MODE_READ_ONLY,
-                callback,
-                callbackHandler,
-            )
+        return openProxy(ParcelFileDescriptor.MODE_READ_ONLY, callback, remote::close)
+    }
+
+    private fun openOutputFile(uri: Uri, mode: String): ParcelFileDescriptor {
+        if (!mode.contains('w')) throw FileNotFoundException("Output URI requires write access")
+        val id = requireSmbId(uri)
+        val remote = try {
+            SmbRandomAccessOutputFile.open(id, Graph.smbConnections)
         } catch (error: Throwable) {
-            remote.close()
-            throw FileNotFoundException(error.message ?: "Unable to expose SMB file").also {
+            throw FileNotFoundException(error.message ?: "Unable to open SMB output").also {
                 it.initCause(error)
             }
+        }
+        val callback = object : ProxyFileDescriptorCallback() {
+            private var currentRemote = remote
+            // Output URIs always point at a partial file created immediately before the grant.
+            private var knownSize = 0L
+            private var released = false
+
+            override fun onGetSize(): Long = knownSize
+
+            @Synchronized
+            override fun onRead(offset: Long, requestedSize: Int, data: ByteArray): Int {
+                if (released || offset < 0L || requestedSize <= 0 || data.isEmpty()) return 0
+                if (offset >= knownSize) return 0
+                val count = min(min(requestedSize, data.size).toLong(), knownSize - offset).toInt()
+                if (count <= 0) return 0
+                return withReconnect("SMB output read") { handle ->
+                    handle.read(offset, data, 0, count).coerceAtLeast(0)
+                }
+            }
+
+            @Synchronized
+            override fun onWrite(offset: Long, requestedSize: Int, data: ByteArray): Int {
+                if (released || offset < 0L || requestedSize <= 0 || data.isEmpty()) return 0
+                val count = min(requestedSize, data.size)
+                val written = withReconnect("SMB output write") { handle ->
+                    handle.write(offset, data, 0, count)
+                }
+                if (written > 0) knownSize = maxOf(knownSize, offset + written)
+                return written
+            }
+
+            private fun <T> withReconnect(label: String, block: (SmbRandomAccessOutputFile) -> T): T {
+                var reconnects = 0
+                while (true) {
+                    try {
+                        return block(currentRemote)
+                    } catch (error: Throwable) {
+                        if (reconnects >= MAX_RECONNECTS) {
+                            throw ErrnoException(label, OsConstants.EIO, error)
+                        }
+                        reconnects += 1
+                        runCatching { currentRemote.close() }
+                        currentRemote = try {
+                            SmbRandomAccessOutputFile.open(id, Graph.smbConnections)
+                        } catch (reopenError: Throwable) {
+                            if (reconnects >= MAX_RECONNECTS) {
+                                throw ErrnoException("SMB output reconnect", OsConstants.EIO, reopenError)
+                            }
+                            continue
+                        }
+                    }
+                }
+            }
+
+            @Synchronized
+            override fun onRelease() {
+                if (released) return
+                released = true
+                currentRemote.close()
+            }
+        }
+        return openProxy(ParcelFileDescriptor.MODE_READ_WRITE, callback, remote::close)
+    }
+
+    private fun openProxy(
+        mode: Int,
+        callback: ProxyFileDescriptorCallback,
+        closeOnFailure: () -> Unit,
+    ): ParcelFileDescriptor = try {
+        val storage = requireNotNull(context?.getSystemService(StorageManager::class.java))
+        storage.openProxyFileDescriptor(mode, callback, callbackHandler)
+    } catch (error: Throwable) {
+        closeOnFailure()
+        throw FileNotFoundException(error.message ?: "Unable to expose SMB file").also {
+            it.initCause(error)
         }
     }
 
@@ -147,17 +228,37 @@ class RemoteFileProvider : ContentProvider() {
         AssetFileDescriptor(openFile(uri, mode), 0L, AssetFileDescriptor.UNKNOWN_LENGTH)
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? =
-        throw UnsupportedOperationException("Remote files are read-only")
+        throw UnsupportedOperationException("Insert is not supported")
 
-    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int =
-        throw UnsupportedOperationException("Remote files are read-only")
+    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int {
+        if (!isOutputUri(uri)) throw UnsupportedOperationException("Remote input files are read-only")
+        val id = requireSmbId(uri)
+        val fs = Graph.fsRegistry.forId(id)
+        val entry = fs.stat(id) ?: return 0
+        fs.delete(entry)
+        return 1
+    }
 
     override fun update(
         uri: Uri,
         values: ContentValues?,
         selection: String?,
         selectionArgs: Array<out String>?,
-    ): Int = throw UnsupportedOperationException("Remote files are read-only")
+    ): Int {
+        if (!isOutputUri(uri)) throw UnsupportedOperationException("Remote input files are read-only")
+        if (values?.getAsBoolean(KEY_COMMIT) != true) return 0
+        val id = requireSmbId(uri)
+        val finalName = uri.getQueryParameter(PARAM_FINAL_NAME)
+            ?.takeIf { it.isNotBlank() }
+            ?: throw IOException("Missing final output name")
+        val fs = Graph.fsRegistry.forId(id)
+        val entry = fs.stat(id) ?: throw IOException("Partial output no longer exists")
+        val parentId = XId.parent(id) ?: throw IOException("Output parent is missing")
+        val finalId = "${parentId.trimEnd('/')}/$finalName"
+        if (fs.stat(finalId) != null) throw IOException("同名のファイルが既にあります: $finalName")
+        fs.rename(entry, finalName)
+        return 1
+    }
 
     private fun requireSmbId(uri: Uri): String {
         val id = uri.getQueryParameter(PARAM_ID)
@@ -168,8 +269,13 @@ class RemoteFileProvider : ContentProvider() {
         return id
     }
 
+    private fun isOutputUri(uri: Uri): Boolean = uri.getQueryParameter(PARAM_MODE) == MODE_OUTPUT
+
     private fun displayName(uri: Uri): String =
-        uri.getQueryParameter(PARAM_NAME)?.takeIf { it.isNotBlank() } ?: "remote-file"
+        uri.getQueryParameter(PARAM_FINAL_NAME)
+            ?.takeIf { isOutputUri(uri) && it.isNotBlank() }
+            ?: uri.getQueryParameter(PARAM_NAME)?.takeIf { it.isNotBlank() }
+            ?: "remote-file"
 
     private fun fileSize(uri: Uri): Long =
         uri.getQueryParameter(PARAM_SIZE)?.toLongOrNull() ?: -1L
@@ -182,12 +288,16 @@ class RemoteFileProvider : ContentProvider() {
     }
 
     companion object {
+        const val KEY_COMMIT = "commit"
         private const val AUTHORITY_SUFFIX = ".remotefileprovider"
         private const val PARAM_ID = "id"
         private const val PARAM_NAME = "name"
         private const val PARAM_MIME = "mime"
         private const val PARAM_SIZE = "size"
-        private const val MAX_READ_RECONNECTS = 2
+        private const val PARAM_MODE = "mode"
+        private const val PARAM_FINAL_NAME = "finalName"
+        private const val MODE_OUTPUT = "output"
+        private const val MAX_RECONNECTS = 2
         private val DEFAULT_PROJECTION = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
 
         fun canServe(entry: XEntry): Boolean =
@@ -206,6 +316,27 @@ class RemoteFileProvider : ContentProvider() {
                     entry.mime ?: FileTypes.mimeOf(entry.name) ?: "application/octet-stream",
                 )
                 .appendQueryParameter(PARAM_SIZE, entry.size.toString())
+                .build()
+        }
+
+        fun outputUriFor(
+            context: Context,
+            partialEntry: XEntry,
+            finalName: String,
+            mimeType: String,
+        ): Uri {
+            require(canServe(partialEntry)) { "Unsupported SMB output: ${partialEntry.id}" }
+            require(finalName.isNotBlank()) { "finalName is required" }
+            return Uri.Builder()
+                .scheme("content")
+                .authority(context.packageName + AUTHORITY_SUFFIX)
+                .appendPath("file")
+                .appendQueryParameter(PARAM_ID, partialEntry.id)
+                .appendQueryParameter(PARAM_NAME, partialEntry.name)
+                .appendQueryParameter(PARAM_FINAL_NAME, finalName)
+                .appendQueryParameter(PARAM_MIME, mimeType.ifBlank { "application/octet-stream" })
+                .appendQueryParameter(PARAM_SIZE, "0")
+                .appendQueryParameter(PARAM_MODE, MODE_OUTPUT)
                 .build()
         }
     }
