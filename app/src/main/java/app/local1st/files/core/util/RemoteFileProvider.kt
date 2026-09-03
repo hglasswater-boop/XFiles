@@ -28,9 +28,9 @@ import kotlin.math.min
  * Seekable SMB bridge for other Android apps.
  *
  * Normal URIs are temporary read grants. Output URIs are created explicitly by XFiles after the
- * user chooses an SMB destination. They point at a hidden partial file, support random-access
- * writes for containers such as MP4, and are committed with update(commit=true) only after the
- * caller finishes successfully. delete() aborts and removes the partial file.
+ * user chooses an SMB destination. They point at a freshly-created hidden partial file, support
+ * random-access writes for containers such as MP4, and are committed with update(commit=true)
+ * only after the caller finishes successfully. delete() aborts and removes the partial file.
  */
 class RemoteFileProvider : ContentProvider() {
     private val callbackThread by lazy {
@@ -149,7 +149,8 @@ class RemoteFileProvider : ContentProvider() {
         }
         val callback = object : ProxyFileDescriptorCallback() {
             private var currentRemote = remote
-            private var knownSize = runCatching { remote.length() }.getOrDefault(0L)
+            // Output URIs always point at a partial file created immediately before the grant.
+            private var knownSize = 0L
             private var released = false
 
             override fun onGetSize(): Long = knownSize
