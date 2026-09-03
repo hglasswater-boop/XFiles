@@ -76,34 +76,56 @@ class RemoteFileProvider : ContentProvider() {
             }
         }
         val callback = object : ProxyFileDescriptorCallback() {
+            private var currentRemote = remote
+            private var released = false
+
             override fun onGetSize(): Long = size
 
+            @Synchronized
             override fun onRead(offset: Long, requestedSize: Int, data: ByteArray): Int {
-                if (offset < 0L || requestedSize <= 0 || data.isEmpty()) return 0
+                if (released || offset < 0L || requestedSize <= 0 || data.isEmpty()) return 0
                 if (offset >= size) return 0
                 val remaining = size - offset
                 val count = min(min(requestedSize, data.size).toLong(), remaining).toInt()
                 if (count <= 0) return 0
-                return try {
-                    var total = 0
-                    while (total < count) {
-                        val read = remote.read(
+
+                var total = 0
+                var reconnects = 0
+                while (total < count) {
+                    val read = try {
+                        currentRemote.read(
                             offset + total,
                             data,
                             total,
                             count - total,
                         )
-                        if (read <= 0) break
-                        total += read
+                    } catch (error: Throwable) {
+                        if (reconnects >= MAX_READ_RECONNECTS) {
+                            throw ErrnoException("SMB read", OsConstants.EIO, error)
+                        }
+                        reconnects += 1
+                        runCatching { currentRemote.close() }
+                        currentRemote = try {
+                            SmbRandomAccessFile.open(id, Graph.smbConnections)
+                        } catch (reopenError: Throwable) {
+                            if (reconnects >= MAX_READ_RECONNECTS) {
+                                throw ErrnoException("SMB reconnect", OsConstants.EIO, reopenError)
+                            }
+                            continue
+                        }
+                        continue
                     }
-                    total
-                } catch (error: Throwable) {
-                    throw ErrnoException("SMB read", OsConstants.EIO, error)
+                    if (read <= 0) break
+                    total += read
                 }
+                return total
             }
 
+            @Synchronized
             override fun onRelease() {
-                remote.close()
+                if (released) return
+                released = true
+                currentRemote.close()
             }
         }
         return try {
@@ -165,6 +187,7 @@ class RemoteFileProvider : ContentProvider() {
         private const val PARAM_NAME = "name"
         private const val PARAM_MIME = "mime"
         private const val PARAM_SIZE = "size"
+        private const val MAX_READ_RECONNECTS = 2
         private val DEFAULT_PROJECTION = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
 
         fun canServe(entry: XEntry): Boolean =
