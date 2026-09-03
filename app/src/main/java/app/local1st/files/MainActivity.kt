@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,6 +63,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.nio.file.FileAlreadyExistsException
 import java.util.UUID
 
@@ -152,8 +154,11 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    require(directory.isDir && directory.scheme == XId.SCHEME_SMB) {
-                        "SMBフォルダを選択してください"
+                    require(
+                        directory.isDir &&
+                            directory.scheme in setOf(XId.SCHEME_FILE, XId.SCHEME_SMB),
+                    ) {
+                        "ローカルまたはSMBフォルダを選択してください"
                     }
                     val fs = Graph.fsRegistry.forEntry(directory)
                     require(fs.canWrite(directory)) { "このフォルダには書き込めません" }
@@ -161,16 +166,30 @@ class MainActivity : ComponentActivity() {
                     if (fs.stat(finalId) != null) {
                         throw FileAlreadyExistsException(request.fileName)
                     }
-                    val partial = fs.createFile(
-                        directory,
-                        ".clipforge-partial-${UUID.randomUUID()}",
-                    )
-                    RemoteFileProvider.outputUriFor(
-                        context = this@MainActivity,
-                        partialEntry = partial,
-                        finalName = request.fileName,
-                        mimeType = request.mimeType,
-                    )
+                    when (directory.scheme) {
+                        XId.SCHEME_FILE -> {
+                            val output = fs.createFile(directory, request.fileName)
+                            val path = output.localPath ?: output.path
+                            FileProvider.getUriForFile(
+                                this@MainActivity,
+                                "${packageName}.fileprovider",
+                                File(path),
+                            )
+                        }
+                        XId.SCHEME_SMB -> {
+                            val partial = fs.createFile(
+                                directory,
+                                ".clipforge-partial-${UUID.randomUUID()}",
+                            )
+                            RemoteFileProvider.outputUriFor(
+                                context = this@MainActivity,
+                                partialEntry = partial,
+                                finalName = request.fileName,
+                                mimeType = request.mimeType,
+                            )
+                        }
+                        else -> error("Unsupported output scheme")
+                    }
                 }
             }
             result.fold(
@@ -398,11 +417,22 @@ private fun Root(
                     }
                 }
                 val canSave = focusedDir?.let { dir ->
-                    dir.isDir && dir.scheme == XId.SCHEME_SMB &&
+                    dir.isDir && dir.scheme in setOf(XId.SCHEME_FILE, XId.SCHEME_SMB) &&
                         runCatching { Graph.fsRegistry.forEntry(dir).canWrite(dir) }.getOrDefault(false)
                 } == true
-                val location = focusedDir?.takeIf { it.scheme == XId.SCHEME_SMB }?.let { dir ->
-                    runCatching { Graph.smbConnections.displayLabelPathForId(dir.id) }.getOrNull()
+                val location = focusedDir?.let { dir ->
+                    when (dir.scheme) {
+                        XId.SCHEME_FILE -> dir.path
+                        XId.SCHEME_SMB -> runCatching {
+                            Graph.smbConnections.displayLabelPathForId(dir.id)
+                        }.getOrNull()
+                        else -> null
+                    }
+                }
+                val destinationKind = when (focusedDir?.scheme) {
+                    XId.SCHEME_FILE -> "端末"
+                    XId.SCHEME_SMB -> "SMB"
+                    else -> null
                 }
 
                 Surface(
@@ -422,9 +452,9 @@ private fun Root(
                         Text(request.fileName, style = MaterialTheme.typography.bodyMedium)
                         Text(
                             if (canSave) {
-                                "${location ?: "このSMBフォルダ"}へ、結合しながら直接書き込みます。"
+                                "${location ?: "この${destinationKind ?: ""}フォルダ"}へ直接保存します。"
                             } else {
-                                "保存したいSMBフォルダを開いてください。ローカル保存は従来の共有経路を使います。"
+                                "保存したい端末内またはSMBのフォルダを開いてください。"
                             },
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -432,7 +462,7 @@ private fun Root(
                             onClick = { focusedDir?.let { onReturnOutput(it, request) } },
                             enabled = canSave,
                         ) {
-                            Text("ここへ直接保存")
+                            Text("ここへ保存")
                         }
                     }
                 }
