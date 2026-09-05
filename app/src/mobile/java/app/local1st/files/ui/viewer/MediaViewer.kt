@@ -232,7 +232,11 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         onClose = onClose,
                     )
                 }
-                VideoCastButton()
+                VideoCastButton(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 64.dp),
+                )
             }
         }
     } else {
@@ -251,7 +255,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 }
 
 @Composable
-private fun VideoCastButton() {
+private fun VideoCastButton(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val activity = remember(context) { context.findViewerActivity() }
     var inPictureInPicture by remember(activity) {
@@ -277,9 +281,7 @@ private fun VideoCastButton() {
         Surface(
             color = Color.Black.copy(alpha = 0.48f),
             shape = CircleShape,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 12.dp, end = 64.dp),
+            modifier = modifier,
         ) {
             CompositionLocalProvider(LocalContentColor provides Color.White) {
                 MediaRouteButton()
