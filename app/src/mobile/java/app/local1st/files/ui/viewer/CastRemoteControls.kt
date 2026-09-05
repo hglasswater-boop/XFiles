@@ -1,5 +1,6 @@
 package app.local1st.files.ui.viewer
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +32,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +45,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import app.local1st.files.core.fs.XEntry
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -58,12 +61,71 @@ internal fun CastRemoteControls(
 ) {
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
+    var userScrubbing by remember { mutableStateOf(false) }
+    var pendingSeekTargetMs by remember { mutableStateOf<Long?>(null) }
+    var inFlightSeekTargetMs by remember { mutableStateOf<Long?>(null) }
+    var inFlightSeekDeadlineMs by remember { mutableLongStateOf(0L) }
+    var lastSubmittedSeekAtMs by remember { mutableLongStateOf(0L) }
+
+    fun boundedSeekTarget(targetMs: Long): Long {
+        val nonNegative = targetMs.coerceAtLeast(0L)
+        return if (durationMs > 0L) nonNegative.coerceAtMost(durationMs) else nonNegative
+    }
+
+    fun submitSeek(targetMs: Long, coalesceBurst: Boolean) {
+        val target = boundedSeekTarget(targetMs)
+        positionMs = target
+
+        val now = SystemClock.elapsedRealtime()
+        val insideBurstWindow = lastSubmittedSeekAtMs > 0L &&
+            now - lastSubmittedSeekAtMs < CAST_SEEK_COALESCE_WINDOW_MS
+        if (coalesceBurst && (pendingSeekTargetMs != null || insideBurstWindow)) {
+            pendingSeekTargetMs = target
+            return
+        }
+
+        pendingSeekTargetMs = null
+        player.seekTo(target)
+        lastSubmittedSeekAtMs = now
+        inFlightSeekTargetMs = target
+        inFlightSeekDeadlineMs = now + CAST_SEEK_ACK_TIMEOUT_MS
+    }
+
+    fun activeSeekBase(): Long = pendingSeekTargetMs ?: inFlightSeekTargetMs ?: positionMs
+
+    LaunchedEffect(pendingSeekTargetMs, player, entry.id) {
+        val target = pendingSeekTargetMs ?: return@LaunchedEffect
+        delay(CAST_SEEK_COALESCE_WINDOW_MS)
+        if (pendingSeekTargetMs != target) return@LaunchedEffect
+
+        val now = SystemClock.elapsedRealtime()
+        player.seekTo(target)
+        lastSubmittedSeekAtMs = now
+        inFlightSeekTargetMs = target
+        inFlightSeekDeadlineMs = now + CAST_SEEK_ACK_TIMEOUT_MS
+        pendingSeekTargetMs = null
+    }
 
     LaunchedEffect(player, entry.id) {
         while (isActive) {
-            positionMs = player.currentPosition.coerceAtLeast(0L)
+            val remotePositionMs = player.currentPosition.coerceAtLeast(0L)
             durationMs = player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L
-            delay(200L)
+            val now = SystemClock.elapsedRealtime()
+            val inFlightTarget = inFlightSeekTargetMs
+
+            when {
+                userScrubbing || pendingSeekTargetMs != null -> Unit
+                inFlightTarget != null -> {
+                    val acknowledged = abs(remotePositionMs - inFlightTarget) <= CAST_SEEK_ACK_TOLERANCE_MS
+                    val timedOut = now >= inFlightSeekDeadlineMs
+                    if (acknowledged || timedOut) {
+                        inFlightSeekTargetMs = null
+                        positionMs = remotePositionMs
+                    }
+                }
+                else -> positionMs = remotePositionMs
+            }
+            delay(CAST_POSITION_REFRESH_INTERVAL_MS)
         }
     }
 
@@ -121,7 +183,9 @@ internal fun CastRemoteControls(
                     Icon(Icons.Outlined.SkipPrevious, contentDescription = "Previous", tint = Color.White)
                 }
                 IconButton(
-                    onClick = { player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L)) },
+                    onClick = {
+                        submitSeek(activeSeekBase() - CAST_SEEK_STEP_MS, coalesceBurst = true)
+                    },
                 ) {
                     Icon(Icons.Outlined.Replay10, contentDescription = "Back 10 seconds", tint = Color.White)
                 }
@@ -133,8 +197,7 @@ internal fun CastRemoteControls(
                 }
                 IconButton(
                     onClick = {
-                        val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE
-                        player.seekTo((player.currentPosition + 10_000L).coerceAtMost(duration))
+                        submitSeek(activeSeekBase() + CAST_SEEK_STEP_MS, coalesceBurst = true)
                     },
                 ) {
                     Icon(Icons.Outlined.Forward10, contentDescription = "Forward 10 seconds", tint = Color.White)
@@ -150,7 +213,14 @@ internal fun CastRemoteControls(
             if (durationMs > 0L) {
                 Slider(
                     value = positionMs.coerceAtMost(durationMs).toFloat(),
-                    onValueChange = { player.seekTo(it.toLong()) },
+                    onValueChange = {
+                        userScrubbing = true
+                        positionMs = it.toLong()
+                    },
+                    onValueChangeFinished = {
+                        userScrubbing = false
+                        submitSeek(positionMs, coalesceBurst = false)
+                    },
                     valueRange = 0f..durationMs.toFloat(),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -174,3 +244,9 @@ private fun formatCastTime(ms: Long): String {
         "%d:%02d".format(minutes, seconds)
     }
 }
+
+private const val CAST_SEEK_STEP_MS = 10_000L
+private const val CAST_SEEK_COALESCE_WINDOW_MS = 400L
+private const val CAST_SEEK_ACK_TIMEOUT_MS = 3_000L
+private const val CAST_SEEK_ACK_TOLERANCE_MS = 1_500L
+private const val CAST_POSITION_REFRESH_INTERVAL_MS = 200L
