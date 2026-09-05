@@ -1,7 +1,9 @@
 package app.local1st.files.ui.viewer
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,7 +55,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.net.toUri
+import androidx.core.util.Consumer
 import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
@@ -228,17 +232,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         onClose = onClose,
                     )
                 }
-                Surface(
-                    color = Color.Black.copy(alpha = 0.48f),
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 12.dp, end = 64.dp),
-                ) {
-                    CompositionLocalProvider(LocalContentColor provides Color.White) {
-                        MediaRouteButton()
-                    }
-                }
+                VideoCastButton()
             }
         }
     } else {
@@ -254,6 +248,50 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             onClose = onClose,
         )
     }
+}
+
+@Composable
+private fun VideoCastButton() {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findViewerActivity() }
+    var inPictureInPicture by remember(activity) {
+        mutableStateOf(activity?.isInPictureInPictureMode == true)
+    }
+
+    DisposableEffect(activity) {
+        if (activity == null) {
+            onDispose { }
+        } else {
+            val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
+                inPictureInPicture = info.isInPictureInPictureMode
+            }
+            activity.addOnPictureInPictureModeChangedListener(listener)
+            inPictureInPicture = activity.isInPictureInPictureMode
+            onDispose {
+                activity.removeOnPictureInPictureModeChangedListener(listener)
+            }
+        }
+    }
+
+    if (!inPictureInPicture) {
+        Surface(
+            color = Color.Black.copy(alpha = 0.48f),
+            shape = CircleShape,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 12.dp, end = 64.dp),
+        ) {
+            CompositionLocalProvider(LocalContentColor provides Color.White) {
+                MediaRouteButton()
+            }
+        }
+    }
+}
+
+private tailrec fun Context.findViewerActivity(): ComponentActivity? = when (this) {
+    is ComponentActivity -> this
+    is ContextWrapper -> baseContext.findViewerActivity()
+    else -> null
 }
 
 private fun mediaUri(entry: XEntry) = when {
