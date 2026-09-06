@@ -25,6 +25,7 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 
 /**
@@ -36,10 +37,13 @@ import kotlin.math.min
  * only after the caller finishes successfully. delete() aborts and removes the partial file.
  */
 class RemoteFileProvider : ContentProvider() {
-    private val callbackThread by lazy {
-        HandlerThread("XFiles-remote-file").apply { start() }
+    private val callbackHandlers by lazy {
+        List(PROXY_CALLBACK_THREADS) { index ->
+            val thread = HandlerThread("XFiles-remote-file-$index").apply { start() }
+            Handler(thread.looper)
+        }
     }
-    private val callbackHandler by lazy { Handler(callbackThread.looper) }
+    private val nextCallbackHandlerIndex = AtomicInteger()
     private val outputSessions = ConcurrentHashMap<String, OutputSession>()
 
     override fun onCreate(): Boolean = true
@@ -88,6 +92,7 @@ class RemoteFileProvider : ContentProvider() {
         val callback = object : ProxyFileDescriptorCallback() {
             private var currentRemote = remote
             private var released = false
+            private val readAhead = SequentialReadAhead(REMOTE_IO_BUFFER_BYTES)
 
             override fun onGetSize(): Long = size
 
@@ -99,31 +104,51 @@ class RemoteFileProvider : ContentProvider() {
                 val count = min(min(requestedSize, data.size).toLong(), remaining).toInt()
                 if (count <= 0) return 0
 
+                return readAhead.read(
+                    position = offset,
+                    destination = data,
+                    destinationOffset = 0,
+                    length = count,
+                    sourceRead = ::readRemoteFully,
+                ).coerceAtLeast(0)
+            }
+
+            private fun readRemoteFully(
+                position: Long,
+                target: ByteArray,
+                targetOffset: Int,
+                count: Int,
+            ): Int {
+                if (position >= size || count <= 0) return 0
+                val cappedCount = min(count.toLong(), size - position).toInt()
                 var total = 0
-                var reconnects = 0
-                while (total < count) {
-                    val read = try {
-                        currentRemote.read(
-                            offset + total,
-                            data,
-                            total,
-                            count - total,
-                        )
-                    } catch (error: Throwable) {
-                        if (reconnects >= MAX_RECONNECTS) {
-                            throw ErrnoException("SMB read", OsConstants.EIO, error)
-                        }
-                        reconnects += 1
-                        runCatching { currentRemote.close() }
-                        currentRemote = try {
-                            SmbRandomAccessFile.open(id, Graph.smbConnections)
-                        } catch (reopenError: Throwable) {
+                while (total < cappedCount) {
+                    var reconnects = 0
+                    var read = 0
+                    while (true) {
+                        try {
+                            read = currentRemote.read(
+                                position + total,
+                                target,
+                                targetOffset + total,
+                                cappedCount - total,
+                            )
+                            break
+                        } catch (error: Throwable) {
                             if (reconnects >= MAX_RECONNECTS) {
-                                throw ErrnoException("SMB reconnect", OsConstants.EIO, reopenError)
+                                throw ErrnoException("SMB read", OsConstants.EIO, error)
                             }
-                            continue
+                            reconnects += 1
+                            runCatching { currentRemote.close() }
+                            currentRemote = try {
+                                SmbRandomAccessFile.open(id, Graph.smbConnections)
+                            } catch (reopenError: Throwable) {
+                                if (reconnects >= MAX_RECONNECTS) {
+                                    throw ErrnoException("SMB reconnect", OsConstants.EIO, reopenError)
+                                }
+                                continue
+                            }
                         }
-                        continue
                     }
                     if (read <= 0) break
                     total += read
@@ -155,6 +180,7 @@ class RemoteFileProvider : ContentProvider() {
         outputSessions[id] = session
         val callback = object : ProxyFileDescriptorCallback() {
             private var currentRemote = remote
+            private val writeBuffer = SequentialWriteBuffer(REMOTE_IO_BUFFER_BYTES)
             // Output URIs always point at a partial file created immediately before the grant.
             private var knownSize = 0L
             private var released = false
@@ -165,25 +191,56 @@ class RemoteFileProvider : ContentProvider() {
             override fun onRead(offset: Long, requestedSize: Int, data: ByteArray): Int {
                 if (released || offset < 0L || requestedSize <= 0 || data.isEmpty()) return 0
                 if (offset >= knownSize) return 0
+                flushBufferedWrites()
                 val count = min(min(requestedSize, data.size).toLong(), knownSize - offset).toInt()
                 if (count <= 0) return 0
-                return withReconnect("SMB output read") { handle ->
-                    handle.read(offset, data, 0, count).coerceAtLeast(0)
+
+                var total = 0
+                while (total < count) {
+                    val read = withReconnect("SMB output read") { handle ->
+                        handle.read(offset + total, data, total, count - total)
+                    }
+                    if (read <= 0) break
+                    total += read
                 }
+                return total
             }
 
             @Synchronized
             override fun onWrite(offset: Long, requestedSize: Int, data: ByteArray): Int {
                 if (released || offset < 0L || requestedSize <= 0 || data.isEmpty()) return 0
                 val count = min(requestedSize, data.size)
-                val written = withReconnect("SMB output write") { handle ->
-                    handle.write(offset, data, 0, count)
-                }
-                if (written > 0) {
-                    knownSize = maxOf(knownSize, offset + written)
+                val accepted = writeBuffer.write(
+                    position = offset,
+                    source = data,
+                    sourceOffset = 0,
+                    count = count,
+                    sinkWrite = ::writeRemote,
+                )
+                if (accepted > 0) {
+                    knownSize = maxOf(knownSize, offset + accepted)
                     session.expectedSize = knownSize
                 }
-                return written
+                return accepted
+            }
+
+            @Synchronized
+            override fun onFsync() {
+                flushBufferedWrites()
+                withReconnect<Unit>("SMB output flush") { handle -> handle.flush() }
+            }
+
+            private fun writeRemote(
+                position: Long,
+                data: ByteArray,
+                offset: Int,
+                count: Int,
+            ): Int = withReconnect("SMB output write") { handle ->
+                handle.write(position, data, offset, count)
+            }
+
+            private fun flushBufferedWrites() {
+                writeBuffer.flush(::writeRemote)
             }
 
             private fun <T> withReconnect(label: String, block: (SmbRandomAccessOutputFile) -> T): T {
@@ -214,19 +271,29 @@ class RemoteFileProvider : ContentProvider() {
                 if (released) return
                 released = true
                 var failure: Throwable? = null
+
+                fun recordFailure(error: Throwable) {
+                    if (failure == null) {
+                        failure = error
+                    } else {
+                        failure?.addSuppressed(error)
+                    }
+                }
+
+                try {
+                    flushBufferedWrites()
+                } catch (error: Throwable) {
+                    recordFailure(error)
+                }
                 try {
                     currentRemote.flush()
                 } catch (error: Throwable) {
-                    failure = error
+                    recordFailure(error)
                 }
                 try {
                     currentRemote.close()
                 } catch (error: Throwable) {
-                    if (failure == null) {
-                        failure = error
-                    } else {
-                        failure.addSuppressed(error)
-                    }
+                    recordFailure(error)
                 } finally {
                     session.releaseFailure = failure
                     session.released.countDown()
@@ -247,12 +314,18 @@ class RemoteFileProvider : ContentProvider() {
         closeOnFailure: () -> Unit,
     ): ParcelFileDescriptor = try {
         val storage = requireNotNull(context?.getSystemService(StorageManager::class.java))
-        storage.openProxyFileDescriptor(mode, callback, callbackHandler)
+        storage.openProxyFileDescriptor(mode, callback, nextCallbackHandler())
     } catch (error: Throwable) {
         closeOnFailure()
         throw FileNotFoundException(error.message ?: "Unable to expose SMB file").also {
             it.initCause(error)
         }
+    }
+
+    private fun nextCallbackHandler(): Handler {
+        val handlers = callbackHandlers
+        val index = (nextCallbackHandlerIndex.getAndIncrement() and Int.MAX_VALUE) % handlers.size
+        return handlers[index]
     }
 
     override fun openAssetFile(uri: Uri, mode: String): AssetFileDescriptor =
@@ -386,6 +459,8 @@ class RemoteFileProvider : ContentProvider() {
         private const val PARAM_FINAL_NAME = "finalName"
         private const val MODE_OUTPUT = "output"
         private const val MAX_RECONNECTS = 2
+        private const val PROXY_CALLBACK_THREADS = 4
+        private const val REMOTE_IO_BUFFER_BYTES = 1024 * 1024
         private const val COMMIT_RELEASE_TIMEOUT_SECONDS = 60L
         private val DEFAULT_PROJECTION = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
 
