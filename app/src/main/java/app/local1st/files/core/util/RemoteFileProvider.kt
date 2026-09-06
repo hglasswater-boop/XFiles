@@ -246,8 +246,16 @@ class RemoteFileProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
     ): Int {
         if (!isOutputUri(uri)) throw UnsupportedOperationException("Remote input files are read-only")
-        if (values?.getAsBoolean(KEY_COMMIT) != true) return 0
         val id = requireSmbId(uri)
+
+        if (values?.getAsBoolean(KEY_TRUNCATE) == true) {
+            SmbRandomAccessOutputFile.open(id, Graph.smbConnections).use { output ->
+                output.setLength(0L)
+            }
+            return 1
+        }
+
+        if (values?.getAsBoolean(KEY_COMMIT) != true) return 0
         val finalName = uri.getQueryParameter(PARAM_FINAL_NAME)
             ?.takeIf { it.isNotBlank() }
             ?: throw IOException("Missing final output name")
@@ -289,6 +297,7 @@ class RemoteFileProvider : ContentProvider() {
 
     companion object {
         const val KEY_COMMIT = "commit"
+        const val KEY_TRUNCATE = "truncate"
         private const val AUTHORITY_SUFFIX = ".remotefileprovider"
         private const val PARAM_ID = "id"
         private const val PARAM_NAME = "name"
