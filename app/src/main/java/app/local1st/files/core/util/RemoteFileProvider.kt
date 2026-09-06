@@ -177,6 +177,17 @@ class RemoteFileProvider : ContentProvider() {
                 return written
             }
 
+            @Synchronized
+            override fun onSetSize(size: Long) {
+                if (released || size < 0L) {
+                    throw ErrnoException("SMB output truncate", OsConstants.EINVAL)
+                }
+                withReconnect("SMB output truncate") { handle ->
+                    handle.setLength(size)
+                }
+                knownSize = size
+            }
+
             private fun <T> withReconnect(label: String, block: (SmbRandomAccessOutputFile) -> T): T {
                 var reconnects = 0
                 while (true) {
