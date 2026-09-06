@@ -53,7 +53,7 @@ class SmbRandomAccessFile private constructor(
 
         fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessFile {
             val target = resolveTarget(id, connections)
-            val client = SMBClient()
+            val client = SmbClientFactory.create()
             try {
                 val connection = client.connect(target.connection.host, target.connection.port)
                 val auth = if (target.connection.username.isBlank()) {
