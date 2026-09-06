@@ -38,6 +38,13 @@ class SmbRandomAccessOutputFile private constructor(
         return file.write(buffer, position, offset, length).toInt()
     }
 
+    @Synchronized
+    fun setLength(length: Long) {
+        check(!closed) { "SMB file is closed" }
+        require(length >= 0L) { "length must be >= 0" }
+        file.setLength(length)
+    }
+
     override fun close() {
         if (closed) return
         closed = true
