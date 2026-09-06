@@ -2,7 +2,7 @@ package app.local1st.files.core.util
 
 /**
  * Returns the narrowest safe MIME type for a multi-file share intent.
- * Keeping homogeneous video shares as video/* lets video-only targets appear in Android's chooser.
+ * Keeping homogeneous video shares as a video wildcard MIME lets video-only targets appear.
  */
 internal fun commonShareMimeType(mimeTypes: List<String?>): String {
     if (mimeTypes.isEmpty()) return "*/*"
