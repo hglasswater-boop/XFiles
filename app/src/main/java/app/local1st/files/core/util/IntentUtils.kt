@@ -83,15 +83,16 @@ object IntentUtils {
         return try {
             if (entries.isEmpty() || entries.any { !canExternalRead(it) }) return false
             val uris = entries.map { uriFor(context, it) }
+            val mimeTypes = entries.map { entry -> entry.mime ?: FileTypes.mimeOf(entry.name) }
             val clipData = ClipData.newUri(context.contentResolver, entries.first().name, uris.first())
             uris.drop(1).forEach { clipData.addItem(ClipData.Item(it)) }
             val intent = if (uris.size == 1) {
                 Intent(Intent.ACTION_SEND)
-                    .setType(entries.first().mime ?: FileTypes.mimeOf(entries.first().name) ?: "*/*")
+                    .setType(mimeTypes.first() ?: "*/*")
                     .putExtra(Intent.EXTRA_STREAM, uris.first())
             } else {
                 Intent(Intent.ACTION_SEND_MULTIPLE)
-                    .setType("*/*")
+                    .setType(commonShareMimeType(mimeTypes))
                     .putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
             }
             intent.clipData = clipData
