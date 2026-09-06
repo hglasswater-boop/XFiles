@@ -124,14 +124,16 @@ class RemoteFileProvider : ContentProvider() {
                 var total = 0
                 while (total < cappedCount) {
                     var reconnects = 0
-                    val read = while (true) {
+                    var read = 0
+                    while (true) {
                         try {
-                            break currentRemote.read(
+                            read = currentRemote.read(
                                 position + total,
                                 target,
                                 targetOffset + total,
                                 cappedCount - total,
                             )
+                            break
                         } catch (error: Throwable) {
                             if (reconnects >= MAX_RECONNECTS) {
                                 throw ErrnoException("SMB read", OsConstants.EIO, error)
