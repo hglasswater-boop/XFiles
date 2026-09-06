@@ -22,6 +22,9 @@ import app.local1st.files.core.fs.XId
 import app.local1st.files.di.Graph
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 /**
@@ -37,6 +40,7 @@ class RemoteFileProvider : ContentProvider() {
         HandlerThread("XFiles-remote-file").apply { start() }
     }
     private val callbackHandler by lazy { Handler(callbackThread.looper) }
+    private val outputSessions = ConcurrentHashMap<String, OutputSession>()
 
     override fun onCreate(): Boolean = true
 
@@ -147,6 +151,8 @@ class RemoteFileProvider : ContentProvider() {
                 it.initCause(error)
             }
         }
+        val session = OutputSession()
+        outputSessions[id] = session
         val callback = object : ProxyFileDescriptorCallback() {
             private var currentRemote = remote
             // Output URIs always point at a partial file created immediately before the grant.
@@ -173,7 +179,10 @@ class RemoteFileProvider : ContentProvider() {
                 val written = withReconnect("SMB output write") { handle ->
                     handle.write(offset, data, 0, count)
                 }
-                if (written > 0) knownSize = maxOf(knownSize, offset + written)
+                if (written > 0) {
+                    knownSize = maxOf(knownSize, offset + written)
+                    session.expectedSize = knownSize
+                }
                 return written
             }
 
@@ -204,10 +213,32 @@ class RemoteFileProvider : ContentProvider() {
             override fun onRelease() {
                 if (released) return
                 released = true
-                currentRemote.close()
+                var failure: Throwable? = null
+                try {
+                    currentRemote.flush()
+                } catch (error: Throwable) {
+                    failure = error
+                }
+                try {
+                    currentRemote.close()
+                } catch (error: Throwable) {
+                    if (failure == null) {
+                        failure = error
+                    } else {
+                        failure.addSuppressed(error)
+                    }
+                } finally {
+                    session.releaseFailure = failure
+                    session.released.countDown()
+                }
             }
         }
-        return openProxy(ParcelFileDescriptor.MODE_READ_WRITE, callback, remote::close)
+        return try {
+            openProxy(ParcelFileDescriptor.MODE_READ_WRITE, callback, remote::close)
+        } catch (error: Throwable) {
+            outputSessions.remove(id, session)
+            throw error
+        }
     }
 
     private fun openProxy(
@@ -233,6 +264,7 @@ class RemoteFileProvider : ContentProvider() {
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int {
         if (!isOutputUri(uri)) throw UnsupportedOperationException("Remote input files are read-only")
         val id = requireSmbId(uri)
+        outputSessions.remove(id)
         val fs = Graph.fsRegistry.forId(id)
         val entry = fs.stat(id) ?: return 0
         fs.delete(entry)
@@ -249,23 +281,60 @@ class RemoteFileProvider : ContentProvider() {
         val id = requireSmbId(uri)
 
         if (values?.getAsBoolean(KEY_TRUNCATE) == true) {
+            outputSessions.remove(id)
             SmbRandomAccessOutputFile.open(id, Graph.smbConnections).use { output ->
                 output.setLength(0L)
+                output.flush()
             }
             return 1
         }
 
         if (values?.getAsBoolean(KEY_COMMIT) != true) return 0
+        val session = outputSessions[id]
+            ?: throw IOException("SMB出力セッションを確認できません。保存完了にはできません")
+        val released = try {
+            session.released.await(COMMIT_RELEASE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IOException("SMB出力の確定待機が中断されました", error)
+        }
+        if (!released) {
+            throw IOException("SMB出力のクローズ確認がタイムアウトしました")
+        }
+        session.releaseFailure?.let { error ->
+            throw IOException("SMBへの最終書き込み確定に失敗しました", error)
+        }
+
+        val expectedSize = session.expectedSize
         val finalName = uri.getQueryParameter(PARAM_FINAL_NAME)
             ?.takeIf { it.isNotBlank() }
             ?: throw IOException("Missing final output name")
         val fs = Graph.fsRegistry.forId(id)
         val entry = fs.stat(id) ?: throw IOException("Partial output no longer exists")
+        if (entry.size != expectedSize) {
+            throw IOException(
+                "SMB出力サイズが一致しません: expected=$expectedSize actual=${entry.size}",
+            )
+        }
+        verifyRemoteTail(id, expectedSize)
+
         val parentId = XId.parent(id) ?: throw IOException("Output parent is missing")
         val finalId = "${parentId.trimEnd('/')}/$finalName"
         if (fs.stat(finalId) != null) throw IOException("同名のファイルが既にあります: $finalName")
         fs.rename(entry, finalName)
+        outputSessions.remove(id, session)
         return 1
+    }
+
+    private fun verifyRemoteTail(id: String, expectedSize: Long) {
+        if (expectedSize <= 0L) return
+        val probe = ByteArray(1)
+        SmbRandomAccessFile.open(id, Graph.smbConnections).use { remote ->
+            val read = remote.read(expectedSize - 1L, probe, 0, probe.size)
+            if (read != 1) {
+                throw IOException("SMB出力の末尾を再確認できませんでした")
+            }
+        }
     }
 
     private fun requireSmbId(uri: Uri): String {
@@ -295,6 +364,16 @@ class RemoteFileProvider : ContentProvider() {
             ?: throw FileNotFoundException("Unable to determine SMB file size")
     }
 
+    private class OutputSession {
+        @Volatile
+        var expectedSize: Long = 0L
+
+        @Volatile
+        var releaseFailure: Throwable? = null
+
+        val released = CountDownLatch(1)
+    }
+
     companion object {
         const val KEY_COMMIT = "commit"
         const val KEY_TRUNCATE = "truncate"
@@ -307,6 +386,7 @@ class RemoteFileProvider : ContentProvider() {
         private const val PARAM_FINAL_NAME = "finalName"
         private const val MODE_OUTPUT = "output"
         private const val MAX_RECONNECTS = 2
+        private const val COMMIT_RELEASE_TIMEOUT_SECONDS = 60L
         private val DEFAULT_PROJECTION = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
 
         fun canServe(entry: XEntry): Boolean =

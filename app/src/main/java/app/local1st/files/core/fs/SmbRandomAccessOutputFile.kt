@@ -45,6 +45,17 @@ class SmbRandomAccessOutputFile private constructor(
         file.setLength(length)
     }
 
+    @Synchronized
+    fun flush() {
+        check(!closed) { "SMB file is closed" }
+        try {
+            file.flush()
+        } catch (error: Throwable) {
+            if (error is IOException) throw error
+            throw IOException(error.message ?: "SMB output flush failed", error)
+        }
+    }
+
     override fun close() {
         if (closed) return
         closed = true
