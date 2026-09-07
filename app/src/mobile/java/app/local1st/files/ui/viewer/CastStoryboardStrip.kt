@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -64,8 +65,9 @@ private sealed interface CastStoryboardUiState {
 /**
  * Storyboard for the remote Cast controller.
  *
- * Portrait uses a vertically scrolling large-preview timeline, while landscape keeps the compact
- * horizontal strip. Both layouts reuse the browser storyboard loader and disk cache.
+ * Portrait uses a vertically scrolling compact-preview timeline sized so roughly five frames can
+ * stay visible at once. Landscape keeps the compact horizontal strip. Both layouts reuse the
+ * browser storyboard loader and disk cache.
  */
 @Composable
 internal fun CastStoryboardStrip(
@@ -152,7 +154,7 @@ internal fun CastStoryboardStrip(
                 if (vertical) {
                     LazyColumn(
                         state = listState,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
@@ -160,43 +162,64 @@ internal fun CastStoryboardStrip(
                         items(frames, key = { it.index }) { frame ->
                             val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
                             val selected = frame.index == nearestIndex
-                            val shape = RoundedCornerShape(12.dp)
+                            val shape = RoundedCornerShape(10.dp)
+                            val previewModifier = Modifier
+                                .fillMaxWidth(0.48f)
+                                .widthIn(max = 180.dp)
+                                .aspectRatio(16f / 9f)
+
                             Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable(enabled = image != null) { onSeek(frame.timeMs) },
                             ) {
-                                if (image != null) {
-                                    AsyncImage(
-                                        model = image,
-                                        contentDescription = formatVideoDuration(frame.timeMs),
-                                        contentScale = ContentScale.Crop,
+                                Box(modifier = previewModifier) {
+                                    if (image != null) {
+                                        AsyncImage(
+                                            model = image,
+                                            contentDescription = formatVideoDuration(frame.timeMs),
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(shape)
+                                                .then(
+                                                    if (selected) {
+                                                        Modifier.border(
+                                                            width = 3.dp,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            shape = shape,
+                                                        )
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                ),
+                                        )
+                                    } else {
+                                        StoryboardPlaceholder(
+                                            complete = current.complete,
+                                            shape = shape,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+
+                                    Text(
+                                        text = formatVideoDuration(frame.timeMs),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            Color.White
+                                        },
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f)
-                                            .clip(shape)
-                                            .then(
-                                                if (selected) {
-                                                    Modifier.border(
-                                                        width = 3.dp,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        shape = shape,
-                                                    )
-                                                } else {
-                                                    Modifier
-                                                },
-                                            ),
-                                    )
-                                } else {
-                                    StoryboardPlaceholder(
-                                        complete = current.complete,
-                                        shape = shape,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f),
+                                            .align(Alignment.BottomStart)
+                                            .background(
+                                                Color.Black.copy(alpha = 0.62f),
+                                                RoundedCornerShape(topEnd = 7.dp),
+                                            )
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
                                     )
                                 }
-                                StoryboardTimestamp(frame.timeMs, selected)
                             }
                         }
 
@@ -205,7 +228,7 @@ internal fun CastStoryboardStrip(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(72.dp),
+                                        .height(52.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     LoadingIndicator(Modifier.size(22.dp))
@@ -283,7 +306,7 @@ internal fun CastStoryboardStrip(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp),
+                        .padding(top = 2.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
