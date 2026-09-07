@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -205,9 +206,7 @@ internal fun CastRemoteControls(
                 animationSpec = tween(180),
                 targetScale = 0.96f,
             ),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(bottom = 116.dp),
+            modifier = Modifier.align(Alignment.Center),
         ) {
             Surface(
                 color = Color.Black.copy(alpha = 0.72f),
@@ -225,10 +224,11 @@ internal fun CastRemoteControls(
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(),
+                .align(Alignment.TopCenter)
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = 68.dp, bottom = 18.dp),
         ) {
             Text(
                 entry.name,
@@ -238,11 +238,13 @@ internal fun CastRemoteControls(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 40.dp),
+                    .padding(horizontal = 40.dp, vertical = 4.dp),
             )
+
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp),
             ) {
                 IconButton(
                     onClick = { player.seekToPreviousMediaItem() },
@@ -280,6 +282,23 @@ internal fun CastRemoteControls(
                 }
             }
 
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, top = 4.dp, bottom = 8.dp),
+            ) {
+                CastStoryboardStrip(
+                    entry = entry,
+                    positionMs = positionMs,
+                    onSeek = { targetMs ->
+                        userScrubbing = false
+                        submitSeek(targetMs, coalesceBurst = false)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
             if (durationMs > 0L) {
                 Slider(
                     value = if (userScrubbing) sliderTarget else animatedSliderPosition,
@@ -294,7 +313,7 @@ internal fun CastRemoteControls(
                     valueRange = 0f..durationMs.toFloat(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 40.dp),
+                        .padding(horizontal = 32.dp),
                 )
                 Row(
                     modifier = Modifier
@@ -306,18 +325,6 @@ internal fun CastRemoteControls(
                     Text(formatCastTime(durationMs), color = Color.White)
                 }
             }
-
-            CastStoryboardStrip(
-                entry = entry,
-                positionMs = positionMs,
-                onSeek = { targetMs ->
-                    userScrubbing = false
-                    submitSeek(targetMs, coalesceBurst = false)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-            )
         }
     }
 }
