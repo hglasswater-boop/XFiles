@@ -149,33 +149,6 @@ internal fun CastStoryboardStrip(
             }
 
             Column(modifier = modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(
-                        enabled = nearestIndex >= 0,
-                        onClick = {
-                            if (nearestIndex >= 0) {
-                                scope.launch {
-                                    listState.animateScrollToItem(nearestIndex)
-                                }
-                            }
-                        },
-                    ) {
-                        Icon(
-                            Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.cast_jump_to_current_storyboard),
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
-                    }
-                }
-
                 if (vertical) {
                     LazyColumn(
                         state = listState,
@@ -304,6 +277,35 @@ internal fun CastStoryboardStrip(
                                 }
                             }
                         }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        enabled = nearestIndex >= 0,
+                        onClick = {
+                            if (nearestIndex >= 0) {
+                                scope.launch {
+                                    listState.animateScrollToItem(nearestIndex)
+                                }
+                            }
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.cast_jump_to_current_storyboard),
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
                     }
                 }
             }
