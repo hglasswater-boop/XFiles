@@ -1,5 +1,6 @@
 package app.local1st.files.core.fs
 
+import app.local1st.files.BuildConfig
 import app.local1st.files.core.prefs.SmbConnectionConfig
 import app.local1st.files.core.prefs.SmbConnectionRepo
 import java.io.Closeable
@@ -60,12 +61,15 @@ internal fun resolveSmbRandomAccessTarget(
 /**
  * Single migration seam for seekable SMB I/O.
  *
- * Keep the default on SMBJ until the Rust native library is packaged and its compatibility gates
- * pass. The selection point lives here rather than leaking a backend feature flag into viewers.
+ * The default build stays on SMBJ. Developer/benchmark builds can opt into Rust with
+ * `-PxfilesSmbBackend=rust`; no viewer or business code sees that flag.
  */
 internal object SmbRandomAccessBackends {
     @Volatile
-    private var backend: SmbRandomAccessBackend = SmbjRandomAccessBackend
+    private var backend: SmbRandomAccessBackend = when (BuildConfig.SMB_RANDOM_ACCESS_BACKEND) {
+        "rust" -> RustSmbRandomAccessBackend
+        else -> SmbjRandomAccessBackend
+    }
 
     fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessHandle =
         backend.open(id, connections)
