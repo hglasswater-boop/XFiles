@@ -47,31 +47,44 @@ internal class SequentialReadAhead(
                 startIndex = cacheOffset,
                 endIndex = cacheOffset + copied,
             )
-            lastReadEnd = position + copied
-            return copied
+            if (copied == length) {
+                lastReadEnd = position + copied
+                return copied
+            }
+
+            // ProxyFileDescriptorCallback.onRead() must return the complete requested range unless
+            // the real file end is reached. A cache hit near the end of the read-ahead window must
+            // therefore continue from SMB instead of exposing the cache boundary as a short read.
+            invalidateCache()
+            val remainder = readFully(
+                position = position + copied,
+                destination = destination,
+                destinationOffset = destinationOffset + copied,
+                length = length - copied,
+                sourceRead = sourceRead,
+            )
+            val total = copied + remainder
+            lastReadEnd = position + total
+            return total
         }
 
         val sequential = position == lastReadEnd
         if (!sequential) {
             invalidateCache()
-            val read = sourceRead(position, destination, destinationOffset, length)
+            val read = readFully(position, destination, destinationOffset, length, sourceRead)
             if (read > 0) lastReadEnd = position + read
             return read
         }
 
         val buffer = cache ?: ByteArray(capacity).also { cache = it }
         cacheStart = position
-        cacheLength = 0
-        while (cacheLength < buffer.size) {
-            val read = sourceRead(
-                position + cacheLength,
-                buffer,
-                cacheLength,
-                buffer.size - cacheLength,
-            )
-            if (read <= 0) break
-            cacheLength += read
-        }
+        cacheLength = readFully(
+            position = position,
+            destination = buffer,
+            destinationOffset = 0,
+            length = buffer.size,
+            sourceRead = sourceRead,
+        )
         if (cacheLength <= 0) return cacheLength
 
         val copied = min(length, cacheLength)
@@ -83,6 +96,27 @@ internal class SequentialReadAhead(
         )
         lastReadEnd = position + copied
         return copied
+    }
+
+    private fun readFully(
+        position: Long,
+        destination: ByteArray,
+        destinationOffset: Int,
+        length: Int,
+        sourceRead: (position: Long, buffer: ByteArray, offset: Int, length: Int) -> Int,
+    ): Int {
+        var total = 0
+        while (total < length) {
+            val read = sourceRead(
+                position + total,
+                destination,
+                destinationOffset + total,
+                length - total,
+            )
+            if (read <= 0) break
+            total += read
+        }
+        return total
     }
 
     private fun invalidateCache() {
