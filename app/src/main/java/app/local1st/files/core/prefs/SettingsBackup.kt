@@ -50,6 +50,7 @@ object SettingsBackup {
             .put("thumbnailSize", display.thumbnailSize.name)
             .put("filenameMode", display.filenameMode.name)
             .put("treeLevels", display.treeLevels)
+            .put("storyboardSampleCount", VideoStoryboardSettings.current(context))
 
         val contextMenuOrder = JSONArray().apply {
             ContextMenuOrderSettings.current(context).forEach { id -> put(id) }
@@ -150,6 +151,13 @@ object SettingsBackup {
                 enumValueOrDefault(display.optString("filenameMode"), FilenameDisplayMode.TWO_LINES),
             )
             BrowserDisplaySettings.setTreeLevels(context, display.optInt("treeLevels", 4))
+            VideoStoryboardSettings.setSampleCount(
+                context,
+                display.optInt(
+                    "storyboardSampleCount",
+                    VideoStoryboardSettings.DEFAULT_SAMPLE_COUNT,
+                ),
+            )
         }
 
         root.optJSONArray("contextMenuOrder")?.let { array ->

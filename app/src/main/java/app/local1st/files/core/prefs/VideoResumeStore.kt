@@ -1,10 +1,38 @@
 package app.local1st.files.core.prefs
 
 import android.content.Context
+import android.os.SystemClock
 
 /** Device-local playback positions for videos opened in the built-in player. */
 object VideoResumeStore {
     private const val PREFS_NAME = "video_resume_positions"
+    private const val REQUESTED_START_TTL_MS = 15_000L
+
+    private data class RequestedStart(
+        val positionMs: Long,
+        val requestedAtElapsedMs: Long,
+    )
+
+    private val requestedStarts = HashMap<String, RequestedStart>()
+
+    /**
+     * Queue a one-shot start position without overwriting the user's normal resume position.
+     * This is used by storyboard thumbnails: the next built-in player open consumes the request.
+     */
+    @Synchronized
+    fun requestStart(mediaId: String, positionMs: Long) {
+        requestedStarts[mediaId] = RequestedStart(
+            positionMs = positionMs.coerceAtLeast(0L),
+            requestedAtElapsedMs = SystemClock.elapsedRealtime(),
+        )
+    }
+
+    @Synchronized
+    fun consumeRequestedStart(mediaId: String): Long? {
+        val request = requestedStarts.remove(mediaId) ?: return null
+        val ageMs = SystemClock.elapsedRealtime() - request.requestedAtElapsedMs
+        return request.positionMs.takeIf { ageMs in 0..REQUESTED_START_TTL_MS }
+    }
 
     fun load(context: Context, mediaId: String): Long =
         prefs(context).getLong(mediaId, 0L).coerceAtLeast(0L)

@@ -68,6 +68,7 @@ import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
+import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.thumb.AppIcon
 import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
@@ -216,7 +217,14 @@ fun EntryRow(
                     modifier = Modifier.size(32.dp),
                 )
             } else if (wantsThumbnail) {
-                EntryThumbnail(entry, display)
+                EntryThumbnail(
+                    entry = entry,
+                    display = display,
+                    onOpenAt = { positionMs ->
+                        VideoResumeStore.requestStart(entry.id, positionMs)
+                        onClick()
+                    },
+                )
             } else {
                 EntryIcon(
                     entry,
@@ -503,7 +511,11 @@ private fun StartupEntryRow(
  * tapping the rest of the row keeps the normal open/play behavior.
  */
 @Composable
-private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
+private fun EntryThumbnail(
+    entry: XEntry,
+    display: BrowserDisplayConfig,
+    onOpenAt: (Long) -> Unit,
+) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
     var showStoryboard by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
@@ -611,7 +623,11 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     }
 
     if (showStoryboard) {
-        VideoStoryboardDialog(entry = entry, onDismiss = { showStoryboard = false })
+        VideoStoryboardDialog(
+            entry = entry,
+            onDismiss = { showStoryboard = false },
+            onPlayFrom = onOpenAt,
+        )
     }
 }
 
