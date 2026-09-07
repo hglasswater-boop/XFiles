@@ -13,6 +13,11 @@ val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNul
 val appBuildNumber = ciBuildNumber ?: 1
 val appVersionName = ciBuildNumber?.let { "$appBaseVersionName-b$it" } ?: appBaseVersionName
 val ciKeystore: String? = System.getenv("XFILES_KEYSTORE")
+val smbRandomAccessBackend =
+    ((project.findProperty("xfilesSmbBackend") as String?) ?: "smbj").lowercase()
+require(smbRandomAccessBackend == "smbj" || smbRandomAccessBackend == "rust") {
+    "xfilesSmbBackend must be 'smbj' or 'rust', got '$smbRandomAccessBackend'"
+}
 
 android {
     namespace = "app.local1st.files"
@@ -24,6 +29,11 @@ android {
         targetSdk = 37
         versionCode = appBuildNumber
         versionName = appVersionName
+        buildConfigField(
+            "String",
+            "SMB_RANDOM_ACCESS_BACKEND",
+            "\"$smbRandomAccessBackend\"",
+        )
     }
 
     flavorDimensions += "edition"
