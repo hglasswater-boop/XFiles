@@ -225,35 +225,36 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 onClose = onClose,
             )
         } else {
-            Column(Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+            Box(Modifier.fillMaxSize()) {
+                VideoCompatibilityGuard(
+                    player = localPlayer,
+                    entry = currentEntry,
+                    onClose = onClose,
                 ) {
-                    VideoCompatibilityGuard(
+                    VideoPlayerScreen(
                         player = localPlayer,
                         entry = currentEntry,
+                        playing = playing,
+                        hasPrevious = hasPrevious,
+                        hasNext = hasNext,
                         onClose = onClose,
-                    ) {
-                        VideoPlayerScreen(
-                            player = localPlayer,
-                            entry = currentEntry,
-                            playing = playing,
-                            hasPrevious = hasPrevious,
-                            hasNext = hasNext,
-                            onClose = onClose,
-                        )
-                    }
-                    VideoCastButton(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 12.dp, end = 64.dp),
                     )
                 }
+                VideoCastButton(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 64.dp),
+                )
                 LocalVideoStoryboard(
                     player = localPlayer,
                     entry = currentEntry,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(
+                            start = 12.dp,
+                            end = 12.dp,
+                            bottom = PLAYER_STORYBOARD_BOTTOM_CLEARANCE_DP.dp,
+                        ),
                 )
             }
         }
@@ -292,13 +293,14 @@ private fun LocalVideoStoryboard(
 
     val configuration = LocalConfiguration.current
     val stripHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        92.dp
+        120.dp
     } else {
-        98.dp
+        126.dp
     }
 
     Surface(
-        color = Color.Black,
+        color = Color.Black.copy(alpha = 0.9f),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         modifier = modifier
             .fillMaxWidth()
             .height(stripHeight),
@@ -308,7 +310,7 @@ private fun LocalVideoStoryboard(
             positionMs = positionMs,
             onSeek = { targetMs -> player.seekTo(targetMs) },
             vertical = false,
-            showJumpToCurrent = false,
+            showJumpToCurrent = true,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -413,7 +415,6 @@ private fun AudioPlayerScreen(
         }
     }
 
-    // Nothing scrolls here, so the bar stays put; only the background reaches into the system bars.
     ViewerChrome(
         collapsible = false,
         topBar = {
@@ -532,6 +533,7 @@ internal fun formatPlayTime(ms: Long): String {
     }
 }
 
+private const val PLAYER_STORYBOARD_BOTTOM_CLEARANCE_DP = 142
 private const val PLAYER_STORYBOARD_POSITION_REFRESH_MS = 200L
 private const val VIDEO_RESUME_SAVE_INTERVAL_MS = 2_000L
 private const val VIDEO_RESUME_RESTORE_TOLERANCE_MS = 2_000L
