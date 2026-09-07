@@ -27,9 +27,15 @@ object VideoResumeStore {
         )
     }
 
+    @Synchronized
+    fun consumeRequestedStart(mediaId: String): Long? {
+        val request = requestedStarts.remove(mediaId) ?: return null
+        val ageMs = SystemClock.elapsedRealtime() - request.requestedAtElapsedMs
+        return request.positionMs.takeIf { ageMs in 0..REQUESTED_START_TTL_MS }
+    }
+
     fun load(context: Context, mediaId: String): Long =
-        consumeRequestedStart(mediaId)
-            ?: prefs(context).getLong(mediaId, 0L).coerceAtLeast(0L)
+        prefs(context).getLong(mediaId, 0L).coerceAtLeast(0L)
 
     fun save(context: Context, mediaId: String, positionMs: Long, durationMs: Long) {
         val normalized = normalizeVideoResumePosition(positionMs, durationMs)
@@ -44,13 +50,6 @@ object VideoResumeStore {
 
     fun clear(context: Context, mediaId: String) {
         prefs(context).edit().remove(mediaId).apply()
-    }
-
-    @Synchronized
-    private fun consumeRequestedStart(mediaId: String): Long? {
-        val request = requestedStarts.remove(mediaId) ?: return null
-        val ageMs = SystemClock.elapsedRealtime() - request.requestedAtElapsedMs
-        return request.positionMs.takeIf { ageMs in 0..REQUESTED_START_TTL_MS }
     }
 
     private fun prefs(context: Context) = context.applicationContext
