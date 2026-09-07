@@ -64,6 +64,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
+// Slightly sharper than the original 320x180 preview while staying light enough for SMB batches.
 private const val STORYBOARD_WIDTH = 384
 private const val STORYBOARD_HEIGHT = 216
 
