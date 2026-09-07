@@ -33,6 +33,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 @UnstableApi
 internal class CastMediaRelay(
@@ -52,6 +53,7 @@ internal class CastMediaRelay(
         Thread(task, "xfiles-cast-relay").apply { isDaemon = true }
     }
     private val smbHandles = ConcurrentHashMap<String, SmbRandomAccessFile>()
+    private val streamGenerations = ConcurrentHashMap<String, AtomicLong>()
     private val host = findLanIpv4(context)?.hostAddress
     private val server = if (host != null) {
         runCatching { ServerSocket(0, 32, InetAddress.getByName("0.0.0.0")) }.getOrNull()
@@ -94,6 +96,28 @@ internal class CastMediaRelay(
         return Uri.parse(
             "http://$relayHost:${relayServer.localPort}/media/${source.token}/${Uri.encode(source.entry.name)}",
         )
+    }
+
+    /**
+     * Opens the expensive SMB session/file handles before the Cast receiver asks for them. This is
+     * deliberately asynchronous so player setup and UI never wait for NAS authentication. Sources
+     * are warmed in caller order, with the current item first, so adjacent prefetch cannot delay it.
+     */
+    fun prewarm(mediaIds: Iterable<String>) {
+        val sources = mediaIds
+            .asSequence()
+            .mapNotNull(sourcesById::get)
+            .filter { it.uri.scheme == XId.SCHEME_SMB }
+            .distinctBy(Source::token)
+            .toList()
+        if (sources.isEmpty()) return
+
+        executor.execute {
+            sources.forEach { source ->
+                if (closed.get()) return@execute
+                runCatching { smbHandle(source) }
+            }
+        }
     }
 
     private fun acceptLoop(relayServer: ServerSocket) {
@@ -194,10 +218,19 @@ internal class CastMediaRelay(
                     return
                 }
 
-                if (source.uri.scheme == XId.SCHEME_SMB) {
-                    streamSmbRange(source, selection.start, bodyLength, out)
+                // Chromecast normally streams an open-ended range. A new open-ended request for the
+                // same item means the old stream is stale (typically a seek). Bounded probe ranges
+                // stay independent so receiver metadata/index reads are never interrupted.
+                val streamGeneration = if (rangeHeader == null || isOpenEndedByteRange(rangeHeader)) {
+                    nextStreamGeneration(source)
                 } else {
-                    streamDataSourceRange(source, selection.start, bodyLength, out)
+                    null
+                }
+
+                if (source.uri.scheme == XId.SCHEME_SMB) {
+                    streamSmbRange(source, selection.start, bodyLength, out, streamGeneration)
+                } else {
+                    streamDataSourceRange(source, selection.start, bodyLength, out, streamGeneration)
                 }
                 out.flush()
             } catch (_: IOException) {
@@ -213,6 +246,7 @@ internal class CastMediaRelay(
         start: Long,
         bodyLength: Long,
         out: OutputStream,
+        streamGeneration: Long?,
     ) {
         val dataSource = DefaultDataSource.Factory(
             context,
@@ -228,10 +262,15 @@ internal class CastMediaRelay(
             )
             val buffer = ByteArray(RELAY_BUFFER_SIZE)
             var remaining = bodyLength
-            while (remaining > 0L && !closed.get()) {
+            while (
+                remaining > 0L &&
+                !closed.get() &&
+                isCurrentStream(source, streamGeneration)
+            ) {
                 val requested = minOf(buffer.size.toLong(), remaining).toInt()
                 val read = dataSource.read(buffer, 0, requested)
                 if (read == C.RESULT_END_OF_INPUT) break
+                if (!isCurrentStream(source, streamGeneration)) break
                 out.write(buffer, 0, read)
                 remaining -= read
             }
@@ -244,39 +283,65 @@ internal class CastMediaRelay(
      * Cast seeks arrive as fresh HTTP range requests. Reopening SMBJ for every range means every
      * seek pays TCP setup, SMB negotiation and authentication before the receiver gets its first
      * media bytes. Keep one random-access handle per playlist entry for the relay lifetime instead.
-     * SmbRandomAccessFile serializes offset reads, so overlapping receiver requests remain safe.
+     * New streaming range generations stop stale streams immediately after their current SMB read;
+     * native backends may additionally cancel that in-flight read via seek().
      */
     private fun streamSmbRange(
         source: Source,
         start: Long,
         bodyLength: Long,
         out: OutputStream,
+        streamGeneration: Long?,
     ) {
         val buffer = ByteArray(SMB_RELAY_BUFFER_SIZE)
         var position = start
         var remaining = bodyLength
         var consecutiveFailures = 0
+        var handle = smbHandle(source)
 
-        while (remaining > 0L && !closed.get()) {
-            val handle = smbHandle(source)
+        try {
+            handle.seek(start)
+        } catch (_: Throwable) {
+            invalidateSmbHandle(source, handle)
+            handle = smbHandle(source)
+            handle.seek(start)
+        }
+
+        while (
+            remaining > 0L &&
+            !closed.get() &&
+            isCurrentStream(source, streamGeneration)
+        ) {
             val requested = minOf(buffer.size.toLong(), remaining).toInt()
             val read = try {
                 handle.read(position, buffer, 0, requested)
             } catch (error: Throwable) {
+                if (!isCurrentStream(source, streamGeneration)) break
                 invalidateSmbHandle(source, handle)
                 if (++consecutiveFailures > 1) {
                     throw if (error is IOException) error
                     else IOException("SMB Cast relay read failed", error)
                 }
+                handle = smbHandle(source)
+                handle.seek(position)
                 continue
             }
 
             consecutiveFailures = 0
             if (read <= 0) break
+            if (!isCurrentStream(source, streamGeneration)) break
             out.write(buffer, 0, read)
             position += read
             remaining -= read
         }
+    }
+
+    private fun nextStreamGeneration(source: Source): Long =
+        streamGenerations.computeIfAbsent(source.token) { AtomicLong(0L) }.incrementAndGet()
+
+    private fun isCurrentStream(source: Source, generation: Long?): Boolean {
+        if (generation == null) return true
+        return streamGenerations[source.token]?.get() == generation
     }
 
     private fun smbHandle(source: Source): SmbRandomAccessFile {
@@ -300,6 +365,7 @@ internal class CastMediaRelay(
         runCatching { server?.close() }
         smbHandles.values.toSet().forEach { handle -> runCatching { handle.close() } }
         smbHandles.clear()
+        streamGenerations.clear()
         runCatching { if (wakeLock?.isHeld == true) wakeLock.release() }
         executor.shutdownNow()
     }
@@ -376,6 +442,14 @@ internal fun resolveRange(header: String?, size: Long): ByteRange? {
         if (end < start) return null
         ByteRange(start, end, partial = true)
     }
+}
+
+internal fun isOpenEndedByteRange(header: String): Boolean {
+    if (!header.startsWith("bytes=", ignoreCase = true)) return false
+    val spec = header.substringAfter('=').substringBefore(',').trim()
+    val dash = spec.indexOf('-')
+    if (dash <= 0) return false
+    return spec.substring(dash + 1).trim().isEmpty()
 }
 
 internal fun castMimeType(entry: XEntry): String {

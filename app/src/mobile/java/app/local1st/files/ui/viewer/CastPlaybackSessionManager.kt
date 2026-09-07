@@ -137,6 +137,7 @@ internal object CastPlaybackSessionManager {
 
         val appContext = context.applicationContext
         val relay = CastMediaRelay(appContext, entries)
+        prewarmCastWindow(relay, entries, resolvedStartIndex)
         val localPlayer = buildLocalPlayer(appContext)
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
             .setMediaItemConverter(
@@ -162,19 +163,32 @@ internal object CastPlaybackSessionManager {
             }
 
             override fun previous() {
-                if (castPlayer.hasPreviousMediaItem()) castPlayer.seekToPreviousMediaItem()
+                if (!castPlayer.hasPreviousMediaItem()) return
+                val targetIndex = (castPlayer.currentMediaItemIndex - 1).coerceAtLeast(0)
+                relay.prewarm(listOfNotNull(entries.getOrNull(targetIndex)?.id))
+                castPlayer.seekToDefaultPosition(targetIndex)
             }
 
             override fun next() {
-                if (castPlayer.hasNextMediaItem()) castPlayer.seekToNextMediaItem()
+                if (!castPlayer.hasNextMediaItem()) return
+                val targetIndex = (castPlayer.currentMediaItemIndex + 1)
+                    .coerceAtMost(entries.lastIndex)
+                relay.prewarm(listOfNotNull(entries.getOrNull(targetIndex)?.id))
+                castPlayer.seekToDefaultPosition(targetIndex)
             }
         }
 
+        var lastPrewarmedIndex = resolvedStartIndex
         lateinit var created: Session
         val lifecycleListener = object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 synchronized(lock) {
                     if (activeSession !== created) return
+                    val currentIndex = player.currentMediaItemIndex.coerceIn(0, created.entries.lastIndex)
+                    if (currentIndex != lastPrewarmedIndex) {
+                        lastPrewarmedIndex = currentIndex
+                        created.relay?.let { prewarmCastWindow(it, created.entries, currentIndex) }
+                    }
                     publishRemoteStateLocked(created)
                 }
             }
@@ -280,6 +294,17 @@ internal object CastPlaybackSessionManager {
             remotePlayer = null,
             player = localPlayer,
             notificationController = null,
+        )
+    }
+
+    private fun prewarmCastWindow(relay: CastMediaRelay, entries: List<XEntry>, centerIndex: Int) {
+        if (entries.isEmpty()) return
+        val center = centerIndex.coerceIn(0, entries.lastIndex)
+        relay.prewarm(
+            listOf(center, center + 1, center - 1)
+                .filter { it in entries.indices }
+                .distinct()
+                .map { entries[it].id },
         )
     }
 
