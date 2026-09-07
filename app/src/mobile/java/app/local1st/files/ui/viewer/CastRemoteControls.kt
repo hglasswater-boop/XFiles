@@ -79,6 +79,14 @@ internal fun CastRemoteControls(
     var seekBurstDeltaMs by remember(entry.id) { mutableLongStateOf(0L) }
     var lastSeekTapAtMs by remember(entry.id) { mutableLongStateOf(0L) }
 
+    var requestedPlaying by remember { mutableStateOf<Boolean?>(null) }
+    var playbackCommandDeadlineMs by remember { mutableLongStateOf(0L) }
+
+    var pendingMediaIndex by remember { mutableStateOf<Int?>(null) }
+    var optimisticMediaIndex by remember { mutableStateOf<Int?>(null) }
+    var mediaJumpDeadlineMs by remember { mutableLongStateOf(0L) }
+    var lastSubmittedMediaJumpAtMs by remember { mutableLongStateOf(0L) }
+
     fun boundedSeekTarget(targetMs: Long): Long {
         val nonNegative = targetMs.coerceAtLeast(0L)
         return if (durationMs > 0L) nonNegative.coerceAtMost(durationMs) else nonNegative
@@ -117,6 +125,28 @@ internal fun CastRemoteControls(
         lastSeekTapAtMs = now
     }
 
+    fun submitMediaJump(delta: Int) {
+        val itemCount = player.mediaItemCount
+        if (itemCount <= 0) return
+        val baseIndex = pendingMediaIndex ?: optimisticMediaIndex ?: player.currentMediaItemIndex
+        val targetIndex = (baseIndex + delta).coerceIn(0, itemCount - 1)
+        if (targetIndex == baseIndex) return
+
+        val now = SystemClock.elapsedRealtime()
+        optimisticMediaIndex = targetIndex
+        mediaJumpDeadlineMs = now + CAST_MEDIA_JUMP_ACK_TIMEOUT_MS
+        val insideBurstWindow = lastSubmittedMediaJumpAtMs > 0L &&
+            now - lastSubmittedMediaJumpAtMs < CAST_MEDIA_JUMP_COALESCE_WINDOW_MS
+        if (pendingMediaIndex != null || insideBurstWindow) {
+            pendingMediaIndex = targetIndex
+            return
+        }
+
+        pendingMediaIndex = null
+        player.seekToDefaultPosition(targetIndex)
+        lastSubmittedMediaJumpAtMs = now
+    }
+
     LaunchedEffect(lastSeekTapAtMs, entry.id) {
         val tapAt = lastSeekTapAtMs
         if (tapAt == 0L) return@LaunchedEffect
@@ -135,6 +165,36 @@ internal fun CastRemoteControls(
         inFlightSeekTargetMs = target
         inFlightSeekDeadlineMs = now + CAST_SEEK_ACK_TIMEOUT_MS
         pendingSeekTargetMs = null
+    }
+
+    LaunchedEffect(pendingMediaIndex, player) {
+        val targetIndex = pendingMediaIndex ?: return@LaunchedEffect
+        delay(CAST_MEDIA_JUMP_COALESCE_WINDOW_MS)
+        if (pendingMediaIndex != targetIndex) return@LaunchedEffect
+
+        player.seekToDefaultPosition(targetIndex)
+        lastSubmittedMediaJumpAtMs = SystemClock.elapsedRealtime()
+        optimisticMediaIndex = targetIndex
+        mediaJumpDeadlineMs = lastSubmittedMediaJumpAtMs + CAST_MEDIA_JUMP_ACK_TIMEOUT_MS
+        pendingMediaIndex = null
+    }
+
+    LaunchedEffect(playing, requestedPlaying) {
+        val requested = requestedPlaying
+        if (requested != null && requested == playing) {
+            requestedPlaying = null
+            playbackCommandDeadlineMs = 0L
+        }
+    }
+
+    LaunchedEffect(playbackCommandDeadlineMs) {
+        val deadline = playbackCommandDeadlineMs
+        if (deadline <= 0L) return@LaunchedEffect
+        delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
+        if (playbackCommandDeadlineMs == deadline) {
+            requestedPlaying = null
+            playbackCommandDeadlineMs = 0L
+        }
     }
 
     LaunchedEffect(player, entry.id) {
@@ -156,6 +216,13 @@ internal fun CastRemoteControls(
                 }
                 else -> positionMs = remotePositionMs
             }
+
+            optimisticMediaIndex?.let { targetIndex ->
+                if (player.currentMediaItemIndex == targetIndex || now >= mediaJumpDeadlineMs) {
+                    optimisticMediaIndex = null
+                    if (now >= mediaJumpDeadlineMs) pendingMediaIndex = null
+                }
+            }
             delay(CAST_POSITION_REFRESH_INTERVAL_MS)
         }
     }
@@ -166,6 +233,14 @@ internal fun CastRemoteControls(
         animationSpec = tween(durationMillis = CAST_SLIDER_ANIMATION_MS),
         label = "castPosition",
     )
+    val displayedPlaying = requestedPlaying ?: playing
+    val effectiveMediaIndex = pendingMediaIndex ?: optimisticMediaIndex ?: player.currentMediaItemIndex
+    val canPrevious = if (player.mediaItemCount > 0) effectiveMediaIndex > 0 else hasPrevious
+    val canNext = if (player.mediaItemCount > 0) {
+        effectiveMediaIndex < player.mediaItemCount - 1
+    } else {
+        hasNext
+    }
 
     Box(
         modifier = Modifier
@@ -245,8 +320,8 @@ internal fun CastRemoteControls(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
-                    onClick = { player.seekToPreviousMediaItem() },
-                    enabled = hasPrevious,
+                    onClick = { submitMediaJump(-1) },
+                    enabled = canPrevious,
                 ) {
                     Icon(Icons.Outlined.SkipPrevious, contentDescription = "Previous", tint = Color.White)
                 }
@@ -258,10 +333,18 @@ internal fun CastRemoteControls(
                 ) {
                     Icon(Icons.Outlined.Replay10, contentDescription = "Back 10 seconds", tint = Color.White)
                 }
-                FilledIconButton(onClick = { if (playing) player.pause() else player.play() }) {
+                FilledIconButton(
+                    onClick = {
+                        val desiredPlaying = !displayedPlaying
+                        requestedPlaying = desiredPlaying
+                        playbackCommandDeadlineMs =
+                            SystemClock.elapsedRealtime() + CAST_PLAYBACK_ACK_TIMEOUT_MS
+                        if (desiredPlaying) player.play() else player.pause()
+                    },
+                ) {
                     Icon(
-                        if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                        contentDescription = if (playing) "Pause" else "Play",
+                        if (displayedPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                        contentDescription = if (displayedPlaying) "Pause" else "Play",
                     )
                 }
                 IconButton(
@@ -273,8 +356,8 @@ internal fun CastRemoteControls(
                     Icon(Icons.Outlined.Forward10, contentDescription = "Forward 10 seconds", tint = Color.White)
                 }
                 IconButton(
-                    onClick = { player.seekToNextMediaItem() },
-                    enabled = hasNext,
+                    onClick = { submitMediaJump(1) },
+                    enabled = canNext,
                 ) {
                     Icon(Icons.Outlined.SkipNext, contentDescription = "Next", tint = Color.White)
                 }
@@ -347,3 +430,6 @@ private const val CAST_POSITION_REFRESH_INTERVAL_MS = 100L
 private const val CAST_SEEK_OVERLAY_ACCUMULATE_MS = 850L
 private const val CAST_SEEK_OVERLAY_VISIBLE_MS = 700L
 private const val CAST_SLIDER_ANIMATION_MS = 110
+private const val CAST_PLAYBACK_ACK_TIMEOUT_MS = 2_000L
+private const val CAST_MEDIA_JUMP_COALESCE_WINDOW_MS = 350L
+private const val CAST_MEDIA_JUMP_ACK_TIMEOUT_MS = 3_000L
