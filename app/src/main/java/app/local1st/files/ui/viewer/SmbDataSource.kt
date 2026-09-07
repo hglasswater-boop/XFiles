@@ -17,13 +17,13 @@ import java.util.LinkedHashMap
 import kotlin.math.min
 
 /**
- * Seekable Media3 source backed by SMBJ's offset-based reads.
+ * Seekable Media3 source backed by XFiles' SMB random-access facade.
  *
- * Media3/extractors commonly ask a DataSource for relatively small chunks. Forwarding every one of
- * those reads to the NAS makes playback latency-bound, especially when the SMB server is not on a
- * near-zero-latency network. Read aligned 2 MiB regions instead and keep the two hottest regions in
- * memory. Sequential playback then consumes many Media3 reads from one SMB transfer, while a seek
- * drops straight onto a new region without reading from the old position first.
+ * SMBJ benefits from aligned 2 MiB Kotlin blocks because Media3/extractors commonly ask for small
+ * chunks and forwarding every one to the NAS is latency-bound. The Rust backend already owns
+ * pipelining, read-ahead, seek generations, and a bounded cache below JNI, so stacking the same
+ * policy here would waste memory and hide seek/cancellation signals. Rust therefore reads directly
+ * into Media3's destination buffer while SMBJ keeps the existing two-block cache.
  */
 @UnstableApi
 class SmbDataSource : BaseDataSource(false) {
@@ -73,7 +73,12 @@ class SmbDataSource : BaseDataSource(false) {
         }
 
         val copied = try {
-            readBuffered(position, buffer, offset, requested)
+            val handle = checkNotNull(file)
+            if (handle.ownsReadAhead) {
+                handle.read(position, buffer, offset, requested)
+            } else {
+                readBuffered(position, buffer, offset, requested)
+            }
         } catch (error: Throwable) {
             closeAfterReadFailure(error)
         }
