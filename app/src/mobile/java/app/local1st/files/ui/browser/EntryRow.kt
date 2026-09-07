@@ -499,12 +499,19 @@ private fun StartupEntryRow(
  * Thumbnail with a vector-icon fallback: the icon shows until the image actually arrives
  * (video frame extraction can take seconds on a cold cache) and stays if loading fails,
  * so the slot is never blank. Videos additionally get a small play badge and their duration
- * overlaid at the lower-right corner.
+ * overlaid at the lower-right corner. Tapping the thumbnail itself opens an on-demand storyboard;
+ * tapping the rest of the row keeps the normal open/play behavior.
  */
 @Composable
 private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    var showStoryboard by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    val previewDescription = if (isVideo) {
+        "${entry.name} · ${stringResource(R.string.details)}"
+    } else {
+        ""
+    }
     val videoMetadata by produceState<VideoMetadata?>(
         initialValue = null,
         entry.id,
@@ -523,7 +530,17 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     Box(
         modifier = Modifier
             .width(width)
-            .height(height),
+            .height(height)
+            .then(
+                if (isVideo) {
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showStoryboard = true }
+                        .semantics { contentDescription = previewDescription }
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (!loaded) {
@@ -591,6 +608,10 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
                 }
             }
         }
+    }
+
+    if (showStoryboard) {
+        VideoStoryboardDialog(entry = entry, onDismiss = { showStoryboard = false })
     }
 }
 
