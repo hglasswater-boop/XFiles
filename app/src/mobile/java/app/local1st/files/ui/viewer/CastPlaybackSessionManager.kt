@@ -30,10 +30,6 @@ import kotlinx.coroutines.flow.receiveAsFlow
  * dismissed. Keeping the player stack and relay here lets that playback continue while the user
  * returns to the file browser. While playback is remote, a media-playback foreground service also
  * keeps this process and relay eligible to run when XFiles itself is backgrounded.
- *
- * Cast ownership is pane-scoped. Once one browser pane starts remote playback, opening media from
- * the other pane creates a local-only player so the global Cast session cannot pull that viewer
- * onto the receiver. Reopening the owning pane can still reuse or replace its Cast playback.
  */
 @UnstableApi
 internal object CastPlaybackSessionManager {
@@ -46,17 +42,14 @@ internal object CastPlaybackSessionManager {
     )
 
     internal class Session internal constructor(
-        val ownerPaneId: Int?,
-        val castEnabled: Boolean,
         val entryIds: List<String>,
         val entries: List<XEntry>,
-        val relay: CastMediaRelay?,
+        val relay: CastMediaRelay,
         val localPlayer: ExoPlayer,
-        val remotePlayer: RemoteCastPlayer?,
-        val player: Player,
-        val notificationController: CastPlaybackNotificationController?,
+        val remotePlayer: RemoteCastPlayer,
+        val player: CastPlayer,
+        val notificationController: CastPlaybackNotificationController,
         var lifecycleListener: Player.Listener? = null,
-        var released: Boolean = false,
     )
 
     private val lock = Any()
@@ -64,10 +57,6 @@ internal object CastPlaybackSessionManager {
     private var viewerSession: Session? = null
     private var serviceContext: Context? = null
     private var keepAliveRunning = false
-
-    // Set only around a normal ViewerScreen composition. The browser Cast overlay deliberately
-    // calls MediaViewer without this hint so it can reattach to the already-active remote session.
-    private var pendingViewerPaneId: Int? = null
 
     private val _activePlayback = MutableStateFlow<ActiveCastPlayback?>(null)
     val activePlayback = _activePlayback.asStateFlow()
@@ -79,18 +68,6 @@ internal object CastPlaybackSessionManager {
         openControlRequestChannel.trySend(Unit)
     }
 
-    fun setPendingViewerPane(paneId: Int) {
-        synchronized(lock) {
-            pendingViewerPaneId = paneId
-        }
-    }
-
-    fun clearPendingViewerPane() {
-        synchronized(lock) {
-            pendingViewerPaneId = null
-        }
-    }
-
     fun acquire(
         context: Context,
         entries: List<XEntry>,
@@ -98,47 +75,32 @@ internal object CastPlaybackSessionManager {
         startIndex: Int,
     ): Session = synchronized(lock) {
         serviceContext = context.applicationContext
-        val viewerPaneId = pendingViewerPaneId.also { pendingViewerPaneId = null }
         val ids = entries.map { it.id }
         val resolvedStartIndex = startIndex.coerceIn(0, mediaItems.lastIndex.coerceAtLeast(0))
         val requestedStartMs = entries.getOrNull(resolvedStartIndex)
             ?.let { VideoResumeStore.peekRequestedStart(it.id) }
         val existing = activeSession
-
-        if (existing != null && isRemote(existing)) {
-            val sameOwner = viewerPaneId != null && existing.ownerPaneId == viewerPaneId
-            val reopeningCastControls = viewerPaneId == null && existing.entryIds == ids
-
-            if ((sameOwner || reopeningCastControls) && existing.entryIds == ids) {
-                if (requestedStartMs != null) {
-                    existing.player.seekTo(resolvedStartIndex, requestedStartMs)
-                }
-                viewerSession = existing
-                publishRemoteStateLocked(existing)
-                updateKeepAliveLocked()
-                return@synchronized existing
+        if (existing != null && existing.entryIds == ids && isRemote(existing)) {
+            if (requestedStartMs != null) {
+                existing.player.seekTo(resolvedStartIndex, requestedStartMs)
             }
-
-            // A different pane must stay local even though Android's MediaRouter currently has a
-            // Cast route selected. Constructing another RemoteCastPlayer here would immediately
-            // attach it to that global route and hijack the receiver.
-            if (!sameOwner) {
-                return@synchronized createLocalOnlySession(
-                    appContext = context.applicationContext,
-                    ownerPaneId = viewerPaneId,
-                    ids = ids,
-                    entries = entries,
-                    mediaItems = mediaItems,
-                    startIndex = resolvedStartIndex,
-                    requestedStartMs = requestedStartMs,
-                )
-            }
+            viewerSession = existing
+            publishRemoteStateLocked(existing)
+            updateKeepAliveLocked()
+            return@synchronized existing
         }
 
         val appContext = context.applicationContext
         val relay = CastMediaRelay(appContext, entries)
         prewarmCastWindow(relay, entries, resolvedStartIndex)
-        val localPlayer = buildLocalPlayer(appContext)
+        val localPlayer = ExoPlayer.Builder(appContext)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(appContext).setDataSourceFactory(
+                    DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
+                ),
+            )
+            .setAudioAttributes(AudioAttributes.DEFAULT, true)
+            .build()
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
             .setMediaItemConverter(
                 XFilesCastMediaItemConverter(
@@ -187,7 +149,7 @@ internal object CastPlaybackSessionManager {
                     val currentIndex = player.currentMediaItemIndex.coerceIn(0, created.entries.lastIndex)
                     if (currentIndex != lastPrewarmedIndex) {
                         lastPrewarmedIndex = currentIndex
-                        created.relay?.let { prewarmCastWindow(it, created.entries, currentIndex) }
+                        prewarmCastWindow(created.relay, created.entries, currentIndex)
                     }
                     publishRemoteStateLocked(created)
                 }
@@ -210,8 +172,6 @@ internal object CastPlaybackSessionManager {
             }
         }
         created = Session(
-            ownerPaneId = viewerPaneId,
-            castEnabled = true,
             entryIds = ids,
             entries = entries,
             relay = relay,
@@ -240,61 +200,14 @@ internal object CastPlaybackSessionManager {
 
     fun releaseViewer(session: Session) {
         synchronized(lock) {
-            if (!session.castEnabled) {
-                destroyDetachedLocked(session)
-                return
-            }
-
             if (viewerSession === session) viewerSession = null
             if (activeSession === session && !isRemote(session)) {
                 destroyLocked(session)
-            } else if (activeSession === session) {
+            } else {
                 publishRemoteStateLocked(session)
                 updateKeepAliveLocked()
-            } else {
-                destroyDetachedLocked(session)
             }
         }
-    }
-
-    private fun buildLocalPlayer(appContext: Context): ExoPlayer =
-        ExoPlayer.Builder(appContext)
-            .setMediaSourceFactory(
-                DefaultMediaSourceFactory(appContext).setDataSourceFactory(
-                    DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
-                ),
-            )
-            .setAudioAttributes(AudioAttributes.DEFAULT, true)
-            .build()
-
-    private fun createLocalOnlySession(
-        appContext: Context,
-        ownerPaneId: Int?,
-        ids: List<String>,
-        entries: List<XEntry>,
-        mediaItems: List<MediaItem>,
-        startIndex: Int,
-        requestedStartMs: Long?,
-    ): Session {
-        val localPlayer = buildLocalPlayer(appContext)
-        localPlayer.setMediaItems(
-            mediaItems,
-            startIndex,
-            requestedStartMs ?: C.TIME_UNSET,
-        )
-        localPlayer.prepare()
-        localPlayer.playWhenReady = true
-        return Session(
-            ownerPaneId = ownerPaneId,
-            castEnabled = false,
-            entryIds = ids,
-            entries = entries,
-            relay = null,
-            localPlayer = localPlayer,
-            remotePlayer = null,
-            player = localPlayer,
-            notificationController = null,
-        )
     }
 
     private fun prewarmCastWindow(relay: CastMediaRelay, entries: List<XEntry>, centerIndex: Int) {
@@ -309,13 +222,12 @@ internal object CastPlaybackSessionManager {
     }
 
     private fun isRemote(session: Session): Boolean =
-        session.castEnabled &&
-            session.player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+        session.player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
 
     private fun publishRemoteStateLocked(session: Session) {
         if (activeSession !== session || !isRemote(session)) {
             if (activeSession === session) _activePlayback.value = null
-            session.notificationController?.let(CastPlaybackBridge::detach)
+            CastPlaybackBridge.detach(session.notificationController)
             return
         }
 
@@ -335,9 +247,7 @@ internal object CastPlaybackSessionManager {
             hasPrevious = playback.hasPrevious,
             hasNext = playback.hasNext,
         )
-        session.notificationController?.let { controller ->
-            CastPlaybackBridge.attach(controller, notificationState)
-        }
+        CastPlaybackBridge.attach(session.notificationController, notificationState)
         if (keepAliveRunning) {
             serviceContext?.let(CastPlaybackKeepAliveService::refresh)
         }
@@ -362,25 +272,21 @@ internal object CastPlaybackSessionManager {
             _activePlayback.value = null
         }
         if (viewerSession === session) viewerSession = null
-        session.notificationController?.let(CastPlaybackBridge::detach)
+        CastPlaybackBridge.detach(session.notificationController)
         updateKeepAliveLocked()
         destroyDetachedLocked(session)
     }
 
     private fun destroyDetachedLocked(session: Session) {
-        if (session.released) return
-        session.released = true
-        session.notificationController?.let(CastPlaybackBridge::detach)
+        CastPlaybackBridge.detach(session.notificationController)
         session.lifecycleListener?.let { listener ->
             runCatching { session.player.removeListener(listener) }
         }
         session.lifecycleListener = null
         runCatching { session.localPlayer.pause() }
-        if (session.player !== session.localPlayer) {
-            runCatching { session.player.release() }
-        }
-        runCatching { session.remotePlayer?.release() }
+        runCatching { session.player.release() }
+        runCatching { session.remotePlayer.release() }
         runCatching { session.localPlayer.release() }
-        runCatching { session.relay?.close() }
+        runCatching { session.relay.close() }
     }
 }
