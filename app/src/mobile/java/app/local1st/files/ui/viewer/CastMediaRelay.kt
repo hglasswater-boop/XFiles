@@ -100,19 +100,24 @@ internal class CastMediaRelay(
 
     /**
      * Opens the expensive SMB session/file handles before the Cast receiver asks for them. This is
-     * deliberately asynchronous so player setup and UI never wait for NAS authentication.
+     * deliberately asynchronous so player setup and UI never wait for NAS authentication. Sources
+     * are warmed in caller order, with the current item first, so adjacent prefetch cannot delay it.
      */
     fun prewarm(mediaIds: Iterable<String>) {
-        mediaIds
+        val sources = mediaIds
             .asSequence()
             .mapNotNull(sourcesById::get)
             .filter { it.uri.scheme == XId.SCHEME_SMB }
             .distinctBy(Source::token)
-            .forEach { source ->
-                executor.execute {
-                    if (!closed.get()) runCatching { smbHandle(source) }
-                }
+            .toList()
+        if (sources.isEmpty()) return
+
+        executor.execute {
+            sources.forEach { source ->
+                if (closed.get()) return@execute
+                runCatching { smbHandle(source) }
             }
+        }
     }
 
     private fun acceptLoop(relayServer: ServerSocket) {
