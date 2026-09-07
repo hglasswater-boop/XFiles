@@ -7,6 +7,7 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.media.formatVideoDuration
+import app.local1st.files.core.prefs.VideoStoryboardSettings
 import app.local1st.files.core.thumb.isNearlyBlackVideoThumbnail
 import app.local1st.files.di.Graph
 import coil3.compose.AsyncImage
@@ -62,7 +64,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-private const val STORYBOARD_FRAME_COUNT = 9
 private const val STORYBOARD_WIDTH = 384
 private const val STORYBOARD_HEIGHT = 216
 
@@ -87,16 +88,19 @@ private sealed interface StoryboardUiState {
 internal fun VideoStoryboardDialog(
     entry: XEntry,
     onDismiss: () -> Unit,
+    onPlayFrom: (Long) -> Unit,
 ) {
     val context = LocalContext.current
+    val sampleCount = VideoStoryboardSettings.current(context)
     val state by produceState<StoryboardUiState>(
         initialValue = StoryboardUiState.Loading,
         entry.id,
         entry.mtime,
         entry.size,
+        sampleCount,
     ) {
         value = runCatching {
-            StoryboardLoader.load(context, entry, STORYBOARD_FRAME_COUNT)
+            StoryboardLoader.load(context, entry, sampleCount)
         }.fold(
             onSuccess = { StoryboardUiState.Ready(it) },
             onFailure = { StoryboardUiState.Failed },
@@ -167,7 +171,13 @@ internal fun VideoStoryboardDialog(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 items(result.frames, key = { it.index }) { frame ->
-                                    StoryboardFrameCard(frame)
+                                    StoryboardFrameCard(
+                                        frame = frame,
+                                        onClick = {
+                                            onDismiss()
+                                            onPlayFrom(frame.timeMs)
+                                        },
+                                    )
                                 }
                             }
                         }
@@ -201,9 +211,16 @@ private fun StoryboardFailure(entry: XEntry) {
 }
 
 @Composable
-private fun StoryboardFrameCard(frame: StoryboardFrame) {
-    Column(Modifier.width(176.dp)) {
-        val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
+private fun StoryboardFrameCard(
+    frame: StoryboardFrame,
+    onClick: () -> Unit,
+) {
+    val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
+    Column(
+        Modifier
+            .width(176.dp)
+            .clickable(enabled = image != null, onClick = onClick),
+    ) {
         if (image != null) {
             AsyncImage(
                 model = image,
@@ -242,7 +259,7 @@ private fun StoryboardFrameCard(frame: StoryboardFrame) {
 
 private object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
-    private const val CACHE_VERSION = 1
+    private const val CACHE_VERSION = 2
     private const val EXTRACT_TIMEOUT_SECONDS = 45L
     private val semaphore = Semaphore(1)
     private val watchdog = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -252,7 +269,7 @@ private object StoryboardLoader {
     suspend fun load(context: Context, entry: XEntry, count: Int): StoryboardResult =
         semaphore.withPermit {
             withContext(Dispatchers.IO) {
-                val cacheDir = cacheDir(context, entry)
+                val cacheDir = cacheDir(context, entry, count)
                 readCached(cacheDir, count)?.let { return@withContext it }
                 generate(context, entry, cacheDir, count)
             }
@@ -362,18 +379,15 @@ private object StoryboardLoader {
     }
 
     private fun fallbackTimes(count: Int): List<Long> {
-        val candidates = listOf(
-            5_000L,
-            15_000L,
-            30_000L,
-            60_000L,
-            120_000L,
-            180_000L,
-            300_000L,
-            600_000L,
-            900_000L,
-        )
-        return candidates.take(count)
+        if (count <= 0) return emptyList()
+        val anchors = listOf(5_000L, 15_000L, 30_000L, 60_000L)
+        return List(count) { index ->
+            if (index < anchors.size) {
+                anchors[index]
+            } else {
+                120_000L + (index - anchors.size) * 60_000L
+            }
+        }
     }
 
     private fun extractFrame(retriever: MediaMetadataRetriever, timeMs: Long): Bitmap? {
@@ -449,10 +463,10 @@ private object StoryboardLoader {
         }
     }.getOrDefault(false)
 
-    private fun cacheDir(context: Context, entry: XEntry): File {
+    private fun cacheDir(context: Context, entry: XEntry, count: Int): File {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(
-                "v$CACHE_VERSION|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray(),
+                "v$CACHE_VERSION|${entry.id}|${entry.mtime}|${entry.size}|count=$count".encodeToByteArray(),
             )
             .joinToString("") { "%02x".format(it) }
         return File(File(context.cacheDir, "video_storyboards"), digest)
