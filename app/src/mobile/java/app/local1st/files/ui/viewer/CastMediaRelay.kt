@@ -13,12 +13,15 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
+import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
+import app.local1st.files.di.Graph
 import com.google.android.gms.cast.MediaQueueItem
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -27,6 +30,7 @@ import java.net.Socket
 import java.net.SocketException
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -47,6 +51,7 @@ internal class CastMediaRelay(
     private val executor = Executors.newCachedThreadPool { task ->
         Thread(task, "xfiles-cast-relay").apply { isDaemon = true }
     }
+    private val smbHandles = ConcurrentHashMap<String, SmbRandomAccessFile>()
     private val host = findLanIpv4(context)?.hostAddress
     private val server = if (host != null) {
         runCatching { ServerSocket(0, 32, InetAddress.getByName("0.0.0.0")) }.getOrNull()
@@ -108,6 +113,7 @@ internal class CastMediaRelay(
     private fun handle(socket: Socket) {
         socket.use { client ->
             client.soTimeout = 30_000
+            client.tcpNoDelay = true
             try {
                 val reader = client.getInputStream().bufferedReader(Charsets.US_ASCII)
                 val requestLine = reader.readLine() ?: return
@@ -188,31 +194,12 @@ internal class CastMediaRelay(
                     return
                 }
 
-                val dataSource = DefaultDataSource.Factory(
-                    context,
-                    XFilesRemoteDataSource.Factory(),
-                ).createDataSource()
-                try {
-                    dataSource.open(
-                        DataSpec.Builder()
-                            .setUri(source.uri)
-                            .setPosition(selection.start)
-                            .setLength(bodyLength)
-                            .build(),
-                    )
-                    val buffer = ByteArray(128 * 1024)
-                    var remaining = bodyLength
-                    while (remaining > 0L && !closed.get()) {
-                        val requested = minOf(buffer.size.toLong(), remaining).toInt()
-                        val read = dataSource.read(buffer, 0, requested)
-                        if (read == C.RESULT_END_OF_INPUT) break
-                        out.write(buffer, 0, read)
-                        remaining -= read
-                    }
-                    out.flush()
-                } finally {
-                    runCatching { dataSource.close() }
+                if (source.uri.scheme == XId.SCHEME_SMB) {
+                    streamSmbRange(source, selection.start, bodyLength, out)
+                } else {
+                    streamDataSourceRange(source, selection.start, bodyLength, out)
                 }
+                out.flush()
             } catch (_: IOException) {
                 // Receiver disconnected or sought elsewhere. A new HTTP range request will follow.
             } catch (_: RuntimeException) {
@@ -221,14 +208,106 @@ internal class CastMediaRelay(
         }
     }
 
+    private fun streamDataSourceRange(
+        source: Source,
+        start: Long,
+        bodyLength: Long,
+        out: OutputStream,
+    ) {
+        val dataSource = DefaultDataSource.Factory(
+            context,
+            XFilesRemoteDataSource.Factory(),
+        ).createDataSource()
+        try {
+            dataSource.open(
+                DataSpec.Builder()
+                    .setUri(source.uri)
+                    .setPosition(start)
+                    .setLength(bodyLength)
+                    .build(),
+            )
+            val buffer = ByteArray(RELAY_BUFFER_SIZE)
+            var remaining = bodyLength
+            while (remaining > 0L && !closed.get()) {
+                val requested = minOf(buffer.size.toLong(), remaining).toInt()
+                val read = dataSource.read(buffer, 0, requested)
+                if (read == C.RESULT_END_OF_INPUT) break
+                out.write(buffer, 0, read)
+                remaining -= read
+            }
+        } finally {
+            runCatching { dataSource.close() }
+        }
+    }
+
+    /**
+     * Cast seeks arrive as fresh HTTP range requests. Reopening SMBJ for every range means every
+     * seek pays TCP setup, SMB negotiation and authentication before the receiver gets its first
+     * media bytes. Keep one random-access handle per playlist entry for the relay lifetime instead.
+     * SmbRandomAccessFile serializes offset reads, so overlapping receiver requests remain safe.
+     */
+    private fun streamSmbRange(
+        source: Source,
+        start: Long,
+        bodyLength: Long,
+        out: OutputStream,
+    ) {
+        val buffer = ByteArray(SMB_RELAY_BUFFER_SIZE)
+        var position = start
+        var remaining = bodyLength
+        var consecutiveFailures = 0
+
+        while (remaining > 0L && !closed.get()) {
+            val handle = smbHandle(source)
+            val requested = minOf(buffer.size.toLong(), remaining).toInt()
+            val read = try {
+                handle.read(position, buffer, 0, requested)
+            } catch (error: Throwable) {
+                invalidateSmbHandle(source, handle)
+                if (++consecutiveFailures > 1) {
+                    throw if (error is IOException) error
+                    else IOException("SMB Cast relay read failed", error)
+                }
+                continue
+            }
+
+            consecutiveFailures = 0
+            if (read <= 0) break
+            out.write(buffer, 0, read)
+            position += read
+            remaining -= read
+        }
+    }
+
+    private fun smbHandle(source: Source): SmbRandomAccessFile {
+        smbHandles[source.token]?.let { return it }
+        synchronized(smbHandles) {
+            smbHandles[source.token]?.let { return it }
+            return SmbRandomAccessFile.open(source.entry.id, Graph.smbConnections).also {
+                smbHandles[source.token] = it
+            }
+        }
+    }
+
+    private fun invalidateSmbHandle(source: Source, handle: SmbRandomAccessFile) {
+        if (smbHandles.remove(source.token, handle)) {
+            runCatching { handle.close() }
+        }
+    }
+
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         runCatching { server?.close() }
+        smbHandles.values.toSet().forEach { handle -> runCatching { handle.close() } }
+        smbHandles.clear()
         runCatching { if (wakeLock?.isHeld == true) wakeLock.release() }
         executor.shutdownNow()
     }
 
     private companion object {
+        const val RELAY_BUFFER_SIZE = 128 * 1024
+        const val SMB_RELAY_BUFFER_SIZE = 256 * 1024
+
         fun sendStatus(socket: Socket, code: Int, reason: String) {
             val body = "$code $reason\n".toByteArray(Charsets.UTF_8)
             runCatching {
