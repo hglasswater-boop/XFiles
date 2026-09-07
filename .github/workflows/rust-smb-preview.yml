@@ -1,0 +1,119 @@
+name: Rust SMB Preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Build Rust SMB APKs
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 29.0.14206865
+      CARGO_NDK_PLATFORM: 26
+    steps:
+      - name: Checkout XFiles
+        uses: actions/checkout@v5
+
+      - name: Checkout Rust SMB engine
+        uses: actions/checkout@v5
+        with:
+          repository: hglasswater-boop/smb-io-rs
+          ref: main
+          path: native/smb-io-rs
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;${NDK_VERSION}"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 4.1.2 --locked
+
+      - name: Build and stage Rust JNI libraries
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+        run: |
+          set -eu
+          mkdir -p "$GITHUB_WORKSPACE/app/src/main/jniLibs"
+          cd native/smb-io-rs
+          cargo ndk \
+            -t arm64-v8a \
+            -t armeabi-v7a \
+            -t x86_64 \
+            -o "$GITHUB_WORKSPACE/app/src/main/jniLibs" \
+            build --release -p smb-io-android
+          test -f "$GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/libsmb_io_android.so"
+          test -f "$GITHUB_WORKSPACE/app/src/main/jniLibs/armeabi-v7a/libsmb_io_android.so"
+          test -f "$GITHUB_WORKSPACE/app/src/main/jniLibs/x86_64/libsmb_io_android.so"
+
+      - name: Compute Android build number
+        id: build_number
+        run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Require stable signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -eu
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+
+      - name: Decode stable signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
+
+      - name: Assemble Rust SMB preview APKs
+        env:
+          XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
+          XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew \
+            :app:assembleMobileDebug \
+            :app:assembleTvDebug \
+            -PbuildNumber=${{ steps.build_number.outputs.value }} \
+            -PxfilesSmbBackend=rust
+
+      - name: Name Rust SMB APKs
+        id: apk_name
+        run: |
+          set -eu
+          BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
+          MOBILE_NAME="XFiles-RustSMB-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          TV_NAME="XFiles-TV-RustSMB-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
+          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
+          echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "tv_name=$TV_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Rust SMB preview APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: XFiles-${{ steps.build_number.outputs.value }}-RustSMB-preview
+          path: |
+            ${{ steps.apk_name.outputs.mobile_name }}
+            ${{ steps.apk_name.outputs.tv_name }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
