@@ -2,7 +2,7 @@ package app.local1st.files.ui.viewer
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,8 +47,10 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.VideoStoryboardSettings
+import app.local1st.files.ui.browser.StoryboardFinePreviewDialog
 import app.local1st.files.ui.browser.StoryboardLoader
 import app.local1st.files.ui.browser.StoryboardResult
+import app.local1st.files.ui.browser.storyboardFineStepMs
 import coil3.compose.AsyncImage
 import kotlin.math.abs
 import kotlinx.coroutines.launch
@@ -67,7 +69,9 @@ private sealed interface CastStoryboardUiState {
  *
  * Portrait Cast controls use a vertically scrolling compact-preview timeline, while landscape and
  * the local player use the compact horizontal strip. All layouts reuse the browser storyboard
- * loader and disk cache.
+ * loader and disk cache. Long-pressing a frame opens a precise, locally sampled timeline around
+ * that point so the user can choose a much finer seek position without generating dense previews
+ * for the entire video.
  */
 @Composable
 internal fun CastStoryboardStrip(
@@ -140,6 +144,12 @@ internal fun CastStoryboardStrip(
                 minSpacingSeconds,
                 vertical,
             ) { mutableStateOf(false) }
+            var fineFrameIndex by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Int?>(null) }
 
             LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
                 if (alignedToPlayback || nearestIndex < 0) return@LaunchedEffect
@@ -173,7 +183,11 @@ internal fun CastStoryboardStrip(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(enabled = image != null) { onSeek(frame.timeMs) },
+                                    .combinedClickable(
+                                        enabled = image != null,
+                                        onClick = { onSeek(frame.timeMs) },
+                                        onLongClick = { fineFrameIndex = frame.index },
+                                    ),
                             ) {
                                 Box(modifier = previewModifier) {
                                     if (image != null) {
@@ -247,13 +261,17 @@ internal fun CastStoryboardStrip(
                         verticalAlignment = Alignment.Top,
                     ) {
                         items(frames, key = { it.index }) { frame ->
-                            val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
+                            val image = frame.file?.takeIf { it.isFile && it.file.length() > 0L }
                             val selected = frame.index == nearestIndex
                             val shape = RoundedCornerShape(8.dp)
                             Column(
                                 modifier = Modifier
                                     .width(120.dp)
-                                    .clickable(enabled = image != null) { onSeek(frame.timeMs) },
+                                    .combinedClickable(
+                                        enabled = image != null,
+                                        onClick = { onSeek(frame.timeMs) },
+                                        onLongClick = { fineFrameIndex = frame.index },
+                                    ),
                             ) {
                                 if (image != null) {
                                     AsyncImage(
@@ -333,6 +351,22 @@ internal fun CastStoryboardStrip(
                             )
                         }
                     }
+                }
+            }
+
+            fineFrameIndex?.let { index ->
+                frames.getOrNull(index)?.let { frame ->
+                    StoryboardFinePreviewDialog(
+                        entry = entry,
+                        centerTimeMs = frame.timeMs,
+                        stepMs = storyboardFineStepMs(frames, index),
+                        durationMs = current.result.durationMs,
+                        onDismiss = { fineFrameIndex = null },
+                        onSelect = { timeMs ->
+                            fineFrameIndex = null
+                            onSeek(timeMs)
+                        },
+                    )
                 }
             }
         }
