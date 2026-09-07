@@ -68,13 +68,13 @@ import kotlinx.coroutines.withContext
 private const val STORYBOARD_WIDTH = 384
 private const val STORYBOARD_HEIGHT = 216
 
-private data class StoryboardFrame(
+internal data class StoryboardFrame(
     val index: Int,
     val timeMs: Long,
     val file: File?,
 )
 
-private data class StoryboardResult(
+internal data class StoryboardResult(
     val durationMs: Long?,
     val frames: List<StoryboardFrame>,
 )
@@ -307,7 +307,7 @@ private fun StoryboardFrameCard(
     }
 }
 
-private object StoryboardLoader {
+internal object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
     private const val CACHE_VERSION = 4
     private const val EXTRACT_TIMEOUT_SECONDS = 120L
