@@ -2,6 +2,7 @@ package app.local1st.files.core.fs
 
 import app.local1st.files.core.prefs.SmbConnectionRepo
 import java.io.Closeable
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Backend-neutral seekable read handle for one SMB file.
@@ -12,37 +13,33 @@ import java.io.Closeable
 class SmbRandomAccessFile private constructor(
     private val handle: SmbRandomAccessHandle,
 ) : Closeable {
-    private var closed = false
+    private val closed = AtomicBoolean(false)
 
-    @Synchronized
     fun read(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
-        check(!closed) { "SMB file is closed" }
+        check(!closed.get()) { "SMB file is closed" }
         if (position < 0L || length <= 0) return -1
         return handle.read(position, buffer, offset, length)
     }
 
     /**
-     * Signals a material access-position discontinuity without changing the positional read API.
-     * SMBJ treats this as a no-op; the Rust backend uses it to cancel stale read-ahead work.
+     * Signals a material access-position discontinuity without serializing behind an in-flight read.
+     * SMBJ treats this as a no-op; the Rust backend advances its generation and can send SMB2 CANCEL
+     * while the old read is still waiting on the network.
      */
-    @Synchronized
     fun seek(position: Long) {
-        check(!closed) { "SMB file is closed" }
+        check(!closed.get()) { "SMB file is closed" }
         if (position >= 0L) handle.seek(position)
     }
 
     /** True when the selected backend already owns read-ahead/cache below the Kotlin boundary. */
     val ownsReadAhead: Boolean
-        @Synchronized get() {
-            check(!closed) { "SMB file is closed" }
+        get() {
+            check(!closed.get()) { "SMB file is closed" }
             return handle.ownsReadAhead
         }
 
-    @Synchronized
     override fun close() {
-        if (closed) return
-        closed = true
-        handle.close()
+        if (closed.compareAndSet(false, true)) handle.close()
     }
 
     companion object {
