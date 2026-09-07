@@ -25,12 +25,14 @@ import app.local1st.files.core.prefs.BrowserDisplayPreset
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
 import app.local1st.files.core.prefs.ThumbnailSize
+import app.local1st.files.core.prefs.VideoStoryboardSettings
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BrowserDisplaySettingsSection() {
     val context = LocalContext.current
     val config by BrowserDisplaySettings.state(context).collectAsState()
+    val storyboardSampleCount by VideoStoryboardSettings.state(context).collectAsState()
     val preset = BrowserDisplayPreset.matching(config)
 
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -63,6 +65,18 @@ internal fun BrowserDisplaySettingsSection() {
                 ),
                 selected = config.thumbnailSize,
                 onSelect = { BrowserDisplaySettings.setThumbnailSize(context, it) },
+            )
+            DisplayRadioRow(
+                title = "動画プレビュー枚数",
+                options = VideoStoryboardSettings.sampleCountOptions.map { it to "${it}枚" },
+                selected = storyboardSampleCount,
+                onSelect = { VideoStoryboardSettings.setSampleCount(context, it) },
+            )
+            Text(
+                "枚数を増やすほど動画の内容を細かく確認できます。初回のプレビュー生成にはその分だけ時間がかかります。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
             )
             DisplayRadioRow(
                 title = "ファイル名",
