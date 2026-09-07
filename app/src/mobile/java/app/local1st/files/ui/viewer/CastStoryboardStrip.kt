@@ -181,7 +181,7 @@ internal fun CastStoryboardStrip(
                 ) {
                     frames.forEach { frame ->
                         item(key = frame.index) {
-                            val image = frame.file?.takeIf { it.isFile && it.file.length() > 0L }
+                            val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
                             val selected = frame.index == nearestIndex
                             val shape = RoundedCornerShape(8.dp)
                             Column(
