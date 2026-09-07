@@ -1,7 +1,9 @@
 package app.local1st.files.ui.viewer
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CastRangeTest {
@@ -29,5 +31,14 @@ class CastRangeTest {
     fun impossibleRangeIsRejected() {
         assertNull(resolveRange("bytes=1000-", 1000))
         assertNull(resolveRange("items=0-10", 1000))
+    }
+
+    @Test
+    fun openEndedStreamingRangeIsDetected() {
+        assertTrue(isOpenEndedByteRange("bytes=250-"))
+        assertTrue(isOpenEndedByteRange("BYTES=0-"))
+        assertFalse(isOpenEndedByteRange("bytes=250-999"))
+        assertFalse(isOpenEndedByteRange("bytes=-100"))
+        assertFalse(isOpenEndedByteRange("items=0-"))
     }
 }
