@@ -63,11 +63,11 @@ private sealed interface CastStoryboardUiState {
 }
 
 /**
- * Storyboard for the remote Cast controller.
+ * Storyboard for the remote Cast controller and local player chrome.
  *
- * Portrait uses a vertically scrolling compact-preview timeline sized so roughly five frames can
- * stay visible at once. Landscape keeps the compact horizontal strip. Both layouts reuse the
- * browser storyboard loader and disk cache.
+ * Portrait Cast controls use a vertically scrolling compact-preview timeline, while landscape and
+ * the local player use the compact horizontal strip. All layouts reuse the browser storyboard
+ * loader and disk cache.
  */
 @Composable
 internal fun CastStoryboardStrip(
@@ -75,6 +75,7 @@ internal fun CastStoryboardStrip(
     positionMs: Long,
     onSeek: (Long) -> Unit,
     vertical: Boolean,
+    showJumpToCurrent: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -303,32 +304,34 @@ internal fun CastStoryboardStrip(
                     }
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(
-                        enabled = nearestIndex >= 0,
-                        onClick = {
-                            if (nearestIndex >= 0) {
-                                scope.launch {
-                                    listState.animateScrollToItem(nearestIndex)
-                                }
-                            }
-                        },
+                if (showJumpToCurrent) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.cast_jump_to_current_storyboard),
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
+                        TextButton(
+                            enabled = nearestIndex >= 0,
+                            onClick = {
+                                if (nearestIndex >= 0) {
+                                    scope.launch {
+                                        listState.animateScrollToItem(nearestIndex)
+                                    }
+                                }
+                            },
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.cast_jump_to_current_storyboard),
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                        }
                     }
                 }
             }
