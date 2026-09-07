@@ -96,16 +96,23 @@ internal fun VideoStoryboardDialog(
 ) {
     val context = LocalContext.current
     val sampleCount = VideoStoryboardSettings.current(context)
+    val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
     val state by produceState<StoryboardUiState>(
         initialValue = StoryboardUiState.Loading,
         entry.id,
         entry.mtime,
         entry.size,
         sampleCount,
+        minSpacingSeconds,
     ) {
         var emittedProgress = false
         val result = runCatching {
-            StoryboardLoader.load(context, entry, sampleCount) { partial ->
+            StoryboardLoader.load(
+                context = context,
+                entry = entry,
+                count = sampleCount,
+                minSpacingMs = minSpacingSeconds * 1_000L,
+            ) { partial ->
                 emittedProgress = true
                 value = StoryboardUiState.Ready(partial, complete = false)
             }
@@ -185,7 +192,7 @@ internal fun VideoStoryboardDialog(
                                 }
                                 if (result.frames.size < sampleCount) {
                                     Text(
-                                        text = "${result.frames.size}枚（1秒間隔）",
+                                        text = "${result.frames.size}枚（最低${minSpacingSeconds}秒間隔）",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -304,7 +311,6 @@ private object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
     private const val CACHE_VERSION = 4
     private const val EXTRACT_TIMEOUT_SECONDS = 120L
-    private const val MIN_SAMPLE_SPACING_MS = 1_000L
     private const val JPEG_QUALITY = 82
     private const val FAST_VISIBLE_FRAME_COUNT = 4
     private val semaphore = Semaphore(1)
@@ -316,19 +322,26 @@ private object StoryboardLoader {
         context: Context,
         entry: XEntry,
         count: Int,
+        minSpacingMs: Long,
         onProgress: suspend (StoryboardResult) -> Unit,
     ): StoryboardResult = semaphore.withPermit {
         val cacheDir = cacheDir(context, entry)
-        val cached = withContext(Dispatchers.IO) { readCached(cacheDir, count) }
+        val cached = withContext(Dispatchers.IO) {
+            readCached(cacheDir, count, minSpacingMs)
+        }
         if (cached != null) return@withPermit cached
-        generate(context, entry, cacheDir, count, onProgress)
+        generate(context, entry, cacheDir, count, minSpacingMs, onProgress)
     }
 
-    private fun readCached(cacheDir: File, count: Int): StoryboardResult? {
+    private fun readCached(
+        cacheDir: File,
+        count: Int,
+        minSpacingMs: Long,
+    ): StoryboardResult? {
         val manifest = File(cacheDir, "manifest.txt")
         if (!manifest.isFile) return null
         val durationMs = manifest.readText().trim().toLongOrNull() ?: return null
-        val times = sampleTimes(durationMs, count)
+        val times = sampleTimes(durationMs, count, minSpacingMs)
         if (times.isEmpty()) return null
         val files = times.map { timeMs -> frameFile(cacheDir, timeMs) }
         if (files.any { !it.isFile || it.length() <= 0L }) return null
@@ -346,6 +359,7 @@ private object StoryboardLoader {
         entry: XEntry,
         cacheDir: File,
         count: Int,
+        minSpacingMs: Long,
         onProgress: suspend (StoryboardResult) -> Unit,
     ): StoryboardResult = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
@@ -393,7 +407,7 @@ private object StoryboardLoader {
                 runCatching { File(cacheDir, "manifest.txt").writeText(durationMs.toString()) }
             }
 
-            val times = durationMs?.let { sampleTimes(it, count) }
+            val times = durationMs?.let { sampleTimes(it, count, minSpacingMs) }
                 ?: fallbackTimes(count)
             val frames = times.mapIndexed { index, timeMs ->
                 val target = frameFile(cacheDir, timeMs)
@@ -459,13 +473,18 @@ private object StoryboardLoader {
         return order.toList()
     }
 
-    private fun sampleTimes(durationMs: Long, count: Int): List<Long> {
+    private fun sampleTimes(
+        durationMs: Long,
+        count: Int,
+        minSpacingMs: Long,
+    ): List<Long> {
         if (durationMs <= 0L || count <= 0) return emptyList()
         val requestedCount = count.coerceAtLeast(1)
         val start = durationMs * 5L / 100L
         val end = durationMs * 95L / 100L
         val span = (end - start).coerceAtLeast(0L)
-        val maxCountForSpacing = (span / MIN_SAMPLE_SPACING_MS + 1L)
+        val safeSpacingMs = minSpacingMs.coerceAtLeast(1_000L)
+        val maxCountForSpacing = (span / safeSpacingMs + 1L)
             .coerceAtLeast(1L)
             .coerceAtMost(Int.MAX_VALUE.toLong())
             .toInt()
