@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -304,8 +303,9 @@ internal fun CastRemoteControls(
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(
-                        horizontal = 12.dp,
+                        start = 12.dp,
                         top = if (isLandscape) 0.dp else 4.dp,
+                        end = 12.dp,
                         bottom = if (isLandscape) 2.dp else 8.dp,
                     ),
             ) {
