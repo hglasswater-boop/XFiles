@@ -261,7 +261,7 @@ internal fun CastStoryboardStrip(
                         verticalAlignment = Alignment.Top,
                     ) {
                         items(frames, key = { it.index }) { frame ->
-                            val image = frame.file?.takeIf { it.isFile && it.file.length() > 0L }
+                            val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
                             val selected = frame.index == nearestIndex
                             val shape = RoundedCornerShape(8.dp)
                             Column(
