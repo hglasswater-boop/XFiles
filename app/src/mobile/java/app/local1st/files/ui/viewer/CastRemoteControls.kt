@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -252,11 +253,12 @@ internal fun CastRemoteControls(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            // Keep this full-screen node in the pointer hit path so taps never reach the browser
+            // behind it, but do not consume child gestures. The storyboard can therefore scroll.
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Main)
-                        event.changes.forEach { it.consume() }
+                        awaitPointerEvent(PointerEventPass.Final)
                     }
                 }
             },
@@ -316,9 +318,10 @@ internal fun CastRemoteControls(
                 .align(Alignment.TopCenter)
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(
                     top = if (isLandscape) 56.dp else 68.dp,
-                    bottom = if (isLandscape) 10.dp else 18.dp,
+                    bottom = if (isLandscape) 6.dp else 10.dp,
                 ),
         ) {
             Text(
@@ -335,7 +338,7 @@ internal fun CastRemoteControls(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 4.dp),
+                modifier = Modifier.padding(bottom = 2.dp),
             ) {
                 IconButton(
                     onClick = { submitMediaJump(-1) },
@@ -381,29 +384,6 @@ internal fun CastRemoteControls(
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(
-                        start = 12.dp,
-                        top = if (isLandscape) 0.dp else 4.dp,
-                        end = 12.dp,
-                        bottom = if (isLandscape) 2.dp else 8.dp,
-                    ),
-            ) {
-                CastStoryboardStrip(
-                    entry = entry,
-                    positionMs = positionMs,
-                    onSeek = { targetMs ->
-                        userScrubbing = false
-                        submitSeek(targetMs, coalesceBurst = false)
-                    },
-                    vertical = !isLandscape,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
             if (durationMs > 0L) {
                 Slider(
                     value = if (userScrubbing) sliderTarget else animatedSliderPosition,
@@ -429,6 +409,29 @@ internal fun CastRemoteControls(
                     Text(formatCastTime(positionMs), color = Color.White)
                     Text(formatCastTime(durationMs), color = Color.White)
                 }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(
+                        start = 12.dp,
+                        top = if (isLandscape) 0.dp else 4.dp,
+                        end = 12.dp,
+                        bottom = if (isLandscape) 2.dp else 4.dp,
+                    ),
+            ) {
+                CastStoryboardStrip(
+                    entry = entry,
+                    positionMs = positionMs,
+                    onSeek = { targetMs ->
+                        userScrubbing = false
+                        submitSeek(targetMs, coalesceBurst = false)
+                    },
+                    vertical = !isLandscape,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
