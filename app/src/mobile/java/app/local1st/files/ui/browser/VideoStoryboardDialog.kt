@@ -182,6 +182,13 @@ internal fun VideoStoryboardDialog(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
+                                if (result.frames.size < sampleCount) {
+                                    Text(
+                                        text = "${result.frames.size}枚（1秒間隔）",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                                 if (!current.complete) {
                                     LoadingIndicator(Modifier.size(18.dp))
                                     Text(
@@ -295,7 +302,8 @@ private fun StoryboardFrameCard(
 private object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
     private const val CACHE_VERSION = 3
-    private const val EXTRACT_TIMEOUT_SECONDS = 45L
+    private const val EXTRACT_TIMEOUT_SECONDS = 120L
+    private const val MIN_SAMPLE_SPACING_MS = 1_000L
     private const val JPEG_QUALITY = 76
     private const val FAST_VISIBLE_FRAME_COUNT = 4
     private val semaphore = Semaphore(1)
@@ -320,7 +328,7 @@ private object StoryboardLoader {
         if (!manifest.isFile) return null
         val durationMs = manifest.readText().trim().toLongOrNull() ?: return null
         val times = sampleTimes(durationMs, count)
-        if (times.size != count) return null
+        if (times.isEmpty()) return null
         val files = times.map { timeMs -> frameFile(cacheDir, timeMs) }
         if (files.any { !it.isFile || it.length() <= 0L }) return null
         cacheDir.setLastModified(System.currentTimeMillis())
@@ -452,12 +460,18 @@ private object StoryboardLoader {
 
     private fun sampleTimes(durationMs: Long, count: Int): List<Long> {
         if (durationMs <= 0L || count <= 0) return emptyList()
-        if (count == 1) return listOf(durationMs / 2L)
+        val requestedCount = count.coerceAtLeast(1)
         val start = durationMs * 5L / 100L
         val end = durationMs * 95L / 100L
         val span = (end - start).coerceAtLeast(0L)
-        return List(count) { index ->
-            start + (span * index / (count - 1L))
+        val maxCountForSpacing = (span / MIN_SAMPLE_SPACING_MS + 1L)
+            .coerceAtLeast(1L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+        val actualCount = minOf(requestedCount, maxCountForSpacing)
+        if (actualCount == 1) return listOf(start + span / 2L)
+        return List(actualCount) { index ->
+            start + (span * index / (actualCount - 1L))
         }
     }
 
