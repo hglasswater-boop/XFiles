@@ -95,6 +95,10 @@ internal fun BrowserDisplaySettingsSection() {
                     },
                     valueRange = VideoStoryboardSettings.MIN_SAMPLE_COUNT.toFloat()..
                         VideoStoryboardSettings.MAX_SAMPLE_COUNT.toFloat(),
+                    steps = (
+                        (VideoStoryboardSettings.MAX_SAMPLE_COUNT - VideoStoryboardSettings.MIN_SAMPLE_COUNT) /
+                            VideoStoryboardSettings.SAMPLE_COUNT_STEP
+                        ) - 1,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
