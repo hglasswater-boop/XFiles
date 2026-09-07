@@ -64,8 +64,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-private const val STORYBOARD_WIDTH = 320
-private const val STORYBOARD_HEIGHT = 180
+private const val STORYBOARD_WIDTH = 384
+private const val STORYBOARD_HEIGHT = 216
 
 private data class StoryboardFrame(
     val index: Int,
@@ -301,10 +301,10 @@ private fun StoryboardFrameCard(
 
 private object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
-    private const val CACHE_VERSION = 3
+    private const val CACHE_VERSION = 4
     private const val EXTRACT_TIMEOUT_SECONDS = 120L
     private const val MIN_SAMPLE_SPACING_MS = 1_000L
-    private const val JPEG_QUALITY = 76
+    private const val JPEG_QUALITY = 82
     private const val FAST_VISIBLE_FRAME_COUNT = 4
     private val semaphore = Semaphore(1)
     private val watchdog = Executors.newSingleThreadScheduledExecutor { runnable ->
