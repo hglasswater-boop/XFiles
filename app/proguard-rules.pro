@@ -10,6 +10,10 @@
 -dontwarn org.ietf.jgss.**
 -dontwarn javax.el.**
 
+# JNI export names embed this exact package/class name. R8 must never rename it or its native
+# methods, otherwise the JVM cannot resolve the Rust symbols.
+-keep class app.local1st.files.core.fs.rust.RustSmbNative { *; }
+
 # Shizuku's provider is instantiated by the framework, and P1 invokes the compiled AIDL
 # interfaces directly because Shizuku.newProcess is private in API 13.1.5.
 -keep class rikka.shizuku.ShizukuProvider { *; }
