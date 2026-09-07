@@ -1,7 +1,9 @@
 package app.local1st.files.core.fs
 
+import app.local1st.files.core.prefs.SmbConnectionConfig
 import app.local1st.files.core.prefs.SmbConnectionRepo
 import java.io.Closeable
+import java.io.IOException
 
 /**
  * Backend boundary for seekable SMB reads.
@@ -27,6 +29,32 @@ internal interface SmbRandomAccessHandle : Closeable {
 
 internal fun interface SmbRandomAccessBackend {
     fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessHandle
+}
+
+internal data class SmbRandomAccessTarget(
+    val connection: SmbConnectionConfig,
+    /** Path inside the configured share, including its optional base path. */
+    val path: String,
+)
+
+internal fun resolveSmbRandomAccessTarget(
+    id: String,
+    connections: SmbConnectionRepo,
+): SmbRandomAccessTarget {
+    require(id.startsWith("${XId.SCHEME_SMB}://") && id != SmbFileSystem.ROOT_ID) {
+        "Invalid SMB id: $id"
+    }
+    val raw = id.removePrefix("${XId.SCHEME_SMB}://").trimEnd('/')
+    val connectionId = raw.substringBefore('/')
+    val connection = connections.find(connectionId)
+        ?: throw IOException("SMB connection is no longer configured")
+    val relativePath = raw.substringAfter('/', "")
+    require(relativePath.isNotBlank()) { "SMB connection root is not a file" }
+    val path = when {
+        connection.basePath.isBlank() -> relativePath
+        else -> "${connection.basePath}/$relativePath"
+    }
+    return SmbRandomAccessTarget(connection, path)
 }
 
 /**
