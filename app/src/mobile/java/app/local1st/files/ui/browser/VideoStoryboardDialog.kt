@@ -7,7 +7,7 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +33,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -97,6 +100,9 @@ internal fun VideoStoryboardDialog(
     val context = LocalContext.current
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
+    var fineFrameIndex by remember(entry.id, entry.mtime, entry.size) {
+        mutableStateOf<Int?>(null)
+    }
     val state by produceState<StoryboardUiState>(
         initialValue = StoryboardUiState.Loading,
         entry.id,
@@ -222,6 +228,9 @@ internal fun VideoStoryboardDialog(
                                             onDismiss()
                                             onPlayFrom(frame.timeMs)
                                         },
+                                        onLongClick = {
+                                            fineFrameIndex = frame.index
+                                        },
                                     )
                                 }
                             }
@@ -229,6 +238,25 @@ internal fun VideoStoryboardDialog(
                     }
                 }
             }
+        }
+    }
+
+    val ready = state as? StoryboardUiState.Ready
+    fineFrameIndex?.let { index ->
+        val frames = ready?.result?.frames.orEmpty()
+        frames.getOrNull(index)?.let { frame ->
+            StoryboardFinePreviewDialog(
+                entry = entry,
+                centerTimeMs = frame.timeMs,
+                stepMs = storyboardFineStepMs(frames, index),
+                durationMs = ready?.result?.durationMs,
+                onDismiss = { fineFrameIndex = null },
+                onSelect = { timeMs ->
+                    fineFrameIndex = null
+                    onDismiss()
+                    onPlayFrom(timeMs)
+                },
+            )
         }
     }
 }
@@ -260,12 +288,17 @@ private fun StoryboardFrameCard(
     frame: StoryboardFrame,
     loading: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
     val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = image != null, onClick = onClick),
+            .combinedClickable(
+                enabled = image != null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
     ) {
         if (image != null) {
             AsyncImage(
