@@ -228,8 +228,7 @@ internal fun CastRemoteControls(
             verticalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier
                 .align(Alignment.Center)
-                .fillMaxWidth()
-                .padding(horizontal = 40.dp),
+                .fillMaxWidth(),
         ) {
             Text(
                 entry.name,
@@ -237,6 +236,9 @@ internal fun CastRemoteControls(
                 style = MaterialTheme.typography.titleLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 40.dp),
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -290,9 +292,16 @@ internal fun CastRemoteControls(
                         submitSeek(positionMs, coalesceBurst = false)
                     },
                     valueRange = 0f..durationMs.toFloat(),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 40.dp),
                 )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 40.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     Text(formatCastTime(positionMs), color = Color.White)
                     Text(formatCastTime(durationMs), color = Color.White)
                 }
@@ -305,7 +314,9 @@ internal fun CastRemoteControls(
                     userScrubbing = false
                     submitSeek(targetMs, coalesceBurst = false)
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
             )
         }
     }
