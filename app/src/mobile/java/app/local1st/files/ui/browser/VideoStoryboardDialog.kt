@@ -17,10 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
@@ -191,9 +191,13 @@ internal fun VideoStoryboardDialog(
                                     )
                                 }
                             }
-                            LazyRow(
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 150.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 112.dp, max = 560.dp),
                             ) {
                                 items(result.frames, key = { it.index }) { frame ->
                                     StoryboardFrameCard(
@@ -245,7 +249,7 @@ private fun StoryboardFrameCard(
     val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
     Column(
         Modifier
-            .width(176.dp)
+            .fillMaxWidth()
             .clickable(enabled = image != null, onClick = onClick),
     ) {
         if (image != null) {
