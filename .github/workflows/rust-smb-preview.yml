@@ -1,7 +1,8 @@
 name: Rust SMB Preview
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
