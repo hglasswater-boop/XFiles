@@ -38,6 +38,63 @@ class RemoteIoBuffersTest {
     }
 
     @Test
+    fun cacheHitCrossingReadAheadEndReturnsTheCompleteRequestedRange() {
+        val source = ByteArray(64) { it.toByte() }
+        val requests = mutableListOf<Pair<Long, Int>>()
+        val readAhead = SequentialReadAhead(capacity = 16)
+        val warmup = ByteArray(4)
+        val destination = ByteArray(6)
+        val reader = reader(source, requests)
+
+        readAhead.read(0, warmup, 0, warmup.size, reader)
+        readAhead.read(4, warmup, 0, warmup.size, reader)
+
+        assertEquals(6, readAhead.read(17, destination, 0, destination.size, reader))
+        assertArrayEquals(byteArrayOf(17, 18, 19, 20, 21, 22), destination)
+        assertEquals(listOf(0L to 4, 4L to 16, 20L to 3), requests)
+    }
+
+    @Test
+    fun cacheBoundaryReadIsShortOnlyAtTheRealFileEnd() {
+        val source = ByteArray(21) { it.toByte() }
+        val requests = mutableListOf<Pair<Long, Int>>()
+        val readAhead = SequentialReadAhead(capacity = 16)
+        val warmup = ByteArray(4)
+        val destination = ByteArray(6)
+        val reader = reader(source, requests)
+
+        readAhead.read(0, warmup, 0, warmup.size, reader)
+        readAhead.read(4, warmup, 0, warmup.size, reader)
+
+        assertEquals(3, readAhead.read(18, destination, 0, destination.size, reader))
+        assertArrayEquals(byteArrayOf(18, 19, 20), destination.copyOfRange(0, 3))
+        assertEquals(listOf(0L to 4, 4L to 16, 20L to 4, 21L to 3), requests)
+    }
+
+    @Test
+    fun cacheBoundaryReadKeepsLongOffsetsBeyondFourGiB() {
+        val base = 5L * 1024L * 1024L * 1024L
+        val requests = mutableListOf<Pair<Long, Int>>()
+        val readAhead = SequentialReadAhead(capacity = 16)
+        val warmup = ByteArray(4)
+        val destination = ByteArray(6)
+        val reader: (Long, ByteArray, Int, Int) -> Int = { position, target, offset, length ->
+            requests += position to length
+            repeat(length) { index ->
+                target[offset + index] = ((position + index - base) and 0xffL).toByte()
+            }
+            length
+        }
+
+        readAhead.read(base, warmup, 0, warmup.size, reader)
+        readAhead.read(base + 4, warmup, 0, warmup.size, reader)
+
+        assertEquals(6, readAhead.read(base + 17, destination, 0, destination.size, reader))
+        assertArrayEquals(byteArrayOf(17, 18, 19, 20, 21, 22), destination)
+        assertEquals(listOf(base to 4, base + 4 to 16, base + 20 to 3), requests)
+    }
+
+    @Test
     fun sequentialWritesAreCombinedUntilFlush() {
         val writes = mutableListOf<WriteCall>()
         val buffer = SequentialWriteBuffer(capacity = 8)
