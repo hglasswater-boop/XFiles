@@ -320,7 +320,7 @@ internal fun CastRemoteControls(
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(
-                    top = if (isLandscape) 56.dp else 68.dp,
+                    top = if (isLandscape) 48.dp else 56.dp,
                     bottom = if (isLandscape) 6.dp else 10.dp,
                 ),
         ) {
