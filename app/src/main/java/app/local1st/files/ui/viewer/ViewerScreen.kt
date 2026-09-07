@@ -26,7 +26,12 @@ fun ViewerScreen(vm: MainViewModel, request: ViewerRequest, onBack: () -> Unit) 
             )
             is ViewerRequest.Hex -> HexViewer(req.entry, close)
             is ViewerRequest.Pdf -> PdfViewer(req.entry, close) { vm.openWith(req.entry) }
-            is ViewerRequest.Media -> MediaViewer(req.entry, req.playlist, close)
+            is ViewerRequest.Media -> MediaViewer(
+                entry = req.entry,
+                playlist = req.playlist,
+                sourcePaneId = vm.activePane.value,
+                onClose = close,
+            )
         }
     }
 }
