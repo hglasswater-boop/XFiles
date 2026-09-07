@@ -8,7 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import app.local1st.files.MainActivity
@@ -21,6 +24,17 @@ import app.local1st.files.R
  * when the user switches to another app.
  */
 class CastPlaybackKeepAliveService : Service() {
+    private val controlHandler = Handler(Looper.getMainLooper())
+    private var pendingSeekDeltaMs = 0L
+    private var lastSubmittedSeekAtMs = 0L
+    private val flushPendingSeek = Runnable {
+        val delta = pendingSeekDeltaMs
+        pendingSeekDeltaMs = 0L
+        if (delta != 0L) {
+            CastPlaybackBridge.seekBy(delta)
+            lastSubmittedSeekAtMs = SystemClock.elapsedRealtime()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -32,14 +46,24 @@ class CastPlaybackKeepAliveService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                cancelPendingSeek()
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }
-            ACTION_TOGGLE_PLAY_PAUSE -> CastPlaybackBridge.togglePlayPause()
-            ACTION_SEEK_BACK -> CastPlaybackBridge.seekBy(-SEEK_STEP_MS)
-            ACTION_SEEK_FORWARD -> CastPlaybackBridge.seekBy(SEEK_STEP_MS)
-            ACTION_PREVIOUS -> CastPlaybackBridge.previous()
-            ACTION_NEXT -> CastPlaybackBridge.next()
+            ACTION_TOGGLE_PLAY_PAUSE -> {
+                cancelPendingSeek()
+                CastPlaybackBridge.togglePlayPause()
+            }
+            ACTION_SEEK_BACK -> submitSeekBy(-SEEK_STEP_MS)
+            ACTION_SEEK_FORWARD -> submitSeekBy(SEEK_STEP_MS)
+            ACTION_PREVIOUS -> {
+                cancelPendingSeek()
+                CastPlaybackBridge.previous()
+            }
+            ACTION_NEXT -> {
+                cancelPendingSeek()
+                CastPlaybackBridge.next()
+            }
         }
 
         ServiceCompat.startForeground(
@@ -54,8 +78,31 @@ class CastPlaybackKeepAliveService : Service() {
     }
 
     override fun onDestroy() {
+        cancelPendingSeek()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
+    }
+
+    private fun submitSeekBy(deltaMs: Long) {
+        val now = SystemClock.elapsedRealtime()
+        val insideBurst = lastSubmittedSeekAtMs > 0L &&
+            now - lastSubmittedSeekAtMs < SEEK_COALESCE_WINDOW_MS
+
+        if (pendingSeekDeltaMs != 0L || insideBurst) {
+            pendingSeekDeltaMs += deltaMs
+            controlHandler.removeCallbacks(flushPendingSeek)
+            controlHandler.postDelayed(flushPendingSeek, SEEK_COALESCE_WINDOW_MS)
+            return
+        }
+
+        CastPlaybackBridge.seekBy(deltaMs)
+        lastSubmittedSeekAtMs = now
+    }
+
+    private fun cancelPendingSeek() {
+        controlHandler.removeCallbacks(flushPendingSeek)
+        pendingSeekDeltaMs = 0L
+        lastSubmittedSeekAtMs = 0L
     }
 
     private fun stopForegroundAndSelf() {
@@ -150,6 +197,7 @@ class CastPlaybackKeepAliveService : Service() {
         private const val CHANNEL_ID = "cast_playback"
         private const val NOTIFICATION_ID = 43
         private const val SEEK_STEP_MS = 10_000L
+        private const val SEEK_COALESCE_WINDOW_MS = 400L
         private const val ACTION_STOP = "app.local1st.files.cast.STOP_KEEP_ALIVE"
         private const val ACTION_TOGGLE_PLAY_PAUSE = "app.local1st.files.cast.TOGGLE_PLAY_PAUSE"
         private const val ACTION_SEEK_BACK = "app.local1st.files.cast.SEEK_BACK"
