@@ -35,6 +35,7 @@ internal fun BrowserDisplaySettingsSection() {
     val context = LocalContext.current
     val config by BrowserDisplaySettings.state(context).collectAsState()
     val storyboardSampleCount by VideoStoryboardSettings.state(context).collectAsState()
+    val storyboardMinSpacingSeconds by VideoStoryboardSettings.spacingState(context).collectAsState()
     val preset = BrowserDisplayPreset.matching(config)
 
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -102,7 +103,41 @@ internal fun BrowserDisplaySettingsSection() {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "${VideoStoryboardSettings.MIN_SAMPLE_COUNT}〜${VideoStoryboardSettings.MAX_SAMPLE_COUNT}枚を2枚刻みで指定できます。短い動画では、コマ間隔が1秒未満にならないよう1秒につき最大1枚へ自動調整します。",
+                    "${VideoStoryboardSettings.MIN_SAMPLE_COUNT}〜${VideoStoryboardSettings.MAX_SAMPLE_COUNT}枚を2枚刻みで指定します。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                ) {
+                    Text(
+                        "動画プレビュー最低間隔",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${storyboardMinSpacingSeconds}秒",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Slider(
+                    value = storyboardMinSpacingSeconds.toFloat(),
+                    onValueChange = { value ->
+                        VideoStoryboardSettings.setMinSpacingSeconds(context, value.roundToInt())
+                    },
+                    valueRange = VideoStoryboardSettings.MIN_SPACING_SECONDS.toFloat()..
+                        VideoStoryboardSettings.MAX_SPACING_SECONDS.toFloat(),
+                    steps = VideoStoryboardSettings.MAX_SPACING_SECONDS -
+                        VideoStoryboardSettings.MIN_SPACING_SECONDS - 1,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "1〜10秒を1秒刻みで指定します。標準は5秒です。指定枚数より密になる場合は、最低間隔を優先して実際のプレビュー枚数を自動で減らします。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
