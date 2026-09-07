@@ -2,6 +2,7 @@ package app.local1st.files.ui.viewer
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.Configuration
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -50,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -222,25 +225,35 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 onClose = onClose,
             )
         } else {
-            Box(Modifier.fillMaxSize()) {
-                VideoCompatibilityGuard(
-                    player = localPlayer,
-                    entry = currentEntry,
-                    onClose = onClose,
+            Column(Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
                 ) {
-                    VideoPlayerScreen(
+                    VideoCompatibilityGuard(
                         player = localPlayer,
                         entry = currentEntry,
-                        playing = playing,
-                        hasPrevious = hasPrevious,
-                        hasNext = hasNext,
                         onClose = onClose,
+                    ) {
+                        VideoPlayerScreen(
+                            player = localPlayer,
+                            entry = currentEntry,
+                            playing = playing,
+                            hasPrevious = hasPrevious,
+                            hasNext = hasNext,
+                            onClose = onClose,
+                        )
+                    }
+                    VideoCastButton(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 12.dp, end = 64.dp),
                     )
                 }
-                VideoCastButton(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 12.dp, end = 64.dp),
+                LocalVideoStoryboard(
+                    player = localPlayer,
+                    entry = currentEntry,
                 )
             }
         }
@@ -260,7 +273,68 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 }
 
 @Composable
+private fun LocalVideoStoryboard(
+    player: Player,
+    entry: XEntry,
+    modifier: Modifier = Modifier,
+) {
+    if (rememberViewerPictureInPictureMode()) return
+
+    var positionMs by remember(player, entry.id) {
+        mutableLongStateOf(player.currentPosition.coerceAtLeast(0L))
+    }
+    LaunchedEffect(player, entry.id) {
+        while (isActive) {
+            positionMs = player.currentPosition.coerceAtLeast(0L)
+            delay(PLAYER_STORYBOARD_POSITION_REFRESH_MS)
+        }
+    }
+
+    val configuration = LocalConfiguration.current
+    val stripHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        92.dp
+    } else {
+        98.dp
+    }
+
+    Surface(
+        color = Color.Black,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(stripHeight),
+    ) {
+        CastStoryboardStrip(
+            entry = entry,
+            positionMs = positionMs,
+            onSeek = { targetMs -> player.seekTo(targetMs) },
+            vertical = false,
+            showJumpToCurrent = false,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
 private fun VideoCastButton(modifier: Modifier = Modifier) {
+    val inPictureInPicture = rememberViewerPictureInPictureMode()
+
+    if (!inPictureInPicture) {
+        Surface(
+            color = Color.Black.copy(alpha = 0.48f),
+            shape = CircleShape,
+            modifier = modifier,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides Color.White) {
+                MediaRouteButton()
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberViewerPictureInPictureMode(): Boolean {
     val context = LocalContext.current
     val activity = remember(context) { context.findViewerActivity() }
     var inPictureInPicture by remember(activity) {
@@ -282,17 +356,7 @@ private fun VideoCastButton(modifier: Modifier = Modifier) {
         }
     }
 
-    if (!inPictureInPicture) {
-        Surface(
-            color = Color.Black.copy(alpha = 0.48f),
-            shape = CircleShape,
-            modifier = modifier,
-        ) {
-            CompositionLocalProvider(LocalContentColor provides Color.White) {
-                MediaRouteButton()
-            }
-        }
-    }
+    return inPictureInPicture
 }
 
 private tailrec fun Context.findViewerActivity(): ComponentActivity? = when (this) {
@@ -468,5 +532,6 @@ internal fun formatPlayTime(ms: Long): String {
     }
 }
 
+private const val PLAYER_STORYBOARD_POSITION_REFRESH_MS = 200L
 private const val VIDEO_RESUME_SAVE_INTERVAL_MS = 2_000L
 private const val VIDEO_RESUME_RESTORE_TOLERANCE_MS = 2_000L
