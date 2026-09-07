@@ -64,8 +64,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-private const val STORYBOARD_WIDTH = 384
-private const val STORYBOARD_HEIGHT = 216
+private const val STORYBOARD_WIDTH = 320
+private const val STORYBOARD_HEIGHT = 180
 
 private data class StoryboardFrame(
     val index: Int,
@@ -80,7 +80,10 @@ private data class StoryboardResult(
 
 private sealed interface StoryboardUiState {
     data object Loading : StoryboardUiState
-    data class Ready(val result: StoryboardResult) : StoryboardUiState
+    data class Ready(
+        val result: StoryboardResult,
+        val complete: Boolean,
+    ) : StoryboardUiState
     data object Failed : StoryboardUiState
 }
 
@@ -99,11 +102,18 @@ internal fun VideoStoryboardDialog(
         entry.size,
         sampleCount,
     ) {
-        value = runCatching {
-            StoryboardLoader.load(context, entry, sampleCount)
-        }.fold(
-            onSuccess = { StoryboardUiState.Ready(it) },
-            onFailure = { StoryboardUiState.Failed },
+        var emittedProgress = false
+        val result = runCatching {
+            StoryboardLoader.load(context, entry, sampleCount) { partial ->
+                emittedProgress = true
+                value = StoryboardUiState.Ready(partial, complete = false)
+            }
+        }
+        value = result.fold(
+            onSuccess = { StoryboardUiState.Ready(it, complete = true) },
+            onFailure = {
+                if (emittedProgress) value else StoryboardUiState.Failed
+            },
         )
     }
 
@@ -154,17 +164,32 @@ internal fun VideoStoryboardDialog(
 
                     is StoryboardUiState.Ready -> {
                         val result = current.result
-                        val usable = result.frames.any { it.file?.isFile == true && it.file.length() > 0L }
-                        if (!usable) {
+                        val readyCount = result.frames.count {
+                            it.file?.isFile == true && it.file.length() > 0L
+                        }
+                        if (current.complete && readyCount == 0) {
                             StoryboardFailure(entry)
                         } else {
-                            result.durationMs?.takeIf { it > 0L }?.let { duration ->
-                                Text(
-                                    text = formatVideoDuration(duration),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(bottom = 10.dp),
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(bottom = 10.dp),
+                            ) {
+                                result.durationMs?.takeIf { it > 0L }?.let { duration ->
+                                    Text(
+                                        text = formatVideoDuration(duration),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (!current.complete) {
+                                    LoadingIndicator(Modifier.size(18.dp))
+                                    Text(
+                                        text = "$readyCount/${result.frames.size}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -173,6 +198,7 @@ internal fun VideoStoryboardDialog(
                                 items(result.frames, key = { it.index }) { frame ->
                                     StoryboardFrameCard(
                                         frame = frame,
+                                        loading = !current.complete && frame.file == null,
                                         onClick = {
                                             onDismiss()
                                             onPlayFrom(frame.timeMs)
@@ -213,6 +239,7 @@ private fun StoryboardFailure(entry: XEntry) {
 @Composable
 private fun StoryboardFrameCard(
     frame: StoryboardFrame,
+    loading: Boolean,
     onClick: () -> Unit,
 ) {
     val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
@@ -240,12 +267,16 @@ private fun StoryboardFrameCard(
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             ) {
-                Icon(
-                    Icons.Outlined.BrokenImage,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(28.dp),
-                )
+                if (loading) {
+                    LoadingIndicator(Modifier.size(28.dp))
+                } else {
+                    Icon(
+                        Icons.Outlined.BrokenImage,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
         }
         Text(
@@ -259,21 +290,26 @@ private fun StoryboardFrameCard(
 
 private object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
-    private const val CACHE_VERSION = 2
+    private const val CACHE_VERSION = 3
     private const val EXTRACT_TIMEOUT_SECONDS = 45L
+    private const val JPEG_QUALITY = 76
+    private const val FAST_VISIBLE_FRAME_COUNT = 4
     private val semaphore = Semaphore(1)
     private val watchdog = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "video-storyboard-watchdog").apply { isDaemon = true }
     }
 
-    suspend fun load(context: Context, entry: XEntry, count: Int): StoryboardResult =
-        semaphore.withPermit {
-            withContext(Dispatchers.IO) {
-                val cacheDir = cacheDir(context, entry, count)
-                readCached(cacheDir, count)?.let { return@withContext it }
-                generate(context, entry, cacheDir, count)
-            }
-        }
+    suspend fun load(
+        context: Context,
+        entry: XEntry,
+        count: Int,
+        onProgress: suspend (StoryboardResult) -> Unit,
+    ): StoryboardResult = semaphore.withPermit {
+        val cacheDir = cacheDir(context, entry)
+        val cached = withContext(Dispatchers.IO) { readCached(cacheDir, count) }
+        if (cached != null) return@withPermit cached
+        generate(context, entry, cacheDir, count, onProgress)
+    }
 
     private fun readCached(cacheDir: File, count: Int): StoryboardResult? {
         val manifest = File(cacheDir, "manifest.txt")
@@ -281,7 +317,7 @@ private object StoryboardLoader {
         val durationMs = manifest.readText().trim().toLongOrNull() ?: return null
         val times = sampleTimes(durationMs, count)
         if (times.size != count) return null
-        val files = times.indices.map { index -> frameFile(cacheDir, index) }
+        val files = times.map { timeMs -> frameFile(cacheDir, timeMs) }
         if (files.any { !it.isFile || it.length() <= 0L }) return null
         cacheDir.setLastModified(System.currentTimeMillis())
         return StoryboardResult(
@@ -292,12 +328,13 @@ private object StoryboardLoader {
         )
     }
 
-    private fun generate(
+    private suspend fun generate(
         context: Context,
         entry: XEntry,
         cacheDir: File,
         count: Int,
-    ): StoryboardResult {
+        onProgress: suspend (StoryboardResult) -> Unit,
+    ): StoryboardResult = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
         val retriever = MediaMetadataRetriever()
         var descriptor: ParcelFileDescriptor? = null
@@ -318,7 +355,7 @@ private object StoryboardLoader {
             TimeUnit.SECONDS,
         )
 
-        return try {
+        try {
             when {
                 entry.scheme == XId.SCHEME_SMB -> {
                     remoteSource = StoryboardSmbMediaDataSource(entry)
@@ -327,9 +364,9 @@ private object StoryboardLoader {
                 entry.localPath != null -> retriever.setDataSource(entry.localPath)
                 else -> {
                     val transport = PrivilegedAccess.fdTransport()
-                        ?: return StoryboardResult(null, emptyList())
+                        ?: return@withContext StoryboardResult(null, emptyList())
                     descriptor = transport.openFd(entry.path, write = false)
-                        ?: return StoryboardResult(null, emptyList())
+                        ?: return@withContext StoryboardResult(null, emptyList())
                     retriever.setDataSource(descriptor.fileDescriptor)
                 }
             }
@@ -339,32 +376,74 @@ private object StoryboardLoader {
                 ?.toLongOrNull()
                 ?.takeIf { it > 0L }
 
+            if (durationMs != null) {
+                runCatching { File(cacheDir, "manifest.txt").writeText(durationMs.toString()) }
+            }
+
             val times = durationMs?.let { sampleTimes(it, count) }
                 ?: fallbackTimes(count)
             val frames = times.mapIndexed { index, timeMs ->
-                val target = frameFile(cacheDir, index)
-                if (target.isFile && target.length() > 0L) {
-                    StoryboardFrame(index, timeMs, target)
-                } else {
-                    val bitmap = extractFrame(retriever, timeMs)
-                    val written = bitmap?.let { writeFrame(target, it) } == true
-                    bitmap?.recycle()
-                    StoryboardFrame(index, timeMs, target.takeIf { written })
-                }
+                val target = frameFile(cacheDir, timeMs)
+                StoryboardFrame(
+                    index = index,
+                    timeMs = timeMs,
+                    file = target.takeIf { it.isFile && it.length() > 0L },
+                )
+            }.toMutableList()
+
+            if (frames.any { it.file != null }) {
+                emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
             }
 
-            if (durationMs != null && frames.all { it.file != null }) {
-                File(cacheDir, "manifest.txt").writeText(durationMs.toString())
+            for (index in extractionOrder(frames.size)) {
+                if (frames[index].file != null) continue
+                val timeMs = frames[index].timeMs
+                val target = frameFile(cacheDir, timeMs)
+                val bitmap = extractFrame(retriever, timeMs)
+                val written = bitmap?.let { writeFrame(target, it) } == true
+                bitmap?.recycle()
+                frames[index] = StoryboardFrame(
+                    index = index,
+                    timeMs = timeMs,
+                    file = target.takeIf { written },
+                )
+                emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
             }
+
             cacheDir.setLastModified(System.currentTimeMillis())
             pruneCache(context)
-            StoryboardResult(durationMs, frames)
+            StoryboardResult(durationMs, frames.toList())
         } finally {
             watchdogTask.cancel(false)
             releaseRetriever()
             runCatching { descriptor?.close() }
             runCatching { remoteSource?.close() }
         }
+    }
+
+    private suspend fun emitProgress(
+        onProgress: suspend (StoryboardResult) -> Unit,
+        result: StoryboardResult,
+    ) {
+        withContext(Dispatchers.Main.immediate) {
+            onProgress(result)
+        }
+    }
+
+    private fun extractionOrder(count: Int): List<Int> {
+        if (count <= 0) return emptyList()
+        val order = LinkedHashSet<Int>(count)
+        for (index in 0 until minOf(FAST_VISIBLE_FRAME_COUNT, count)) {
+            order += index
+        }
+        if (count > FAST_VISIBLE_FRAME_COUNT) {
+            order += count - 1
+            order += count / 2
+        }
+        for (index in FAST_VISIBLE_FRAME_COUNT until count) {
+            order += index
+        }
+        return order.toList()
     }
 
     private fun sampleTimes(durationMs: Long, count: Int): List<Long> {
@@ -450,7 +529,7 @@ private object StoryboardLoader {
         target.parentFile?.mkdirs()
         val tmp = File.createTempFile("storyboard", ".tmp", target.parentFile)
         val compressed = tmp.outputStream().buffered().use { output ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
         }
         if (!compressed || tmp.length() <= 0L) {
             tmp.delete()
@@ -463,17 +542,17 @@ private object StoryboardLoader {
         }
     }.getOrDefault(false)
 
-    private fun cacheDir(context: Context, entry: XEntry, count: Int): File {
+    private fun cacheDir(context: Context, entry: XEntry): File {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(
-                "v$CACHE_VERSION|${entry.id}|${entry.mtime}|${entry.size}|count=$count".encodeToByteArray(),
+                "v$CACHE_VERSION|${entry.id}|${entry.mtime}|${entry.size}".encodeToByteArray(),
             )
             .joinToString("") { "%02x".format(it) }
         return File(File(context.cacheDir, "video_storyboards"), digest)
     }
 
-    private fun frameFile(cacheDir: File, index: Int): File =
-        File(cacheDir, "%02d.jpg".format(index))
+    private fun frameFile(cacheDir: File, timeMs: Long): File =
+        File(cacheDir, "$timeMs.jpg")
 
     private fun pruneCache(context: Context) {
         val root = File(context.cacheDir, "video_storyboards")
@@ -563,6 +642,6 @@ private class StoryboardSmbMediaDataSource(private val entry: XEntry) : MediaDat
 
     private companion object {
         const val BLOCK_SIZE = 1024 * 1024
-        const val MAX_CACHED_BLOCKS = 6
+        const val MAX_CACHED_BLOCKS = 8
     }
 }
