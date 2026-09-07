@@ -7,7 +7,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** User preference for the on-demand video storyboard shown from browser thumbnails. */
 object VideoStoryboardSettings {
-    val sampleCountOptions: List<Int> = listOf(6, 10, 16, 20)
+    const val MIN_SAMPLE_COUNT = 6
+    const val MAX_SAMPLE_COUNT = 60
+    const val SAMPLE_COUNT_STEP = 2
     const val DEFAULT_SAMPLE_COUNT = 10
 
     private const val PREFS = "video_storyboard_settings"
@@ -27,7 +29,9 @@ object VideoStoryboardSettings {
     }
 
     fun setSampleCount(context: Context, value: Int) {
+        ensureLoaded(context)
         val normalized = normalize(value)
+        if (_sampleCount.value == normalized) return
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putInt(KEY_SAMPLE_COUNT, normalized)
@@ -43,12 +47,17 @@ object VideoStoryboardSettings {
         loaded = true
     }
 
-    private fun normalize(value: Int): Int = when (value) {
-        5 -> 6
-        9 -> 10
-        15 -> 16
-        21 -> 20
-        in sampleCountOptions -> value
-        else -> DEFAULT_SAMPLE_COUNT
+    private fun normalize(value: Int): Int {
+        val migrated = when (value) {
+            5 -> 6
+            9 -> 10
+            15 -> 16
+            21 -> 20
+            else -> value
+        }
+        val clamped = migrated.coerceIn(MIN_SAMPLE_COUNT, MAX_SAMPLE_COUNT)
+        val offset = clamped - MIN_SAMPLE_COUNT
+        return MIN_SAMPLE_COUNT +
+            ((offset + SAMPLE_COUNT_STEP / 2) / SAMPLE_COUNT_STEP) * SAMPLE_COUNT_STEP
     }
 }
