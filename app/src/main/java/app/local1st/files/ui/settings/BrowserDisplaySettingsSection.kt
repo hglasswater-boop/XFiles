@@ -11,6 +11,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -26,6 +27,7 @@ import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
 import app.local1st.files.core.prefs.ThumbnailSize
 import app.local1st.files.core.prefs.VideoStoryboardSettings
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -66,18 +68,41 @@ internal fun BrowserDisplaySettingsSection() {
                 selected = config.thumbnailSize,
                 onSelect = { BrowserDisplaySettings.setThumbnailSize(context, it) },
             )
-            DisplayRadioRow(
-                title = "動画プレビュー枚数",
-                options = VideoStoryboardSettings.sampleCountOptions.map { it to "${it}枚" },
-                selected = storyboardSampleCount,
-                onSelect = { VideoStoryboardSettings.setSampleCount(context, it) },
-            )
-            Text(
-                "枚数を増やすほど動画の内容を細かく確認できます。初回のプレビュー生成にはその分だけ時間がかかります。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            )
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "動画プレビュー枚数",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${storyboardSampleCount}枚",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Slider(
+                    value = storyboardSampleCount.toFloat(),
+                    onValueChange = { value ->
+                        VideoStoryboardSettings.setSampleCount(context, value.roundToInt())
+                    },
+                    valueRange = VideoStoryboardSettings.MIN_SAMPLE_COUNT.toFloat()..
+                        VideoStoryboardSettings.MAX_SAMPLE_COUNT.toFloat(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "${VideoStoryboardSettings.MIN_SAMPLE_COUNT}〜${VideoStoryboardSettings.MAX_SAMPLE_COUNT}枚を2枚刻みで指定できます。短い動画では、コマ間隔が1秒未満にならないよう1秒につき最大1枚へ自動調整します。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             DisplayRadioRow(
                 title = "ファイル名",
                 options = listOf(
