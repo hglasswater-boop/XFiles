@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /** User preferences for the on-demand video storyboard shown from browser thumbnails. */
 object VideoStoryboardSettings {
     const val MIN_SAMPLE_COUNT = 6
-    const val MAX_SAMPLE_COUNT = 60
+    const val MAX_SAMPLE_COUNT = 120
     const val SAMPLE_COUNT_STEP = 2
     const val DEFAULT_SAMPLE_COUNT = 10
 
