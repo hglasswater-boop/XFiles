@@ -229,6 +229,16 @@ internal fun CastRemoteControls(
                     Text(formatCastTime(durationMs), color = Color.White)
                 }
             }
+
+            CastStoryboardStrip(
+                entry = entry,
+                positionMs = positionMs,
+                onSeek = { targetMs ->
+                    userScrubbing = false
+                    submitSeek(targetMs, coalesceBurst = false)
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

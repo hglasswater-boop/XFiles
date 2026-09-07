@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.CastConnected
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
@@ -78,6 +79,7 @@ import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
 import app.local1st.files.core.util.Format
 import app.local1st.files.di.Graph
+import app.local1st.files.ui.viewer.CastPlaybackSessionManager
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import java.io.File
@@ -103,6 +105,8 @@ fun EntryRow(
 ) {
     val entry = node.entry
     val display by BrowserDisplaySettings.state(Graph.appContext).collectAsState()
+    val activeCast by CastPlaybackSessionManager.activePlayback.collectAsState()
+    val isCastingEntry = activeCast?.entry?.id == entry.id
     val wantsThumbnail = EntryIcons.wantsThumbnail(entry)
     val displayDepth = minOf(node.depth, display.treeLevels)
     val rowMinHeight = if (wantsThumbnail) {
@@ -122,6 +126,7 @@ fun EntryRow(
 
     val background = when {
         selected -> MaterialTheme.colorScheme.secondaryContainer
+        isCastingEntry -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
         focused -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> Color.Transparent
     }
@@ -266,8 +271,11 @@ fun EntryRow(
                 },
                 maxLines = nameMaxLines,
                 overflow = nameOverflow,
-                color = if (node.error != null) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurface,
+                color = when {
+                    node.error != null -> MaterialTheme.colorScheme.error
+                    isCastingEntry -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
             )
             if (entry.isDir && node.error == null && entry.badge == null) {
                 FolderDetailsRow(node = node, loadFolderCount = true)
@@ -292,6 +300,32 @@ fun EntryRow(
                         .fillMaxWidth()
                         .padding(top = 2.dp, end = 8.dp)
                         .height(3.dp),
+                )
+            }
+        }
+
+        if (isCastingEntry) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 7.dp, vertical = 4.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.CastConnected,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    stringResource(R.string.cast_now_playing),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
                 )
             }
         }
