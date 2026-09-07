@@ -191,9 +191,14 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         val resumeEntry = playable.getOrNull(currentIndex) ?: return@LaunchedEffect
         if (!isVideoEntry(resumeEntry)) return@LaunchedEffect
 
-        val resumeMs = VideoResumeStore.load(context, resumeEntry.id)
-        if (resumeMs > player.currentPosition + VIDEO_RESUME_RESTORE_TOLERANCE_MS) {
-            player.seekTo(resumeMs)
+        val requestedStartMs = VideoResumeStore.consumeRequestedStart(resumeEntry.id)
+        if (requestedStartMs != null) {
+            player.seekTo(requestedStartMs)
+        } else {
+            val resumeMs = VideoResumeStore.load(context, resumeEntry.id)
+            if (resumeMs > player.currentPosition + VIDEO_RESUME_RESTORE_TOLERANCE_MS) {
+                player.seekTo(resumeMs)
+            }
         }
 
         while (isActive) {
