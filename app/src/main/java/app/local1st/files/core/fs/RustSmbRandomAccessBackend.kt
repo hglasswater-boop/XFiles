@@ -10,9 +10,7 @@ internal object RustSmbRandomAccessBackend : SmbRandomAccessBackend {
     override fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessHandle {
         val target = resolveSmbRandomAccessTarget(id, connections)
         val config = target.connection
-        if (config.username.isBlank()) {
-            throw IOException("Rust SMB backend does not support anonymous sessions yet")
-        }
+        val anonymous = config.username.isBlank()
 
         RustSmbNative.ensureLoaded()
         val nativeHandle = RustSmbNative.nativeOpenVideo(
@@ -20,9 +18,11 @@ internal object RustSmbRandomAccessBackend : SmbRandomAccessBackend {
             port = config.port,
             share = config.share,
             path = target.path,
-            username = config.username,
-            password = connections.password(config.id),
-            domain = config.domain,
+            username = if (anonymous) "" else config.username,
+            // Match SMBJ semantics: a blank username means anonymous and any stored password is
+            // ignored. Do not move an irrelevant secret across JNI in that case.
+            password = if (anonymous) "" else connections.password(config.id),
+            domain = if (anonymous) "" else config.domain,
             workstation = "",
         )
         if (nativeHandle <= 0L) {
