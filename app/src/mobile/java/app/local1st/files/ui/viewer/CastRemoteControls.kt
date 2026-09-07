@@ -1,5 +1,6 @@
 package app.local1st.files.ui.viewer
 
+import android.content.res.Configuration
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -47,6 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,6 +82,8 @@ internal fun CastRemoteControls(
     var lastSubmittedSeekAtMs by remember { mutableLongStateOf(0L) }
     var seekBurstDeltaMs by remember(entry.id) { mutableLongStateOf(0L) }
     var lastSeekTapAtMs by remember(entry.id) { mutableLongStateOf(0L) }
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     fun boundedSeekTarget(targetMs: Long): Long {
         val nonNegative = targetMs.coerceAtLeast(0L)
@@ -170,7 +176,15 @@ internal fun CastRemoteControls(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        event.changes.forEach { it.consume() }
+                    }
+                }
+            },
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -205,9 +219,7 @@ internal fun CastRemoteControls(
                 animationSpec = tween(180),
                 targetScale = 0.96f,
             ),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(bottom = 116.dp),
+            modifier = Modifier.align(Alignment.Center),
         ) {
             Surface(
                 color = Color.Black.copy(alpha = 0.72f),
@@ -225,24 +237,30 @@ internal fun CastRemoteControls(
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(),
+                .align(Alignment.TopCenter)
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(
+                    top = if (isLandscape) 56.dp else 68.dp,
+                    bottom = if (isLandscape) 10.dp else 18.dp,
+                ),
         ) {
             Text(
                 entry.name,
                 color = Color.White,
                 style = MaterialTheme.typography.titleLarge,
-                maxLines = 2,
+                maxLines = if (isLandscape) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 40.dp),
+                    .padding(horizontal = 40.dp, vertical = 4.dp),
             )
+
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp),
             ) {
                 IconButton(
                     onClick = { player.seekToPreviousMediaItem() },
@@ -280,6 +298,29 @@ internal fun CastRemoteControls(
                 }
             }
 
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(
+                        start = 12.dp,
+                        top = if (isLandscape) 0.dp else 4.dp,
+                        end = 12.dp,
+                        bottom = if (isLandscape) 2.dp else 8.dp,
+                    ),
+            ) {
+                CastStoryboardStrip(
+                    entry = entry,
+                    positionMs = positionMs,
+                    onSeek = { targetMs ->
+                        userScrubbing = false
+                        submitSeek(targetMs, coalesceBurst = false)
+                    },
+                    vertical = !isLandscape,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
             if (durationMs > 0L) {
                 Slider(
                     value = if (userScrubbing) sliderTarget else animatedSliderPosition,
@@ -294,7 +335,7 @@ internal fun CastRemoteControls(
                     valueRange = 0f..durationMs.toFloat(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 40.dp),
+                        .padding(horizontal = 32.dp),
                 )
                 Row(
                     modifier = Modifier
@@ -306,18 +347,6 @@ internal fun CastRemoteControls(
                     Text(formatCastTime(durationMs), color = Color.White)
                 }
             }
-
-            CastStoryboardStrip(
-                entry = entry,
-                positionMs = positionMs,
-                onSeek = { targetMs ->
-                    userScrubbing = false
-                    submitSeek(targetMs, coalesceBurst = false)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-            )
         }
     }
 }

@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -59,17 +62,17 @@ private sealed interface CastStoryboardUiState {
 }
 
 /**
- * Compact, horizontally scrollable storyboard for the remote Cast controller.
+ * Storyboard for the remote Cast controller.
  *
- * It reuses the browser storyboard loader and its disk cache, so opening a storyboard from the
- * browser and then casting the same file does not decode the same frames twice. Generation is
- * progressive: the first visible frames appear while the remaining samples are still extracted.
+ * Portrait uses a vertically scrolling large-preview timeline, while landscape keeps the compact
+ * horizontal strip. Both layouts reuse the browser storyboard loader and disk cache.
  */
 @Composable
 internal fun CastStoryboardStrip(
     entry: XEntry,
     positionMs: Long,
     onSeek: (Long) -> Unit,
+    vertical: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -106,9 +109,7 @@ internal fun CastStoryboardStrip(
     when (val current = state) {
         CastStoryboardUiState.Loading -> {
             Box(
-                modifier = modifier
-                    .fillMaxWidth()
-                    .height(86.dp),
+                modifier = modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
                 LoadingIndicator(Modifier.size(28.dp))
@@ -134,9 +135,10 @@ internal fun CastStoryboardStrip(
                 entry.size,
                 sampleCount,
                 minSpacingSeconds,
+                vertical,
             ) { mutableStateOf(false) }
 
-            LaunchedEffect(frames.size, nearestIndex, current.complete) {
+            LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
                 if (alignedToPlayback || nearestIndex < 0) return@LaunchedEffect
                 if (positionMs <= 0L && !current.complete) return@LaunchedEffect
                 if (frames.none { it.file?.isFile == true && it.file.length() > 0L }) {
@@ -146,7 +148,7 @@ internal fun CastStoryboardStrip(
                 alignedToPlayback = true
             }
 
-            Column(modifier = modifier.fillMaxWidth()) {
+            Column(modifier = modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -174,13 +176,80 @@ internal fun CastStoryboardStrip(
                     }
                 }
 
-                LazyRow(
-                    state = listState,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    frames.forEach { frame ->
-                        item(key = frame.index) {
+                if (vertical) {
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    ) {
+                        items(frames, key = { it.index }) { frame ->
+                            val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
+                            val selected = frame.index == nearestIndex
+                            val shape = RoundedCornerShape(12.dp)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = image != null) { onSeek(frame.timeMs) },
+                            ) {
+                                if (image != null) {
+                                    AsyncImage(
+                                        model = image,
+                                        contentDescription = formatVideoDuration(frame.timeMs),
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(16f / 9f)
+                                            .clip(shape)
+                                            .then(
+                                                if (selected) {
+                                                    Modifier.border(
+                                                        width = 3.dp,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = shape,
+                                                    )
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ),
+                                    )
+                                } else {
+                                    StoryboardPlaceholder(
+                                        complete = current.complete,
+                                        shape = shape,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(16f / 9f),
+                                    )
+                                }
+                                StoryboardTimestamp(frame.timeMs, selected)
+                            }
+                        }
+
+                        if (!current.complete) {
+                            item(key = "storyboard-loading") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(72.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    LoadingIndicator(Modifier.size(22.dp))
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    LazyRow(
+                        state = listState,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        items(frames, key = { it.index }) { frame ->
                             val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
                             val selected = frame.index == nearestIndex
                             val shape = RoundedCornerShape(8.dp)
@@ -211,42 +280,28 @@ internal fun CastStoryboardStrip(
                                             ),
                                     )
                                 } else {
-                                    Box(
+                                    StoryboardPlaceholder(
+                                        complete = current.complete,
+                                        shape = shape,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .aspectRatio(16f / 9f)
-                                            .clip(shape)
-                                            .background(Color.White.copy(alpha = 0.08f)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (!current.complete) {
-                                            LoadingIndicator(Modifier.size(22.dp))
-                                        }
-                                    }
+                                            .aspectRatio(16f / 9f),
+                                    )
                                 }
-                                Text(
-                                    text = formatVideoDuration(frame.timeMs),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        Color.White.copy(alpha = 0.72f)
-                                    },
-                                    modifier = Modifier.padding(top = 3.dp),
-                                )
+                                StoryboardTimestamp(frame.timeMs, selected)
                             }
                         }
-                    }
 
-                    if (!current.complete) {
-                        item(key = "storyboard-loading") {
-                            Box(
-                                modifier = Modifier
-                                    .width(52.dp)
-                                    .height(68.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                LoadingIndicator(Modifier.size(22.dp))
+                        if (!current.complete) {
+                            item(key = "storyboard-loading") {
+                                Box(
+                                    modifier = Modifier
+                                        .width(52.dp)
+                                        .height(68.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    LoadingIndicator(Modifier.size(22.dp))
+                                }
                             }
                         }
                     }
@@ -254,4 +309,36 @@ internal fun CastStoryboardStrip(
             }
         }
     }
+}
+
+@Composable
+private fun StoryboardPlaceholder(
+    complete: Boolean,
+    shape: RoundedCornerShape,
+    modifier: Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.08f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!complete) {
+            LoadingIndicator(Modifier.size(28.dp))
+        }
+    }
+}
+
+@Composable
+private fun StoryboardTimestamp(timeMs: Long, selected: Boolean) {
+    Text(
+        text = formatVideoDuration(timeMs),
+        style = MaterialTheme.typography.labelMedium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            Color.White.copy(alpha = 0.72f)
+        },
+        modifier = Modifier.padding(top = 5.dp, start = 2.dp),
+    )
 }
