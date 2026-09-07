@@ -51,6 +51,10 @@ object SettingsBackup {
             .put("filenameMode", display.filenameMode.name)
             .put("treeLevels", display.treeLevels)
             .put("storyboardSampleCount", VideoStoryboardSettings.current(context))
+            .put(
+                "storyboardMinSpacingSeconds",
+                VideoStoryboardSettings.currentMinSpacingSeconds(context),
+            )
 
         val contextMenuOrder = JSONArray().apply {
             ContextMenuOrderSettings.current(context).forEach { id -> put(id) }
@@ -156,6 +160,13 @@ object SettingsBackup {
                 display.optInt(
                     "storyboardSampleCount",
                     VideoStoryboardSettings.DEFAULT_SAMPLE_COUNT,
+                ),
+            )
+            VideoStoryboardSettings.setMinSpacingSeconds(
+                context,
+                display.optInt(
+                    "storyboardMinSpacingSeconds",
+                    VideoStoryboardSettings.DEFAULT_SPACING_SECONDS,
                 ),
             )
         }
