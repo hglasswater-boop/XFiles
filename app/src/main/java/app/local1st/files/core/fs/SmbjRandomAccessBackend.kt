@@ -1,6 +1,5 @@
 package app.local1st.files.core.fs
 
-import app.local1st.files.core.prefs.SmbConnectionConfig
 import app.local1st.files.core.prefs.SmbConnectionRepo
 import com.hierynomus.msdtyp.AccessMask
 import com.hierynomus.msfscc.FileAttributes
@@ -16,7 +15,7 @@ import java.util.EnumSet
 
 internal object SmbjRandomAccessBackend : SmbRandomAccessBackend {
     override fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessHandle {
-        val target = resolveTarget(id, connections)
+        val target = resolveSmbRandomAccessTarget(id, connections)
         val client = SmbClientFactory.create()
         try {
             val connection = client.connect(target.connection.host, target.connection.port)
@@ -73,28 +72,6 @@ internal object SmbjRandomAccessBackend : SmbRandomAccessBackend {
             runCatching { share.close() }
             runCatching { client.close() }
         }
-    }
-
-    private data class Target(
-        val connection: SmbConnectionConfig,
-        val path: String,
-    )
-
-    private fun resolveTarget(id: String, connections: SmbConnectionRepo): Target {
-        require(id.startsWith("${XId.SCHEME_SMB}://") && id != SmbFileSystem.ROOT_ID) {
-            "Invalid SMB id: $id"
-        }
-        val raw = id.removePrefix("${XId.SCHEME_SMB}://").trimEnd('/')
-        val connectionId = raw.substringBefore('/')
-        val connection = connections.find(connectionId)
-            ?: throw IOException("SMB connection is no longer configured")
-        val relativePath = raw.substringAfter('/', "")
-        require(relativePath.isNotBlank()) { "SMB connection root is not a file" }
-        val path = when {
-            connection.basePath.isBlank() -> relativePath
-            else -> "${connection.basePath}/$relativePath"
-        }
-        return Target(connection, path)
     }
 
     private val SHARE_ACCESS: EnumSet<SMB2ShareAccess> = EnumSet.of(
