@@ -147,6 +147,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     }
     val localPlayer = castSession.localPlayer
     val player = castSession.player
+    val castEnabled = castSession.castEnabled
 
     var currentIndex by remember(player) {
         mutableIntStateOf(player.currentMediaItemIndex.coerceIn(0, playable.lastIndex))
@@ -237,11 +238,13 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         onClose = onClose,
                     )
                 }
-                VideoCastButton(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 12.dp, end = 64.dp),
-                )
+                if (castEnabled) {
+                    VideoCastButton(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 12.dp, end = 64.dp),
+                    )
+                }
             }
         }
     } else {
@@ -254,6 +257,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             trackCount = playable.size,
             hasPrevious = hasPrevious,
             hasNext = hasNext,
+            showCastButton = castEnabled,
             onClose = onClose,
         )
     }
@@ -337,6 +341,7 @@ private fun AudioPlayerScreen(
     trackCount: Int,
     hasPrevious: Boolean,
     hasNext: Boolean,
+    showCastButton: Boolean,
     onClose: () -> Unit,
 ) {
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -359,7 +364,7 @@ private fun AudioPlayerScreen(
                     TooltipIconButton(stringResource(R.string.close), Icons.Outlined.Close, onClick = onClose)
                 },
                 actions = {
-                    MediaRouteButton()
+                    if (showCastButton) MediaRouteButton()
                 },
             )
         },
