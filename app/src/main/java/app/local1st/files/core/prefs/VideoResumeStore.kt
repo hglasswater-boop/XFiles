@@ -27,11 +27,30 @@ object VideoResumeStore {
         )
     }
 
+    /**
+     * Read a still-valid explicit start without consuming it.
+     * Player construction uses this so the requested storyboard timestamp is already the media
+     * item's initial position before prepare/play can restore or expose any other position.
+     */
+    @Synchronized
+    fun peekRequestedStart(mediaId: String): Long? = validRequestedStart(mediaId)?.positionMs
+
     @Synchronized
     fun consumeRequestedStart(mediaId: String): Long? {
-        val request = requestedStarts.remove(mediaId) ?: return null
+        val request = validRequestedStart(mediaId) ?: return null
+        requestedStarts.remove(mediaId)
+        return request.positionMs
+    }
+
+    @Synchronized
+    private fun validRequestedStart(mediaId: String): RequestedStart? {
+        val request = requestedStarts[mediaId] ?: return null
         val ageMs = SystemClock.elapsedRealtime() - request.requestedAtElapsedMs
-        return request.positionMs.takeIf { ageMs in 0..REQUESTED_START_TTL_MS }
+        if (ageMs !in 0..REQUESTED_START_TTL_MS) {
+            requestedStarts.remove(mediaId)
+            return null
+        }
+        return request
     }
 
     fun load(context: Context, mediaId: String): Long =
