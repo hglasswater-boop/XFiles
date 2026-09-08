@@ -336,8 +336,8 @@ private fun LocalVideoStoryboard(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(
-                    start = 12.dp,
-                    end = 12.dp,
+                    start = 4.dp,
+                    end = 4.dp,
                     bottom = PLAYER_STORYBOARD_BOTTOM_CLEARANCE_DP.dp,
                 )
                 .fillMaxWidth()
@@ -355,7 +355,7 @@ private fun LocalVideoStoryboard(
                 finePreviewDismissSignal = finePreviewDismissSignal,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
             )
         }
     }
