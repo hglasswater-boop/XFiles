@@ -78,7 +78,7 @@ class SmbRandomAccessFile private constructor(
         /** Media playback path. Foreground reads temporarily take priority over thumbnail I/O. */
         fun openForPlayback(id: String, connections: SmbConnectionRepo): SmbRandomAccessFile =
             SmbRandomAccessFile(
-                handle = SmbRandomAccessBackends.open(id, connections),
+                handle = SmbRandomAccessBackends.openForPlayback(id, connections),
                 playbackPriority = true,
             )
     }
