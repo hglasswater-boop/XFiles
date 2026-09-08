@@ -26,7 +26,7 @@ jobs:
       NDK_VERSION: 29.0.14206865
       CARGO_NDK_PLATFORM: 26
       # Pin the engine so every preview can be reproduced exactly before the next deliberate bump.
-      RUST_SMB_REF: 9542cb4ed59cb124b4cb49162f2ec444096676fd
+      RUST_SMB_REF: 56c395a3b0eb884e8867ea3c12d56247c6ffbdb0
     steps:
       - name: Checkout XFiles
         uses: actions/checkout@v5
