@@ -7,6 +7,8 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -250,13 +252,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 LocalVideoStoryboard(
                     player = localPlayer,
                     entry = currentEntry,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(
-                            start = 12.dp,
-                            end = 12.dp,
-                            bottom = PLAYER_STORYBOARD_BOTTOM_CLEARANCE_DP.dp,
-                        ),
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
@@ -297,6 +293,10 @@ private fun LocalVideoStoryboard(
     var finePreviewVisible by remember(entry.id, configuration.orientation) {
         mutableStateOf(false)
     }
+    var finePreviewDismissSignal by remember(entry.id, configuration.orientation) {
+        mutableIntStateOf(0)
+    }
+    val outsideTapInteractionSource = remember { MutableInteractionSource() }
     val collapsedHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
         120.dp
     } else {
@@ -313,26 +313,51 @@ private fun LocalVideoStoryboard(
         label = "storyboardHeight",
     )
 
-    Surface(
-        color = Color.Black.copy(alpha = 0.9f),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .height(stripHeight),
-    ) {
-        CastStoryboardStrip(
-            entry = entry,
-            positionMs = positionMs,
-            onSeek = { targetMs -> player.seekTo(targetMs) },
-            vertical = false,
-            showJumpToCurrent = true,
-            onFinePreviewVisibilityChanged = { visible ->
-                finePreviewVisible = visible
-            },
+    Box(modifier = modifier.fillMaxSize()) {
+        if (finePreviewVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        bottom = PLAYER_STORYBOARD_BOTTOM_CLEARANCE_DP.dp + stripHeight,
+                    )
+                    .clickable(
+                        interactionSource = outsideTapInteractionSource,
+                        indication = null,
+                    ) {
+                        finePreviewDismissSignal += 1
+                    },
+            )
+        }
+
+        Surface(
+            color = Color.Black.copy(alpha = 0.9f),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-        )
+                .align(Alignment.BottomCenter)
+                .padding(
+                    start = 12.dp,
+                    end = 12.dp,
+                    bottom = PLAYER_STORYBOARD_BOTTOM_CLEARANCE_DP.dp,
+                )
+                .fillMaxWidth()
+                .height(stripHeight),
+        ) {
+            CastStoryboardStrip(
+                entry = entry,
+                positionMs = positionMs,
+                onSeek = { targetMs -> player.seekTo(targetMs) },
+                vertical = false,
+                showJumpToCurrent = true,
+                onFinePreviewVisibilityChanged = { visible ->
+                    finePreviewVisible = visible
+                },
+                finePreviewDismissSignal = finePreviewDismissSignal,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
