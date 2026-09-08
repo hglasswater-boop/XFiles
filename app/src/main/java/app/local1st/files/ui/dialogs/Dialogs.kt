@@ -91,6 +91,26 @@ fun MainDialogs(vm: MainViewModel) {
             },
         )
 
+        is DialogRequest.ConfirmFlattenOneLevel -> AlertDialog(
+            onDismissRequest = dismiss,
+            title = { Text("中身を1階層上へ") },
+            text = {
+                Text(
+                    "${req.directory.name} の直下にある各フォルダの中身を1階層上へ移動し、" +
+                        "空になったフォルダを削除します。さらに深いフォルダ構造は保持されます。" +
+                        "同名の項目がある場合は通常の競合確認を行います。",
+                )
+            },
+            confirmButton = {
+                Button(onClick = { vm.performFlattenOneLevel(req.directory) }) {
+                    Text("実行")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = dismiss) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+
         is DialogRequest.Rename -> NameDialog(
             title = stringResource(R.string.rename),
             initial = req.entry.name,
@@ -561,6 +581,11 @@ private fun EntryMenuContent(
                     vm.requestNewTextFile(entry)
                 }
             }
+            if (entry.kind == EntryKind.DIR && vm.canCreateFileIn(entry)) {
+                MenuItem("中身を1階層上へ") {
+                    vm.requestFlattenOneLevel(entry)
+                }
+            }
 
             if ((entry.kind == EntryKind.DIR ||
                     entry.kind == EntryKind.FILE ||
@@ -703,6 +728,7 @@ private fun contextMenuOrderKey(label: String): String? = when (label) {
     "このフォルダの並び順" -> ContextMenuOrderSettings.FOLDER_SORT
     "別ペインで開く" -> ContextMenuOrderSettings.OPEN_IN_OTHER_PANE
     stringResource(R.string.new_text_file) -> ContextMenuOrderSettings.NEW_TEXT_FILE
+    "中身を1階層上へ" -> ContextMenuOrderSettings.FLATTEN_ONE_LEVEL
     stringResource(R.string.add_to_favorites), stringResource(R.string.remove_from_favorites) -> ContextMenuOrderSettings.FAVORITE
     stringResource(R.string.open_with) -> ContextMenuOrderSettings.OPEN_WITH
     stringResource(R.string.share) -> ContextMenuOrderSettings.SHARE

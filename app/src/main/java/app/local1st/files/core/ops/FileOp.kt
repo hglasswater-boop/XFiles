@@ -15,6 +15,14 @@ sealed interface FileOp {
 
     data class Delete(override val sources: List<XEntry>) : FileOp
 
+    /**
+     * Moves every immediate child of each direct subfolder into [directory], then removes
+     * direct subfolders that became empty. Deeper directory structure is preserved.
+     */
+    data class FlattenOneLevel(val directory: XEntry) : FileOp {
+        override val sources: List<XEntry> get() = listOf(directory)
+    }
+
     /** Pack [sources] into a new zip named [archiveName] inside [destDir]. */
     data class Compress(
         override val sources: List<XEntry>,
