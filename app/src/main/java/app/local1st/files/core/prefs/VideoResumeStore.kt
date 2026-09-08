@@ -76,6 +76,13 @@ object VideoResumeStore {
 }
 
 /**
+ * Choose the position used when a fresh player session is prepared.
+ * An explicit storyboard request always wins, including an intentional request for 0 ms.
+ */
+internal fun resolveVideoPlaybackStartPosition(requestedStartMs: Long?, resumeMs: Long): Long? =
+    requestedStartMs ?: resumeMs.takeIf { it > 0L }
+
+/**
  * Ignore accidental starts and treat the tail of a completed video as watched.
  * For short videos the end guard is 5% of the duration; for long videos it is capped at 10 seconds.
  */

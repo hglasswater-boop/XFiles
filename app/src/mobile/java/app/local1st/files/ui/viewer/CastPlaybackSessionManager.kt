@@ -18,6 +18,7 @@ import app.local1st.files.core.cast.CastPlaybackNotificationController
 import app.local1st.files.core.cast.CastPlaybackNotificationState
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.prefs.VideoResumeStore
+import app.local1st.files.core.prefs.resolveVideoPlaybackStartPosition
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,8 +78,10 @@ internal object CastPlaybackSessionManager {
         serviceContext = context.applicationContext
         val ids = entries.map { it.id }
         val resolvedStartIndex = startIndex.coerceIn(0, mediaItems.lastIndex.coerceAtLeast(0))
-        val requestedStartMs = entries.getOrNull(resolvedStartIndex)
-            ?.let { VideoResumeStore.peekRequestedStart(it.id) }
+        val startEntry = entries.getOrNull(resolvedStartIndex)
+        val requestedStartMs = startEntry?.let { VideoResumeStore.peekRequestedStart(it.id) }
+        val resumeStartMs = startEntry?.let { VideoResumeStore.load(context, it.id) } ?: 0L
+        val initialStartMs = resolveVideoPlaybackStartPosition(requestedStartMs, resumeStartMs)
         val existing = activeSession
         if (existing != null && existing.entryIds == ids && isRemote(existing)) {
             if (requestedStartMs != null) {
@@ -185,7 +188,7 @@ internal object CastPlaybackSessionManager {
         castPlayer.setMediaItems(
             mediaItems,
             resolvedStartIndex,
-            requestedStartMs ?: C.TIME_UNSET,
+            initialStartMs ?: C.TIME_UNSET,
         )
         castPlayer.prepare()
         castPlayer.playWhenReady = true

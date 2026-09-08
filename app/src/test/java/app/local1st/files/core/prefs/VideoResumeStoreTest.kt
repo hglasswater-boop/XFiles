@@ -30,4 +30,20 @@ class VideoResumeStoreTest {
     fun `position can be stored before duration is known`() {
         assertEquals(30_000L, normalizeVideoResumePosition(30_000L, 0L))
     }
+
+    @Test
+    fun `persisted resume is used as fresh player start`() {
+        assertEquals(42_000L, resolveVideoPlaybackStartPosition(null, 42_000L))
+    }
+
+    @Test
+    fun `explicit storyboard start wins over persisted resume including zero`() {
+        assertEquals(0L, resolveVideoPlaybackStartPosition(0L, 42_000L))
+        assertEquals(12_000L, resolveVideoPlaybackStartPosition(12_000L, 42_000L))
+    }
+
+    @Test
+    fun `fresh video without resume keeps default player position`() {
+        assertNull(resolveVideoPlaybackStartPosition(null, 0L))
+    }
 }
