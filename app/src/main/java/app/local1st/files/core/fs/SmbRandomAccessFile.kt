@@ -31,6 +31,12 @@ class SmbRandomAccessFile private constructor(
         if (position >= 0L) handle.seek(position)
     }
 
+    /** Optional speculative read hint; backends may ignore or preempt it. */
+    fun prefetch(position: Long, length: Int) {
+        check(!closed.get()) { "SMB file is closed" }
+        if (position >= 0L && length > 0) handle.prefetch(position, length)
+    }
+
     /** True when the selected backend already owns read-ahead/cache below the Kotlin boundary. */
     val ownsReadAhead: Boolean
         get() {

@@ -56,6 +56,13 @@ internal object RustSmbRandomAccessBackend : SmbRandomAccessBackend {
             if (position >= 0L) RustSmbNative.nativeSeek(nativeHandle, position)
         }
 
+        override fun prefetch(position: Long, length: Int) {
+            check(!closed.get()) { "SMB file is closed" }
+            if (position >= 0L && length > 0) {
+                RustSmbNative.nativePrefetch(nativeHandle, position, length)
+            }
+        }
+
         override fun close() {
             if (closed.compareAndSet(false, true)) {
                 RustSmbNative.nativeClose(nativeHandle)

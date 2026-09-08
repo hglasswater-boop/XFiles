@@ -49,6 +49,9 @@ internal object RustSmbNative {
         length: Int,
     ): Int
 
+    /** Optional speculative read hint. Foreground reads, seek, and close may preempt it. */
+    external fun nativePrefetch(handle: Long, position: Long, length: Int)
+
     external fun nativeSeek(handle: Long, position: Long): Long
 
     external fun nativeClose(handle: Long)
