@@ -23,6 +23,14 @@ internal interface SmbRandomAccessHandle : Closeable {
      */
     fun seek(position: Long) = Unit
 
+    /**
+     * Optional speculative read hint.
+     *
+     * Backends that do not own a prefetch scheduler ignore it. Rust may cancel this work at any
+     * time when foreground READ, seek, or close needs the SMB connection.
+     */
+    fun prefetch(position: Long, length: Int) = Unit
+
     /** True when this handle already owns read-ahead/cache policy below the Kotlin boundary. */
     val ownsReadAhead: Boolean
         get() = false
