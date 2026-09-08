@@ -2,6 +2,12 @@ package app.local1st.files.core.fs.rust
 
 import java.io.IOException
 
+/** Raised only when the native Rust engine cannot be used on the current build/device. */
+internal class RustSmbUnavailableException(
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
+
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
     private const val EXPECTED_API_VERSION = 2
@@ -15,11 +21,14 @@ internal object RustSmbNative {
         try {
             System.loadLibrary("smb_io_android")
         } catch (error: UnsatisfiedLinkError) {
-            throw IOException("Rust SMB native library is not packaged for this device", error)
+            throw RustSmbUnavailableException(
+                "Rust SMB native library is not packaged for this device",
+                error,
+            )
         }
         val actual = nativeApiVersion()
         if (actual != EXPECTED_API_VERSION) {
-            throw IOException(
+            throw RustSmbUnavailableException(
                 "Rust SMB native API mismatch: expected $EXPECTED_API_VERSION, found $actual",
             )
         }

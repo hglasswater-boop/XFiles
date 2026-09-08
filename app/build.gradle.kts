@@ -14,9 +14,9 @@ val appBuildNumber = ciBuildNumber ?: 1
 val appVersionName = ciBuildNumber?.let { "$appBaseVersionName-b$it" } ?: appBaseVersionName
 val ciKeystore: String? = System.getenv("XFILES_KEYSTORE")
 val smbRandomAccessBackend =
-    ((project.findProperty("xfilesSmbBackend") as String?) ?: "smbj").lowercase()
-require(smbRandomAccessBackend == "smbj" || smbRandomAccessBackend == "rust") {
-    "xfilesSmbBackend must be 'smbj' or 'rust', got '$smbRandomAccessBackend'"
+    ((project.findProperty("xfilesSmbBackend") as String?) ?: "auto").lowercase()
+require(smbRandomAccessBackend in setOf("auto", "smbj", "rust")) {
+    "xfilesSmbBackend must be 'auto', 'smbj', or 'rust', got '$smbRandomAccessBackend'"
 }
 
 android {

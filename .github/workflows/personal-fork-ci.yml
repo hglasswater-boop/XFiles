@@ -23,11 +23,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           # Branch builds consume the latest cache from main without spending time uploading it.
           # Main refreshes the Gradle dependency/build cache for subsequent runs.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Build Rust SMB JNI libraries
+        run: bash .github/scripts/build-rust-smb-android.sh
 
       - name: Compute Android build number
         id: build_number
