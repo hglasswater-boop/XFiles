@@ -415,6 +415,7 @@ internal fun CastStoryboardStrip(
                             onDismiss = ::hideFinePreview,
                             onSelect = { timeMs -> onSeek(timeMs) },
                             modifier = Modifier.padding(top = 4.dp),
+                            currentPositionMs = positionMs,
                         )
                     }
                 }
