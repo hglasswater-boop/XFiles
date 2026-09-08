@@ -44,6 +44,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,12 +57,14 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.VideoStoryboardSettings
+import app.local1st.files.ui.browser.StoryboardExtractionPriority
 import app.local1st.files.ui.browser.StoryboardFinePreviewPanel
 import app.local1st.files.ui.browser.StoryboardLoader
 import app.local1st.files.ui.browser.StoryboardResult
 import app.local1st.files.ui.browser.storyboardFineStepMs
 import coil3.compose.AsyncImage
 import kotlin.math.abs
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private sealed interface CastStoryboardUiState {
@@ -95,6 +98,28 @@ internal fun CastStoryboardStrip(
     val context = LocalContext.current
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
+    val listState = rememberLazyListState()
+    val extractionPriority = remember(
+        entry.id,
+        entry.mtime,
+        entry.size,
+        sampleCount,
+        minSpacingSeconds,
+        vertical,
+    ) {
+        StoryboardExtractionPriority()
+    }
+
+    LaunchedEffect(listState, extractionPriority, sampleCount) {
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo
+                .map { it.index }
+                .filter { it in 0 until sampleCount }
+        }
+            .distinctUntilChanged()
+            .collect(extractionPriority::updateVisible)
+    }
+
     val state by produceState<CastStoryboardUiState>(
         initialValue = CastStoryboardUiState.Loading,
         entry.id,
@@ -102,6 +127,7 @@ internal fun CastStoryboardStrip(
         entry.size,
         sampleCount,
         minSpacingSeconds,
+        extractionPriority,
     ) {
         var emittedProgress = false
         val result = runCatching {
@@ -110,6 +136,7 @@ internal fun CastStoryboardStrip(
                 entry = entry,
                 count = sampleCount,
                 minSpacingMs = minSpacingSeconds * 1_000L,
+                priority = extractionPriority,
             ) { partial ->
                 emittedProgress = true
                 value = CastStoryboardUiState.Ready(partial, complete = false)
@@ -144,7 +171,6 @@ internal fun CastStoryboardStrip(
                     abs(frames[index].timeMs - positionMs)
                 } ?: -1
             }
-            val listState = rememberLazyListState()
             val scope = rememberCoroutineScope()
             var alignedToPlayback by remember(
                 entry.id,
@@ -186,12 +212,12 @@ internal fun CastStoryboardStrip(
                 if (finePreviewDismissSignal > 0) hideFinePreview()
             }
 
+            // The loader emits the full placeholder timeline before extracting frames. Align the
+            // list immediately, so the extractor can see the playback-area viewport and fill it
+            // first instead of waiting for an unrelated thumbnail to finish.
             LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
                 if (alignedToPlayback || nearestIndex < 0) return@LaunchedEffect
                 if (positionMs <= 0L && !current.complete) return@LaunchedEffect
-                if (frames.none { it.file?.isFile == true && it.file.length() > 0L }) {
-                    return@LaunchedEffect
-                }
                 listState.scrollToItem(nearestIndex)
                 alignedToPlayback = true
             }
