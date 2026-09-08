@@ -45,7 +45,7 @@ class SmbDataSource : BaseDataSource(false) {
             if (dataSpec.uri.scheme != XId.SCHEME_SMB) {
                 throw IOException("Unsupported SMB URI: ${dataSpec.uri}")
             }
-            file = SmbRandomAccessFile.open(dataSpec.uri.toString(), Graph.smbConnections)
+            file = SmbRandomAccessFile.openForPlayback(dataSpec.uri.toString(), Graph.smbConnections)
             position = dataSpec.position
             bytesRemaining = dataSpec.length
             blocks.clear()
