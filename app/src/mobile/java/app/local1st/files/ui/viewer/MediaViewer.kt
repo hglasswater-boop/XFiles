@@ -366,7 +366,7 @@ private fun rememberViewerPictureInPictureMode(): Boolean {
             onDispose { }
         } else {
             val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
-                inPictureInPicture = info.isPictureInPictureMode
+                inPictureInPicture = info.isInPictureInPictureMode
             }
             activity.addOnPictureInPictureModeChangedListener(listener)
             inPictureInPicture = activity.isInPictureInPictureMode
