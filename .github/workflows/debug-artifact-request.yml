@@ -40,6 +40,9 @@ jobs:
         with:
           cache-read-only: true
 
+      - name: Build Rust SMB JNI libraries
+        run: bash .github/scripts/build-rust-smb-android.sh
+
       - name: Compute Android build number
         id: build_number
         run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
