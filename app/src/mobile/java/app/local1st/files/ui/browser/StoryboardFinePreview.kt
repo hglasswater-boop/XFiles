@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,7 +43,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -100,14 +100,20 @@ private sealed interface FineStoryboardUiState {
     data object Failed : FineStoryboardUiState
 }
 
+/**
+ * Fine-grained storyboard content that can be embedded at the bottom of the current screen.
+ * Keeping the loader and cache behind this composable lets Cast, the local player and the browser
+ * share the same precise previews without opening another modal surface.
+ */
 @Composable
-internal fun StoryboardFinePreviewDialog(
+internal fun StoryboardFinePreviewPanel(
     entry: XEntry,
     centerTimeMs: Long,
     stepMs: Long,
     durationMs: Long?,
     onDismiss: () -> Unit,
     onSelect: (Long) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val state by produceState<FineStoryboardUiState>(
@@ -140,150 +146,183 @@ internal fun StoryboardFinePreviewDialog(
         )
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
+        tonalElevation = 8.dp,
     ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            tonalElevation = 8.dp,
-            modifier = Modifier
-                .fillMaxWidth(0.96f)
-                .widthIn(max = 920.dp),
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
         ) {
-            Column(Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth(),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 3.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = formatVideoDuration(centerTimeMs),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(34.dp),
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = entry.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = formatVideoDuration(centerTimeMs),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                    Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = stringResource(R.string.close),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            when (val current = state) {
+                FineStoryboardUiState.Loading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 86.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        LoadingIndicator(Modifier.size(26.dp))
                     }
-                    IconButton(onClick = onDismiss) {
+                }
+
+                FineStoryboardUiState.Failed -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 76.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Icon(
-                            Icons.Outlined.Close,
-                            contentDescription = stringResource(R.string.close),
+                            Icons.Outlined.BrokenImage,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
 
-                when (val current = state) {
-                    FineStoryboardUiState.Loading -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 150.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            LoadingIndicator()
-                        }
-                    }
-
-                    FineStoryboardUiState.Failed -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 120.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Outlined.BrokenImage,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    is FineStoryboardUiState.Ready -> {
-                        val frames = current.result.frames
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp),
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            items(frames, key = { it.timeMs }) { frame ->
-                                val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
-                                val selected = abs(frame.timeMs - centerTimeMs) <= stepMs / 2L
-                                val shape = RoundedCornerShape(10.dp)
-                                Column(
-                                    modifier = Modifier
-                                        .width(152.dp)
-                                        .clickable(enabled = image != null) {
-                                            onSelect(frame.timeMs)
-                                        },
-                                ) {
+                is FineStoryboardUiState.Ready -> {
+                    val frames = current.result.frames
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        items(frames, key = { it.timeMs }) { frame ->
+                            val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
+                            val selected = abs(frame.timeMs - centerTimeMs) <= stepMs / 2L
+                            val shape = RoundedCornerShape(9.dp)
+                            Box(
+                                modifier = Modifier
+                                    .width(132.dp)
+                                    .aspectRatio(16f / 9f)
+                                    .clickable(enabled = image != null) {
+                                        onSelect(frame.timeMs)
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (image != null) {
+                                    AsyncImage(
+                                        model = image,
+                                        contentDescription = formatVideoDuration(frame.timeMs),
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(shape)
+                                            .then(
+                                                if (selected) {
+                                                    Modifier.border(
+                                                        width = 3.dp,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = shape,
+                                                    )
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ),
+                                    )
+                                } else {
                                     Box(
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f),
+                                            .fillMaxSize()
+                                            .clip(shape)
+                                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        if (image != null) {
-                                            AsyncImage(
-                                                model = image,
-                                                contentDescription = formatVideoDuration(frame.timeMs),
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .clip(shape)
-                                                    .then(
-                                                        if (selected) {
-                                                            Modifier.border(
-                                                                width = 3.dp,
-                                                                color = MaterialTheme.colorScheme.primary,
-                                                                shape = shape,
-                                                            )
-                                                        } else {
-                                                            Modifier
-                                                        },
-                                                    ),
-                                            )
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .clip(shape)
-                                                    .background(
-                                                        MaterialTheme.colorScheme.surfaceContainerHighest,
-                                                    ),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                if (!current.complete) {
-                                                    LoadingIndicator(Modifier.size(24.dp))
-                                                }
-                                            }
+                                        if (!current.complete) {
+                                            LoadingIndicator(Modifier.size(22.dp))
                                         }
                                     }
-                                    Text(
-                                        text = formatVideoDuration(frame.timeMs),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (selected) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier.padding(top = 5.dp, start = 2.dp),
-                                    )
                                 }
+
+                                Text(
+                                    text = formatVideoDuration(frame.timeMs),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onInverseSurface
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .background(
+                                            MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.78f),
+                                            RoundedCornerShape(topEnd = 7.dp),
+                                        )
+                                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/** Retained for call sites that still need a standalone modal wrapper. */
+@Composable
+internal fun StoryboardFinePreviewDialog(
+    entry: XEntry,
+    centerTimeMs: Long,
+    stepMs: Long,
+    durationMs: Long?,
+    onDismiss: () -> Unit,
+    onSelect: (Long) -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        StoryboardFinePreviewPanel(
+            entry = entry,
+            centerTimeMs = centerTimeMs,
+            stepMs = stepMs,
+            durationMs = durationMs,
+            onDismiss = onDismiss,
+            onSelect = onSelect,
+            modifier = Modifier
+                .fillMaxWidth(0.96f)
+                .widthIn(max = 920.dp),
+        )
     }
 }
 
