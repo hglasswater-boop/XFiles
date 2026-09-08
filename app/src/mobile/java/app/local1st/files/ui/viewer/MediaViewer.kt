@@ -237,6 +237,25 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         } else {
             val playerOrientation = LocalConfiguration.current.orientation
             val density = LocalDensity.current
+            val storyboardCollapsedHeight = if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                120.dp
+            } else {
+                126.dp
+            }
+            val storyboardExpandedHeight = if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                236.dp
+            } else {
+                252.dp
+            }
+            var finePreviewVisible by remember(currentEntry.id, playerOrientation) {
+                mutableStateOf(false)
+            }
+            val storyboardHeight by animateDpAsState(
+                targetValue = if (finePreviewVisible) storyboardExpandedHeight else storyboardCollapsedHeight,
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 360f),
+                label = "storyboardHeight",
+            )
+            val inPictureInPicture = rememberViewerPictureInPictureMode()
             var viewerBottomInRootPx by remember(currentEntry.id, playerOrientation) {
                 mutableFloatStateOf(Float.NaN)
             }
@@ -263,6 +282,12 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             } else {
                 PLAYER_STORYBOARD_FALLBACK_BOTTOM_CLEARANCE_DP.dp
             }
+            val storyboardBottom = storyboardBottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
+            val videoBottomInset = if (inPictureInPicture) {
+                0.dp
+            } else {
+                storyboardBottom + storyboardHeight
+            }
 
             Box(
                 Modifier
@@ -283,6 +308,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         hasPrevious = hasPrevious,
                         hasNext = hasNext,
                         onClose = onClose,
+                        videoBottomInset = videoBottomInset,
                         controlsTopContent = {
                             Spacer(
                                 modifier = Modifier
@@ -300,12 +326,19 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         .align(Alignment.TopEnd)
                         .padding(top = 12.dp, end = 64.dp),
                 )
-                LocalVideoStoryboard(
-                    player = localPlayer,
-                    entry = currentEntry,
-                    bottomClearance = storyboardBottomClearance,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (!inPictureInPicture) {
+                    LocalVideoStoryboard(
+                        player = localPlayer,
+                        entry = currentEntry,
+                        bottomClearance = storyboardBottomClearance,
+                        stripHeight = storyboardHeight,
+                        finePreviewVisible = finePreviewVisible,
+                        onFinePreviewVisibilityChanged = { visible ->
+                            finePreviewVisible = visible
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
     } else {
@@ -328,10 +361,11 @@ private fun LocalVideoStoryboard(
     player: Player,
     entry: XEntry,
     bottomClearance: Dp,
+    stripHeight: Dp,
+    finePreviewVisible: Boolean,
+    onFinePreviewVisibilityChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (rememberViewerPictureInPictureMode()) return
-
     var positionMs by remember(player, entry.id) {
         mutableLongStateOf(player.currentPosition.coerceAtLeast(0L))
     }
@@ -342,29 +376,10 @@ private fun LocalVideoStoryboard(
         }
     }
 
-    val configuration = LocalConfiguration.current
-    var finePreviewVisible by remember(entry.id, configuration.orientation) {
-        mutableStateOf(false)
-    }
-    var finePreviewDismissSignal by remember(entry.id, configuration.orientation) {
+    var finePreviewDismissSignal by remember(entry.id) {
         mutableIntStateOf(0)
     }
     val outsideTapInteractionSource = remember { MutableInteractionSource() }
-    val collapsedHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        120.dp
-    } else {
-        126.dp
-    }
-    val expandedHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        236.dp
-    } else {
-        252.dp
-    }
-    val stripHeight by animateDpAsState(
-        targetValue = if (finePreviewVisible) expandedHeight else collapsedHeight,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 360f),
-        label = "storyboardHeight",
-    )
     val storyboardBottom = bottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -401,9 +416,7 @@ private fun LocalVideoStoryboard(
                 onSeek = { targetMs -> player.seekTo(targetMs) },
                 vertical = false,
                 showJumpToCurrent = true,
-                onFinePreviewVisibilityChanged = { visible ->
-                    finePreviewVisible = visible
-                },
+                onFinePreviewVisibilityChanged = onFinePreviewVisibilityChanged,
                 finePreviewDismissSignal = finePreviewDismissSignal,
                 modifier = Modifier
                     .fillMaxSize()
