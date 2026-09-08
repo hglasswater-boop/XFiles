@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -58,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -290,19 +293,24 @@ private fun LocalVideoStoryboard(
     }
 
     val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var finePreviewVisible by remember(entry.id, configuration.orientation) {
         mutableStateOf(false)
     }
     var finePreviewDismissSignal by remember(entry.id, configuration.orientation) {
         mutableIntStateOf(0)
     }
+    val density = LocalDensity.current
+    val playerChromeVisible = WindowInsets.statusBars.getTop(density) > 0
+    if (isLandscape && !playerChromeVisible && !finePreviewVisible) return
+
     val outsideTapInteractionSource = remember { MutableInteractionSource() }
-    val collapsedHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    val collapsedHeight = if (isLandscape) {
         120.dp
     } else {
         126.dp
     }
-    val expandedHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    val expandedHeight = if (isLandscape) {
         236.dp
     } else {
         252.dp
