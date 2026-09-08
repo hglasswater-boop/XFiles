@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
@@ -35,8 +36,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -225,7 +228,20 @@ internal fun StoryboardFinePreviewPanel(
 
                 is FineStoryboardUiState.Ready -> {
                     val frames = current.result.frames
+                    val centerIndex = remember(frames, centerTimeMs) {
+                        frames.indices.minByOrNull { index ->
+                            abs(frames[index].timeMs - centerTimeMs)
+                        } ?: 0
+                    }
+                    val firstVisibleIndex = (centerIndex - 1).coerceAtLeast(0)
+                    val listState = rememberLazyListState(
+                        initialFirstVisibleItemIndex = firstVisibleIndex,
+                    )
+                    LaunchedEffect(centerTimeMs, frames.size, firstVisibleIndex) {
+                        listState.scrollToItem(firstVisibleIndex)
+                    }
                     LazyRow(
+                        state = listState,
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top,
@@ -453,9 +469,7 @@ private object FineStoryboardLoader {
                 )
             }.toMutableList()
 
-            if (frames.any { it.file != null }) {
-                emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
-            }
+            emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
 
             val centerIndex = frames.indices.minByOrNull { index ->
                 abs(frames[index].timeMs - centerTimeMs)
@@ -642,6 +656,6 @@ private class FineStoryboardSmbMediaDataSource(
 
     private companion object {
         const val BLOCK_SIZE = 1024 * 1024
-        const val MAX_CACHED_BLOCKS = 6
+        const val MAX_CACHED_BLOCKS = 16
     }
 }
