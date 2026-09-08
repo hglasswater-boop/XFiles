@@ -25,7 +25,7 @@ jobs:
     env:
       NDK_VERSION: 29.0.14206865
       CARGO_NDK_PLATFORM: 26
-      # Keep XFiles preview builds reproducible. Bump deliberately after smb-io-rs CI is green.
+      # Pin the engine so every preview can be reproduced exactly before the next deliberate bump.
       RUST_SMB_REF: a30ae5735f27de773ca8cecc910b2b9b0caf4e2b
     steps:
       - name: Checkout XFiles
