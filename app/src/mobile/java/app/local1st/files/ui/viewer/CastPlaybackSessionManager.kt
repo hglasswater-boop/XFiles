@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.local1st.files.core.cast.CastPlaybackBridge
@@ -17,6 +18,7 @@ import app.local1st.files.core.cast.CastPlaybackKeepAliveService
 import app.local1st.files.core.cast.CastPlaybackNotificationController
 import app.local1st.files.core.cast.CastPlaybackNotificationState
 import app.local1st.files.core.fs.XEntry
+import app.local1st.files.core.fs.XId
 import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.prefs.resolveVideoPlaybackStartPosition
 import kotlinx.coroutines.channels.Channel
@@ -96,14 +98,30 @@ internal object CastPlaybackSessionManager {
         val appContext = context.applicationContext
         val relay = CastMediaRelay(appContext, entries)
         prewarmCastWindow(relay, entries, resolvedStartIndex)
-        val localPlayer = ExoPlayer.Builder(appContext)
+        val localPlayerBuilder = ExoPlayer.Builder(appContext)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(appContext).setDataSourceFactory(
                     DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
                 ),
             )
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
-            .build()
+        if (entries.any { it.scheme == XId.SCHEME_SMB }) {
+            // SMB is a streaming scheme to Media3. Its default post-rebuffer threshold is only
+            // 2 seconds, which can create a stop/start loop when Wi-Fi or NAS latency briefly
+            // fluctuates. Keep normal startup/seek latency, but build a deeper cushion after an
+            // actual underrun before allowing playback to resume.
+            localPlayerBuilder.setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMsForStreaming(
+                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        SMB_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                    )
+                    .build(),
+            )
+        }
+        val localPlayer = localPlayerBuilder.build()
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
             .setMediaItemConverter(
                 XFilesCastMediaItemConverter(
@@ -292,4 +310,6 @@ internal object CastPlaybackSessionManager {
         runCatching { session.localPlayer.release() }
         runCatching { session.relay.close() }
     }
+
+    private const val SMB_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 8_000
 }
