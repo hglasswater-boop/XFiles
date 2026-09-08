@@ -13,13 +13,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -60,11 +58,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.net.toUri
@@ -233,38 +229,61 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 onClose = onClose,
             )
         } else {
-            var storyboardReservedHeight by remember(currentEntry.id) { mutableStateOf(0.dp) }
+            val playerOrientation = LocalConfiguration.current.orientation
+            var finePreviewVisible by remember(currentEntry.id, playerOrientation) {
+                mutableStateOf(false)
+            }
+            var finePreviewDismissSignal by remember(currentEntry.id, playerOrientation) {
+                mutableIntStateOf(0)
+            }
+            val storyboardOutsideTapInteractionSource = remember { MutableInteractionSource() }
+
             Box(Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = storyboardReservedHeight),
+                VideoCompatibilityGuard(
+                    player = localPlayer,
+                    entry = currentEntry,
+                    onClose = onClose,
                 ) {
-                    VideoCompatibilityGuard(
+                    VideoPlayerScreen(
                         player = localPlayer,
                         entry = currentEntry,
+                        playing = playing,
+                        hasPrevious = hasPrevious,
+                        hasNext = hasNext,
                         onClose = onClose,
-                    ) {
-                        VideoPlayerScreen(
-                            player = localPlayer,
-                            entry = currentEntry,
-                            playing = playing,
-                            hasPrevious = hasPrevious,
-                            hasNext = hasNext,
-                            onClose = onClose,
-                        )
-                    }
+                        keepControlsVisible = finePreviewVisible,
+                        controlsOverlay = {
+                            if (finePreviewVisible) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable(
+                                            interactionSource = storyboardOutsideTapInteractionSource,
+                                            indication = null,
+                                        ) {
+                                            finePreviewDismissSignal += 1
+                                        },
+                                )
+                            }
+                        },
+                        controlsTopContent = {
+                            LocalVideoStoryboard(
+                                player = localPlayer,
+                                entry = currentEntry,
+                                finePreviewVisible = finePreviewVisible,
+                                onFinePreviewVisibilityChanged = { visible ->
+                                    finePreviewVisible = visible
+                                },
+                                finePreviewDismissSignal = finePreviewDismissSignal,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
+                    )
                 }
                 VideoCastButton(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 12.dp, end = 64.dp),
-                )
-                LocalVideoStoryboard(
-                    player = localPlayer,
-                    entry = currentEntry,
-                    onReservedHeightChanged = { storyboardReservedHeight = it },
-                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
@@ -287,11 +306,11 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 private fun LocalVideoStoryboard(
     player: Player,
     entry: XEntry,
-    onReservedHeightChanged: (Dp) -> Unit,
+    finePreviewVisible: Boolean,
+    onFinePreviewVisibilityChanged: (Boolean) -> Unit,
+    finePreviewDismissSignal: Int,
     modifier: Modifier = Modifier,
 ) {
-    val inPictureInPicture = rememberViewerPictureInPictureMode()
-
     var positionMs by remember(player, entry.id) {
         mutableLongStateOf(player.currentPosition.coerceAtLeast(0L))
     }
@@ -304,17 +323,6 @@ private fun LocalVideoStoryboard(
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    var finePreviewVisible by remember(entry.id, configuration.orientation) {
-        mutableStateOf(false)
-    }
-    var finePreviewDismissSignal by remember(entry.id, configuration.orientation) {
-        mutableIntStateOf(0)
-    }
-    val density = LocalDensity.current
-    val playerChromeVisible = WindowInsets.statusBars.getTop(density) > 0
-    val storyboardVisible = !inPictureInPicture && (!isLandscape || playerChromeVisible || finePreviewVisible)
-
-    val outsideTapInteractionSource = remember { MutableInteractionSource() }
     val collapsedHeight = if (isLandscape) {
         120.dp
     } else {
@@ -332,45 +340,19 @@ private fun LocalVideoStoryboard(
         label = "storyboardHeight",
     )
 
-    LaunchedEffect(storyboardVisible, targetStripHeight) {
-        onReservedHeightChanged(
-            if (storyboardVisible) {
-                targetStripHeight + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
-            } else {
-                0.dp
-            },
-        )
-    }
-
-    if (!storyboardVisible) return
-
-    Box(modifier = modifier.fillMaxSize()) {
-        if (finePreviewVisible) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(
-                        bottom = PLAYER_STORYBOARD_EDGE_GAP_DP.dp + stripHeight,
-                    )
-                    .clickable(
-                        interactionSource = outsideTapInteractionSource,
-                        indication = null,
-                    ) {
-                        finePreviewDismissSignal += 1
-                    },
-            )
-        }
-
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                start = 4.dp,
+                end = 4.dp,
+                bottom = PLAYER_STORYBOARD_EDGE_GAP_DP.dp,
+            ),
+    ) {
         Surface(
             color = Color.Black.copy(alpha = 0.9f),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(
-                    start = 4.dp,
-                    end = 4.dp,
-                    bottom = PLAYER_STORYBOARD_EDGE_GAP_DP.dp,
-                )
                 .fillMaxWidth()
                 .height(stripHeight),
         ) {
@@ -380,9 +362,7 @@ private fun LocalVideoStoryboard(
                 onSeek = { targetMs -> player.seekTo(targetMs) },
                 vertical = false,
                 showJumpToCurrent = true,
-                onFinePreviewVisibilityChanged = { visible ->
-                    finePreviewVisible = visible
-                },
+                onFinePreviewVisibilityChanged = onFinePreviewVisibilityChanged,
                 finePreviewDismissSignal = finePreviewDismissSignal,
                 modifier = Modifier
                     .fillMaxSize()
