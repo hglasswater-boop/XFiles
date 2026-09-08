@@ -88,6 +88,7 @@ internal fun CastStoryboardStrip(
     onSeek: (Long) -> Unit,
     vertical: Boolean,
     showJumpToCurrent: Boolean = true,
+    onFinePreviewVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -167,7 +168,17 @@ internal fun CastStoryboardStrip(
 
             fun showFinePreview(index: Int) {
                 lastFineFrameIndex = index
+                if (fineFrameIndex == null) {
+                    onFinePreviewVisibilityChanged(true)
+                }
                 fineFrameIndex = index
+            }
+
+            fun hideFinePreview() {
+                if (fineFrameIndex != null) {
+                    fineFrameIndex = null
+                    onFinePreviewVisibilityChanged(false)
+                }
             }
 
             LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
@@ -389,7 +400,7 @@ internal fun CastStoryboardStrip(
                             centerTimeMs = frame.timeMs,
                             stepMs = storyboardFineStepMs(frames, index),
                             durationMs = current.result.durationMs,
-                            onDismiss = { fineFrameIndex = null },
+                            onDismiss = ::hideFinePreview,
                             onSelect = { timeMs -> onSeek(timeMs) },
                             modifier = Modifier.padding(top = 4.dp),
                         )
