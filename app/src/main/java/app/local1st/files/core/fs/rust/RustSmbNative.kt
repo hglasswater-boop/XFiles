@@ -4,7 +4,7 @@ import java.io.IOException
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 1
+    private const val EXPECTED_API_VERSION = 2
 
     @Volatile
     private var loaded = false
