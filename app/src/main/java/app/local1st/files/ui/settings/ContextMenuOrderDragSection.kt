@@ -200,6 +200,7 @@ private fun reorderContextMenuLabel(id: String): String = when (id) {
     ContextMenuOrderSettings.FOLDER_SORT -> "このフォルダの並び順"
     ContextMenuOrderSettings.OPEN_IN_OTHER_PANE -> "別ペインで開く"
     ContextMenuOrderSettings.NEW_TEXT_FILE -> stringResource(R.string.new_text_file)
+    ContextMenuOrderSettings.FLATTEN_ONE_LEVEL -> "中身を1階層上へ"
     ContextMenuOrderSettings.FAVORITE -> "お気に入りに追加／解除"
     ContextMenuOrderSettings.OPEN_WITH -> stringResource(R.string.open_with)
     ContextMenuOrderSettings.SHARE -> stringResource(R.string.share)

@@ -77,7 +77,7 @@ class DefaultOperationEngine(
         val running = RunningOpImpl(
             id = nextId.getAndIncrement(),
             title = titleFor(op),
-            showTransferStats = op is FileOp.Copy,
+            showTransferStats = op is FileOp.Copy || op is FileOp.FlattenOneLevel,
         )
         // LAZY start so `running.job` is assigned before the coroutine can observe it.
         val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
@@ -96,6 +96,7 @@ class DefaultOperationEngine(
             val message = when (op) {
                 is FileOp.Copy -> runCopy(op, running, dirty, removed)
                 is FileOp.Delete -> runDelete(op, running, dirty, removed)
+                is FileOp.FlattenOneLevel -> runFlattenOneLevel(op, running, dirty, removed)
                 is FileOp.Compress -> runCompress(op, running, dirty)
                 is FileOp.Extract -> runExtract(op, running, dirty)
             }
@@ -293,6 +294,124 @@ class DefaultOperationEngine(
         } finally {
             // Never leave a partial target behind on cancel or error.
             if (!completed) runCatching { deleteChildIfExists(destParent, name) }
+        }
+    }
+
+    // ----------------------------------------------------------- Flatten one level
+
+    /**
+     * Removes exactly one directory layer below [FileOp.FlattenOneLevel.directory].
+     *
+     * Every immediate child of each direct subfolder is moved into the target directory.
+     * A source subfolder is deleted only after it is actually empty, so SKIP decisions and
+     * failures never make us recursively delete content that was not moved.
+     */
+    private suspend fun runFlattenOneLevel(
+        op: FileOp.FlattenOneLevel,
+        t: RunningOpImpl,
+        dirty: MutableSet<String>,
+        removed: MutableSet<String>,
+    ): String {
+        val directory = op.directory
+        if (!directory.isDir) throw IOException("Flatten target is not a directory")
+
+        val dirFs = registry.forEntry(directory)
+        val folders = dirFs.list(directory).filter { it.isDir }
+        dirty += directory.id
+        if (folders.isEmpty()) {
+            t.setTotals(totalBytes = 0L, totalItems = 0)
+            t.setState(OpState.RUNNING)
+            return "Nothing to flatten"
+        }
+
+        // Snapshot work before moving anything so progress stays stable while listings change.
+        // A direct child directory counts with its complete subtree, matching move progress.
+        val work = folders.associateWith { folder ->
+            registry.forEntry(folder).list(folder).map { child -> child to scanTree(child, t) }
+        }
+        val totals = work.values.flatten().map { it.second }
+        t.setTotals(
+            totalBytes = totals.sumOf { it.bytes },
+            totalItems = totals.sumOf { it.items },
+        )
+        t.setState(OpState.RUNNING)
+
+        val destNames = nameSetFor(directory)
+        destNames += dirFs.list(directory).map { it.name }
+
+        // Direct source folders are protected until processed. This prevents OVERWRITE from
+        // recursively deleting a folder whose contents this same operation still has to preserve.
+        val protectedFolderNames = nameSetFor(directory)
+        protectedFolderNames += folders.map { it.name }
+
+        var remembered: ConflictChoice? = null
+        var movedItems = 0
+        var skippedItems = 0
+        var removedFolders = 0
+
+        for (folder in folders) {
+            for ((src, srcTotals) in work.getValue(folder)) {
+                t.ensureActive()
+                t.current(src.name)
+                var name = src.name
+                if (name in destNames) {
+                    val choice = remembered ?: t.awaitConflict(Conflict(src, name)).let { resolution ->
+                        if (resolution.applyToAll) remembered = resolution.choice
+                        resolution.choice
+                    }
+                    when (choice) {
+                        ConflictChoice.SKIP -> {
+                            t.skipItems(srcTotals)
+                            skippedItems++
+                            continue
+                        }
+                        ConflictChoice.OVERWRITE -> {
+                            if (name in protectedFolderNames) {
+                                // Never erase a pending source folder. Keep this source item in
+                                // place; the non-empty source folder will intentionally survive.
+                                t.skipItems(srcTotals)
+                                skippedItems++
+                                continue
+                            }
+                            deleteChildIfExists(directory, name)
+                            destNames.remove(name)
+                        }
+                        ConflictChoice.RENAME ->
+                            name = uniqueName(name, src.isDir, destNames)
+                    }
+                }
+
+                // Same-name local and SMB moves use the existing zero-copy/server-side fast path.
+                // A renamed conflict falls back to copy + delete because that path keeps the
+                // requested destination name correctly.
+                val movedFast = name == src.name && tryFastRename(src, directory, destNames)
+                if (movedFast) {
+                    t.skipItems(srcTotals)
+                } else {
+                    copyTree(src, directory, name, t)
+                    registry.forScheme(src.scheme).delete(src)
+                    destNames += name
+                }
+                removed += src.id
+                dirty += folder.id
+                movedItems++
+            }
+
+            t.ensureActive()
+            val remaining = registry.forEntry(folder).list(folder)
+            if (remaining.isEmpty()) {
+                registry.forScheme(folder.scheme).delete(folder)
+                removed += folder.id
+                destNames.remove(folder.name)
+                protectedFolderNames.remove(folder.name)
+                removedFolders++
+            }
+        }
+
+        return buildString {
+            append("Flattened ${countLabel(movedItems)}; removed ")
+            append(if (removedFolders == 1) "1 folder" else "$removedFolders folders")
+            if (skippedItems > 0) append(" ($skippedItems skipped; non-empty folders kept)")
         }
     }
 
@@ -646,6 +765,7 @@ class DefaultOperationEngine(
         is FileOp.Copy ->
             "${if (op.move) "Moving" else "Copying"} ${countLabel(op.sources.size)}"
         is FileOp.Delete -> "Deleting ${countLabel(op.sources.size)}"
+        is FileOp.FlattenOneLevel -> "Flattening ${op.directory.name}"
         is FileOp.Compress -> "Creating ${op.archiveName}"
         is FileOp.Extract -> "Extracting ${op.archive.name}"
     }
@@ -653,6 +773,7 @@ class DefaultOperationEngine(
     private fun verbFor(op: FileOp): String = when (op) {
         is FileOp.Copy -> if (op.move) "Move" else "Copy"
         is FileOp.Delete -> "Delete"
+        is FileOp.FlattenOneLevel -> "Flatten"
         is FileOp.Compress -> "Compress"
         is FileOp.Extract -> "Extract"
     }

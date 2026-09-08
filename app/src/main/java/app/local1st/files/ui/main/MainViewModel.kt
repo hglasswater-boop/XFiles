@@ -772,6 +772,17 @@ fun confirmTransfer(destDir: XEntry) {
         activeCtrl.clearSelection()
     }
 
+    fun requestFlattenOneLevel(directory: XEntry) {
+        if (directory.kind != EntryKind.DIR || !isFileOperationDestination(directory)) return
+        dialog.value = DialogRequest.ConfirmFlattenOneLevel(directory)
+    }
+
+    fun performFlattenOneLevel(directory: XEntry) {
+        dialog.value = null
+        Graph.opEngine.submit(FileOp.FlattenOneLevel(directory))
+        activeCtrl.clearSelection()
+    }
+
     /** Creates a new zip in the other pane after asking only for its filename. */
     fun requestCompress(sources: List<XEntry> = activeCtrl.selectionEntries()) {
         if (sources.isEmpty()) return

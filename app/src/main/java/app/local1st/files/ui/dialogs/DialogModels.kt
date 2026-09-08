@@ -5,6 +5,7 @@ import app.local1st.files.core.fs.XEntry
 /** Modal UI requested by MainViewModel; rendered by MainDialogs (ui/dialogs/Dialogs.kt). */
 sealed interface DialogRequest {
     data class ConfirmDelete(val entries: List<XEntry>) : DialogRequest
+    data class ConfirmFlattenOneLevel(val directory: XEntry) : DialogRequest
     data class Rename(val entry: XEntry) : DialogRequest
     data class NewFolder(val parent: XEntry) : DialogRequest
     data class NewTextFile(val parent: XEntry) : DialogRequest

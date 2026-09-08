@@ -11,6 +11,7 @@ object ContextMenuOrderSettings {
     const val FOLDER_SORT = "folder_sort"
     const val OPEN_IN_OTHER_PANE = "open_in_other_pane"
     const val NEW_TEXT_FILE = "new_text_file"
+    const val FLATTEN_ONE_LEVEL = "flatten_one_level"
     const val FAVORITE = "favorite"
     const val OPEN_WITH = "open_with"
     const val SHARE = "share"
@@ -23,8 +24,8 @@ object ContextMenuOrderSettings {
     const val DELETE = "delete"
 
     val DEFAULT_ORDER = listOf(
-        DETAILS, FOLDER_SORT, OPEN_IN_OTHER_PANE, NEW_TEXT_FILE, FAVORITE, OPEN_WITH, SHARE,
-        COPY_TO, MOVE_TO, ZIP, EXTRACT, INSTALL, RENAME, DELETE,
+        DETAILS, FOLDER_SORT, OPEN_IN_OTHER_PANE, NEW_TEXT_FILE, FLATTEN_ONE_LEVEL, FAVORITE,
+        OPEN_WITH, SHARE, COPY_TO, MOVE_TO, ZIP, EXTRACT, INSTALL, RENAME, DELETE,
     )
 
     private const val PREFS_NAME = "context_menu_order"
