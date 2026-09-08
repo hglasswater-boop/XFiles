@@ -84,10 +84,11 @@ internal object AutoSmbRandomAccessBackend : SmbRandomAccessBackend {
 /**
  * Single migration seam for seekable SMB I/O.
  *
- * Normal builds keep Rust as the preferred random-access engine for thumbnails/storyboards, while
- * local Media3 playback stays on the established SMBJ path until the Rust playback stream has been
- * proven stable under long continuous playback. Strict `rust` builds still exercise Rust for both
- * paths, and explicit `smbj` builds keep SMBJ everywhere.
+ * Normal builds prefer Rust for both thumbnails/storyboards and local Media3 playback. The player
+ * uses aligned 2 MiB reads and the Rust broker debounces speculative prefetch, which avoids the
+ * READ/PREFETCH/CANCEL churn seen in the earlier continuous-playback path. Auto mode still falls
+ * back to SMBJ only when the native Rust JNI layer is unavailable or incompatible. Strict `rust`
+ * builds never fall back, while explicit `smbj` builds keep SMBJ everywhere.
  */
 internal object SmbRandomAccessBackends {
     @Volatile
@@ -101,7 +102,7 @@ internal object SmbRandomAccessBackends {
     private var playbackBackend: SmbRandomAccessBackend = when (BuildConfig.SMB_RANDOM_ACCESS_BACKEND) {
         "rust" -> RustSmbRandomAccessBackend
         "smbj" -> SmbjRandomAccessBackend
-        else -> SmbjRandomAccessBackend
+        else -> AutoSmbRandomAccessBackend
     }
 
     fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessHandle =
