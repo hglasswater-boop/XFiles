@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
@@ -35,11 +36,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -148,8 +152,11 @@ internal fun StoryboardFinePreviewPanel(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
-        tonalElevation = 8.dp,
+        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 8.dp, bottomEnd = 8.dp),
+        color = Color.Black.copy(alpha = 0.24f),
+        contentColor = Color.White,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -162,10 +169,10 @@ internal fun StoryboardFinePreviewPanel(
             ) {
                 Box(
                     modifier = Modifier
-                        .width(36.dp)
-                        .height(4.dp)
+                        .width(32.dp)
+                        .height(3.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
+                        .background(Color.White.copy(alpha = 0.16f)),
                 )
             }
 
@@ -214,14 +221,27 @@ internal fun StoryboardFinePreviewPanel(
                         Icon(
                             Icons.Outlined.BrokenImage,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = Color.White.copy(alpha = 0.64f),
                         )
                     }
                 }
 
                 is FineStoryboardUiState.Ready -> {
                     val frames = current.result.frames
+                    val centerIndex = remember(frames, centerTimeMs) {
+                        frames.indices.minByOrNull { index ->
+                            abs(frames[index].timeMs - centerTimeMs)
+                        } ?: 0
+                    }
+                    val firstVisibleIndex = (centerIndex - 1).coerceAtLeast(0)
+                    val listState = rememberLazyListState(
+                        initialFirstVisibleItemIndex = firstVisibleIndex,
+                    )
+                    LaunchedEffect(centerTimeMs, frames.size, firstVisibleIndex) {
+                        listState.scrollToItem(firstVisibleIndex)
+                    }
                     LazyRow(
+                        state = listState,
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top,
@@ -250,8 +270,8 @@ internal fun StoryboardFinePreviewPanel(
                                             .then(
                                                 if (selected) {
                                                     Modifier.border(
-                                                        width = 3.dp,
-                                                        color = MaterialTheme.colorScheme.primary,
+                                                        width = 1.dp,
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.78f),
                                                         shape = shape,
                                                     )
                                                 } else {
@@ -264,7 +284,7 @@ internal fun StoryboardFinePreviewPanel(
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .clip(shape)
-                                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                            .background(Color.White.copy(alpha = 0.06f)),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (!current.complete) {
@@ -276,15 +296,11 @@ internal fun StoryboardFinePreviewPanel(
                                 Text(
                                     text = formatVideoDuration(frame.timeMs),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onInverseSurface
-                                    },
+                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.White,
                                     modifier = Modifier
                                         .align(Alignment.BottomStart)
                                         .background(
-                                            MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.78f),
+                                            Color.Black.copy(alpha = 0.62f),
                                             RoundedCornerShape(topEnd = 7.dp),
                                         )
                                         .padding(horizontal = 5.dp, vertical = 2.dp),
@@ -453,9 +469,7 @@ private object FineStoryboardLoader {
                 )
             }.toMutableList()
 
-            if (frames.any { it.file != null }) {
-                emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
-            }
+            emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
 
             val centerIndex = frames.indices.minByOrNull { index ->
                 abs(frames[index].timeMs - centerTimeMs)
@@ -642,6 +656,6 @@ private class FineStoryboardSmbMediaDataSource(
 
     private companion object {
         const val BLOCK_SIZE = 1024 * 1024
-        const val MAX_CACHED_BLOCKS = 6
+        const val MAX_CACHED_BLOCKS = 16
     }
 }
