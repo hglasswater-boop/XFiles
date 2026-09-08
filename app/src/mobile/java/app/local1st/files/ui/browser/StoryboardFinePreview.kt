@@ -279,7 +279,7 @@ internal fun StoryboardFinePreviewPanel(
                                     color = if (selected) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
-                                        MaterialTheme.colorScheme.onInverseSurface
+                                        MaterialTheme.colorScheme.inverseOnSurface
                                     },
                                     modifier = Modifier
                                         .align(Alignment.BottomStart)
