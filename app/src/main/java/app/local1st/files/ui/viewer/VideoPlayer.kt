@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -139,6 +140,9 @@ fun VideoPlayerScreen(
     hasNext: Boolean,
     onClose: () -> Unit,
     tvRemoteControls: Boolean = false,
+    keepControlsVisible: Boolean = false,
+    controlsOverlay: @Composable BoxScope.() -> Unit = {},
+    controlsTopContent: @Composable () -> Unit = {},
 ) {
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -331,7 +335,8 @@ fun VideoPlayerScreen(
             controlsVisible = true
         }
     }
-    val interacting = scrubbing || volumeAdjusting || cardDragging || sliderPos != null
+    val interacting =
+        scrubbing || volumeAdjusting || cardDragging || sliderPos != null || keepControlsVisible
     LaunchedEffect(controlsVisible, playing, interacting, interactionTick) {
         if (controlsVisible && playing && !interacting) {
             delay(AUTO_HIDE_MS)
@@ -698,6 +703,8 @@ fun VideoPlayerScreen(
             }
         }
 
+        controlsOverlay()
+
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn() + slideInVertically { it / 2 },
@@ -709,7 +716,6 @@ fun VideoPlayerScreen(
                         cutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                     ),
                 )
-                .padding(horizontal = 12.dp)
                 .padding(bottom = 10.dp)
                 .offset {
                     val travel = (
@@ -719,189 +725,203 @@ fun VideoPlayerScreen(
                     IntOffset(0, cardOffsetY.roundToInt().coerceIn(-travel, 0))
                 },
         ) {
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
-                    alpha = 1f - controlsTransparencyPercent / 100f,
-                ),
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .onSizeChanged { cardHeightPx = it.height }
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragStart = { cardDragging = true },
-                            onDragEnd = {
-                                cardDragging = false
-                                interactionTick++
-                            },
-                            onDragCancel = {
-                                cardDragging = false
-                                interactionTick++
-                            },
-                            onVerticalDrag = { change, dy ->
-                                change.consume()
-                                val travel = (
-                                    parentHeightPx - cardHeightPx - statusBarsIns.getTop(this) -
-                                        navBarsIns.getBottom(this) - 10.dp.toPx()
-                                    ).coerceAtLeast(0f)
-                                cardOffsetY = (cardOffsetY + dy).coerceIn(-travel, 0f)
-                            },
-                        )
-                    },
+                    .fillMaxWidth()
+                    .onSizeChanged { cardHeightPx = it.height },
             ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-                    Box(
-                        Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .size(width = 36.dp, height = 4.dp)
-                            .background(
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                CircleShape,
-                            ),
-                    )
-                    val approx = if (fps > 0f && isStandardFps(fps)) "" else "≈"
-                    val total = totalFramesNow()
-                    val modeColor = if (frameMode) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth(),
+                controlsTopContent()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
+                            alpha = 1f - controlsTransparencyPercent / 100f,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures(
+                                    onDragStart = { cardDragging = true },
+                                    onDragEnd = {
+                                        cardDragging = false
+                                        interactionTick++
+                                    },
+                                    onDragCancel = {
+                                        cardDragging = false
+                                        interactionTick++
+                                    },
+                                    onVerticalDrag = { change, dy ->
+                                        change.consume()
+                                        val travel = (
+                                            parentHeightPx - cardHeightPx - statusBarsIns.getTop(this) -
+                                                navBarsIns.getBottom(this) - 10.dp.toPx()
+                                            ).coerceAtLeast(0f)
+                                        cardOffsetY = (cardOffsetY + dy).coerceIn(-travel, 0f)
+                                    },
+                                )
+                            },
                     ) {
-                        ModeToggleText(
-                            text = if (frameMode) {
-                                "$approx${(frameOf(positionMs).coerceIn(0L, (total - 1).coerceAtLeast(0L))) + 1}"
-                            } else {
-                                formatPlayTime(positionMs)
-                            },
-                            frameMode = frameMode,
-                            color = modeColor,
-                            onToggle = {
-                                frameMode = !frameMode
-                                interactionTick++
-                            },
-                        )
-                        ModeToggleText(
-                            text = if (frameMode) {
-                                "$approx$total · ${String.format(Locale.US, "%.1f", effFpsNow())}fps"
-                            } else {
-                                formatPlayTime(durationMs)
-                            },
-                            frameMode = frameMode,
-                            color = modeColor,
-                            onToggle = {
-                                frameMode = !frameMode
-                                interactionTick++
-                            },
-                        )
-                    }
-
-                    Slider(
-                        value = sliderPos
-                            ?: if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
-                        onValueChange = { v ->
-                            if (durationMs > 0) {
-                                if (sliderPos == null) {
-                                    sliderWasPlaying = player.playWhenReady
-                                    player.pause()
-                                    if (seekWhileDragging && !frameMode) {
-                                        player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
-                                    }
-                                }
-                                sliderPos = v
-                                if (seekWhileDragging) {
-                                    seekGate.request(clampMs((v * durationMs).toLong()))
-                                }
-                            }
-                        },
-                        onValueChangeFinished = {
-                            if (!frameMode) {
-                                player.setSeekParameters(
-                                    if (entry.scheme == XId.SCHEME_SMB) {
-                                        SeekParameters.CLOSEST_SYNC
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.CenterHorizontally)
+                                    .size(width = 36.dp, height = 4.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        CircleShape,
+                                    ),
+                            )
+                            val approx = if (fps > 0f && isStandardFps(fps)) "" else "≈"
+                            val total = totalFramesNow()
+                            val modeColor = if (frameMode) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                ModeToggleText(
+                                    text = if (frameMode) {
+                                        "$approx${(frameOf(positionMs).coerceIn(0L, (total - 1).coerceAtLeast(0L))) + 1}"
                                     } else {
-                                        SeekParameters.EXACT
+                                        formatPlayTime(positionMs)
+                                    },
+                                    frameMode = frameMode,
+                                    color = modeColor,
+                                    onToggle = {
+                                        frameMode = !frameMode
+                                        interactionTick++
+                                    },
+                                )
+                                ModeToggleText(
+                                    text = if (frameMode) {
+                                        "$approx$total · ${String.format(Locale.US, "%.1f", effFpsNow())}fps"
+                                    } else {
+                                        formatPlayTime(durationMs)
+                                    },
+                                    frameMode = frameMode,
+                                    color = modeColor,
+                                    onToggle = {
+                                        frameMode = !frameMode
+                                        interactionTick++
                                     },
                                 )
                             }
-                            sliderPos?.let {
-                                seekGate.request(clampMs((it * durationMs).toLong()))
-                                seekGate.flushLatest()
-                            }
-                            sliderPos = null
-                            if (sliderWasPlaying && !frameMode) player.play()
-                            sliderWasPlaying = false
-                            interactionTick++
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Box(Modifier.fillMaxWidth()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.align(Alignment.Center),
-                        ) {
-                        if (hasPrevious || hasNext) {
-                            TooltipIconButton(
-                                stringResource(R.string.previous_video),
-                                Icons.Outlined.SkipPrevious,
-                                enabled = hasPrevious,
-                            ) {
-                                player.seekToPreviousMediaItem()
-                                interactionTick++
-                            }
-                        }
-                        if (frameMode) {
-                            TooltipIconButton(stringResource(R.string.previous_frame), Icons.Outlined.ChevronLeft) {
-                                stepFrame(-1)
-                            }
-                        } else {
-                            TooltipIconButton(stringResource(R.string.back_5_seconds), Icons.Outlined.Replay5) {
-                                stepSeconds(-STEP_SECONDS)
-                            }
-                        }
-                        TooltipBox(
-                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                            tooltip = { PlainTooltip { Text(stringResource(if (playing) R.string.pause else R.string.play)) } },
-                            state = rememberTooltipState(),
-                        ) {
-                            FilledIconButton(
-                                onClick = { togglePlayback() },
-                                modifier = Modifier.size(44.dp),
-                            ) {
-                                Icon(
-                                    if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                                    contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
-                                )
-                            }
-                        }
-                        if (frameMode) {
-                            TooltipIconButton(stringResource(R.string.next_frame), Icons.Outlined.ChevronRight) {
-                                stepFrame(1)
-                            }
-                        } else {
-                            TooltipIconButton(stringResource(R.string.forward_5_seconds), Icons.Outlined.Forward5) {
-                                stepSeconds(STEP_SECONDS)
-                            }
-                        }
-                        if (hasPrevious || hasNext) {
-                            TooltipIconButton(
-                                stringResource(R.string.next_video),
-                                Icons.Outlined.SkipNext,
-                                enabled = hasNext,
-                            ) {
-                                player.seekToNextMediaItem()
-                                interactionTick++
-                            }
-                        }
-                        }
-                        if (orientationController != null) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.End,
-                                modifier = Modifier.align(Alignment.CenterEnd),
-                            ) {
-                                VideoOrientationQuickControls(orientationController) {
+
+                            Slider(
+                                value = sliderPos
+                                    ?: if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
+                                onValueChange = { v ->
+                                    if (durationMs > 0) {
+                                        if (sliderPos == null) {
+                                            sliderWasPlaying = player.playWhenReady
+                                            player.pause()
+                                            if (seekWhileDragging && !frameMode) {
+                                                player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                                            }
+                                        }
+                                        sliderPos = v
+                                        if (seekWhileDragging) {
+                                            seekGate.request(clampMs((v * durationMs).toLong()))
+                                        }
+                                    }
+                                },
+                                onValueChangeFinished = {
+                                    if (!frameMode) {
+                                        player.setSeekParameters(
+                                            if (entry.scheme == XId.SCHEME_SMB) {
+                                                SeekParameters.CLOSEST_SYNC
+                                            } else {
+                                                SeekParameters.EXACT
+                                            },
+                                        )
+                                    }
+                                    sliderPos?.let {
+                                        seekGate.request(clampMs((it * durationMs).toLong()))
+                                        seekGate.flushLatest()
+                                    }
+                                    sliderPos = null
+                                    if (sliderWasPlaying && !frameMode) player.play()
+                                    sliderWasPlaying = false
                                     interactionTick++
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Box(Modifier.fillMaxWidth()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.align(Alignment.Center),
+                                ) {
+                                if (hasPrevious || hasNext) {
+                                    TooltipIconButton(
+                                        stringResource(R.string.previous_video),
+                                        Icons.Outlined.SkipPrevious,
+                                        enabled = hasPrevious,
+                                    ) {
+                                        player.seekToPreviousMediaItem()
+                                        interactionTick++
+                                    }
+                                }
+                                if (frameMode) {
+                                    TooltipIconButton(stringResource(R.string.previous_frame), Icons.Outlined.ChevronLeft) {
+                                        stepFrame(-1)
+                                    }
+                                } else {
+                                    TooltipIconButton(stringResource(R.string.back_5_seconds), Icons.Outlined.Replay5) {
+                                        stepSeconds(-STEP_SECONDS)
+                                    }
+                                }
+                                TooltipBox(
+                                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                    tooltip = { PlainTooltip { Text(stringResource(if (playing) R.string.pause else R.string.play)) } },
+                                    state = rememberTooltipState(),
+                                ) {
+                                    FilledIconButton(
+                                        onClick = { togglePlayback() },
+                                        modifier = Modifier.size(44.dp),
+                                    ) {
+                                        Icon(
+                                            if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                                            contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
+                                        )
+                                    }
+                                }
+                                if (frameMode) {
+                                    TooltipIconButton(stringResource(R.string.next_frame), Icons.Outlined.ChevronRight) {
+                                        stepFrame(1)
+                                    }
+                                } else {
+                                    TooltipIconButton(stringResource(R.string.forward_5_seconds), Icons.Outlined.Forward5) {
+                                        stepSeconds(STEP_SECONDS)
+                                    }
+                                }
+                                if (hasPrevious || hasNext) {
+                                    TooltipIconButton(
+                                        stringResource(R.string.next_video),
+                                        Icons.Outlined.SkipNext,
+                                        enabled = hasNext,
+                                    ) {
+                                        player.seekToNextMediaItem()
+                                        interactionTick++
+                                    }
+                                }
+                                }
+                                if (orientationController != null) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.End,
+                                        modifier = Modifier.align(Alignment.CenterEnd),
+                                    ) {
+                                        VideoOrientationQuickControls(orientationController) {
+                                            interactionTick++
+                                        }
+                                    }
                                 }
                             }
                         }
