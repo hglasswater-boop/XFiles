@@ -2,6 +2,18 @@ name: Rust SMB Preview
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/rust-smb-preview.yml'
+      - 'app/src/main/java/app/local1st/files/core/fs/RustSmbRandomAccessBackend.kt'
+      - 'app/src/main/java/app/local1st/files/core/fs/SmbRandomAccessBackend.kt'
+      - 'app/src/main/java/app/local1st/files/core/fs/SmbRandomAccessFile.kt'
+      - 'app/src/main/java/app/local1st/files/core/fs/rust/**'
+      - 'app/src/main/java/app/local1st/files/ui/viewer/SmbDataSource.kt'
+
+concurrency:
+  group: rust-smb-preview-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +25,8 @@ jobs:
     env:
       NDK_VERSION: 29.0.14206865
       CARGO_NDK_PLATFORM: 26
+      # Keep XFiles preview builds reproducible. Bump deliberately after smb-io-rs CI is green.
+      RUST_SMB_REF: a30ae5735f27de773ca8cecc910b2b9b0caf4e2b
     steps:
       - name: Checkout XFiles
         uses: actions/checkout@v5
@@ -21,7 +35,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: hglasswater-boop/smb-io-rs
-          ref: main
+          ref: ${{ env.RUST_SMB_REF }}
           path: native/smb-io-rs
 
       - uses: actions/setup-java@v5
@@ -43,7 +57,7 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --version 4.1.2 --locked
 
-      - name: Build and stage Rust JNI libraries
+      - name: Build, stage, and verify Rust JNI libraries
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
         run: |
@@ -56,9 +70,13 @@ jobs:
             -t x86_64 \
             -o "$GITHUB_WORKSPACE/app/src/main/jniLibs" \
             build --release -p smb-io-android
-          test -f "$GITHUB_WORKSPACE/app/src/main/jniLibs/arm64-v8a/libsmb_io_android.so"
-          test -f "$GITHUB_WORKSPACE/app/src/main/jniLibs/armeabi-v7a/libsmb_io_android.so"
-          test -f "$GITHUB_WORKSPACE/app/src/main/jniLibs/x86_64/libsmb_io_android.so"
+
+          LLVM_NM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            SO="$GITHUB_WORKSPACE/app/src/main/jniLibs/$ABI/libsmb_io_android.so"
+            test -f "$SO"
+            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativePrefetch'
+          done
 
       - name: Compute Android build number
         id: build_number
