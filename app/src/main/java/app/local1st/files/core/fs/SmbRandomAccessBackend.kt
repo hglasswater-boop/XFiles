@@ -1,6 +1,7 @@
 package app.local1st.files.core.fs
 
 import app.local1st.files.BuildConfig
+import app.local1st.files.core.fs.rust.RustSmbUnavailableException
 import app.local1st.files.core.prefs.SmbConnectionConfig
 import app.local1st.files.core.prefs.SmbConnectionRepo
 import java.io.Closeable
@@ -67,16 +68,31 @@ internal fun resolveSmbRandomAccessTarget(
 }
 
 /**
+ * Production migration policy: prefer the native Rust engine, but keep SMBJ as a narrow safety net
+ * only when the Rust JNI library itself is unavailable or incompatible. Connection/protocol errors
+ * from Rust are intentionally not swallowed, so real Rust regressions remain visible.
+ */
+internal object AutoSmbRandomAccessBackend : SmbRandomAccessBackend {
+    override fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessHandle =
+        try {
+            RustSmbRandomAccessBackend.open(id, connections)
+        } catch (_: RustSmbUnavailableException) {
+            SmbjRandomAccessBackend.open(id, connections)
+        }
+}
+
+/**
  * Single migration seam for seekable SMB I/O.
  *
- * The default build stays on SMBJ. Developer/benchmark builds can opt into Rust with
- * `-PxfilesSmbBackend=rust`; no viewer or business code sees that flag.
+ * Normal builds use `auto`, which prefers Rust. `-PxfilesSmbBackend=rust` is the strict Rust mode
+ * used by preview/validation builds, while `-PxfilesSmbBackend=smbj` is the explicit rollback path.
  */
 internal object SmbRandomAccessBackends {
     @Volatile
     private var backend: SmbRandomAccessBackend = when (BuildConfig.SMB_RANDOM_ACCESS_BACKEND) {
         "rust" -> RustSmbRandomAccessBackend
-        else -> SmbjRandomAccessBackend
+        "smbj" -> SmbjRandomAccessBackend
+        else -> AutoSmbRandomAccessBackend
     }
 
     fun open(id: String, connections: SmbConnectionRepo): SmbRandomAccessHandle =
