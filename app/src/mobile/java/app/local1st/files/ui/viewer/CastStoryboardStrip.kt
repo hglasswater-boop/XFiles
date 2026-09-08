@@ -1,5 +1,14 @@
 package app.local1st.files.ui.viewer
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -47,7 +56,7 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.VideoStoryboardSettings
-import app.local1st.files.ui.browser.StoryboardFinePreviewDialog
+import app.local1st.files.ui.browser.StoryboardFinePreviewPanel
 import app.local1st.files.ui.browser.StoryboardLoader
 import app.local1st.files.ui.browser.StoryboardResult
 import app.local1st.files.ui.browser.storyboardFineStepMs
@@ -69,9 +78,8 @@ private sealed interface CastStoryboardUiState {
  *
  * Portrait Cast controls use a vertically scrolling compact-preview timeline, while landscape and
  * the local player use the compact horizontal strip. All layouts reuse the browser storyboard
- * loader and disk cache. Long-pressing a frame opens a precise, locally sampled timeline around
- * that point so the user can choose a much finer seek position without generating dense previews
- * for the entire video.
+ * loader and disk cache. Long-pressing a frame expands a precise timeline from the bottom while
+ * leaving the coarse storyboard visible, so refinement never interrupts playback context.
  */
 @Composable
 internal fun CastStoryboardStrip(
@@ -150,6 +158,17 @@ internal fun CastStoryboardStrip(
                 entry.size,
                 vertical,
             ) { mutableStateOf<Int?>(null) }
+            var lastFineFrameIndex by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Int?>(null) }
+
+            fun showFinePreview(index: Int) {
+                lastFineFrameIndex = index
+                fineFrameIndex = index
+            }
 
             LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
                 if (alignedToPlayback || nearestIndex < 0) return@LaunchedEffect
@@ -186,7 +205,7 @@ internal fun CastStoryboardStrip(
                                     .combinedClickable(
                                         enabled = image != null,
                                         onClick = { onSeek(frame.timeMs) },
-                                        onLongClick = { fineFrameIndex = frame.index },
+                                        onLongClick = { showFinePreview(frame.index) },
                                     ),
                             ) {
                                 Box(modifier = previewModifier) {
@@ -260,7 +279,7 @@ internal fun CastStoryboardStrip(
                                     .combinedClickable(
                                         enabled = image != null,
                                         onClick = { onSeek(frame.timeMs) },
-                                        onLongClick = { fineFrameIndex = frame.index },
+                                        onLongClick = { showFinePreview(frame.index) },
                                     ),
                             ) {
                                 if (image != null) {
@@ -344,21 +363,37 @@ internal fun CastStoryboardStrip(
                         }
                     }
                 }
-            }
 
-            fineFrameIndex?.let { index ->
-                frames.getOrNull(index)?.let { frame ->
-                    StoryboardFinePreviewDialog(
-                        entry = entry,
-                        centerTimeMs = frame.timeMs,
-                        stepMs = storyboardFineStepMs(frames, index),
-                        durationMs = current.result.durationMs,
-                        onDismiss = { fineFrameIndex = null },
-                        onSelect = { timeMs ->
-                            fineFrameIndex = null
-                            onSeek(timeMs)
-                        },
-                    )
+                AnimatedVisibility(
+                    visible = fineFrameIndex != null,
+                    enter = expandVertically(
+                        expandFrom = Alignment.Bottom,
+                        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
+                    ) + slideInVertically(
+                        initialOffsetY = { height -> height / 2 },
+                        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
+                    ) + fadeIn(animationSpec = tween(120)),
+                    exit = shrinkVertically(
+                        shrinkTowards = Alignment.Bottom,
+                        animationSpec = tween(180),
+                    ) + slideOutVertically(
+                        targetOffsetY = { height -> height / 3 },
+                        animationSpec = tween(180),
+                    ) + fadeOut(animationSpec = tween(120)),
+                ) {
+                    val index = lastFineFrameIndex
+                    val frame = index?.let(frames::getOrNull)
+                    if (index != null && frame != null) {
+                        StoryboardFinePreviewPanel(
+                            entry = entry,
+                            centerTimeMs = frame.timeMs,
+                            stepMs = storyboardFineStepMs(frames, index),
+                            durationMs = current.result.durationMs,
+                            onDismiss = { fineFrameIndex = null },
+                            onSelect = { timeMs -> onSeek(timeMs) },
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
         }
