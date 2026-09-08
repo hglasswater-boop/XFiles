@@ -69,13 +69,24 @@ internal fun VideoPictureInPicture(
         if (activity == null) {
             onDispose { }
         } else {
+            var wasInPip = activity.isInPictureInPictureMode
+            var pipExitPending = false
             val lifecycleObserver = LifecycleEventObserver { _, event ->
-                if (
-                    event == Lifecycle.Event.ON_STOP &&
-                    latestPlaying &&
-                    !activity.isInPictureInPictureMode
-                ) {
-                    player.pause()
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> {
+                        // A PiP -> fullscreen transition also reports PiP=false. Reaching RESUME
+                        // means the user expanded the window rather than dismissed it.
+                        pipExitPending = false
+                    }
+                    Lifecycle.Event.ON_STOP -> {
+                        // Some Android versions dispatch ON_STOP before the PiP=false callback.
+                        // Keep playback only when the Activity is still genuinely in PiP.
+                        if (pipExitPending || !activity.isInPictureInPictureMode) {
+                            player.pause()
+                        }
+                    }
+                    Lifecycle.Event.ON_DESTROY -> player.pause()
+                    else -> Unit
                 }
             }
             activity.lifecycle.addObserver(lifecycleObserver)
@@ -103,7 +114,20 @@ internal fun VideoPictureInPicture(
                     }
                 }
                 val modeListener = Consumer<PictureInPictureModeChangedInfo> { info ->
-                    latestOnModeChanged(info.isInPictureInPictureMode)
+                    val inPip = info.isInPictureInPictureMode
+                    if (wasInPip && !inPip) {
+                        pipExitPending = true
+                        // PiP dismissal can report ON_STOP first and mode=false second. If the
+                        // Activity is already stopped, there will be no later lifecycle event to
+                        // catch the transition, so pause here as well.
+                        if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                            player.pause()
+                        }
+                    } else if (inPip) {
+                        pipExitPending = false
+                    }
+                    wasInPip = inPip
+                    latestOnModeChanged(inPip)
                 }
 
                 activity.addOnUserLeaveHintListener(leaveListener)
