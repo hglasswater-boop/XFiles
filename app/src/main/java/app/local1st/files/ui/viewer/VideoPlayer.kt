@@ -97,6 +97,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -139,6 +140,7 @@ fun VideoPlayerScreen(
     hasPrevious: Boolean,
     hasNext: Boolean,
     onClose: () -> Unit,
+    videoBottomInset: Dp = 0.dp,
     tvRemoteControls: Boolean = false,
     keepControlsVisible: Boolean = false,
     controlsOverlay: @Composable BoxScope.() -> Unit = {},
@@ -408,7 +410,9 @@ fun VideoPlayerScreen(
                 }
             },
             update = { it.player = player },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = videoBottomInset),
         )
 
         Box(
