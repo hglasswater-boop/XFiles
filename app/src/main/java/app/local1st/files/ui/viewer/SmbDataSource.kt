@@ -19,11 +19,12 @@ import kotlin.math.min
 /**
  * Seekable Media3 source backed by XFiles' SMB random-access facade.
  *
- * SMBJ benefits from aligned 2 MiB Kotlin blocks because Media3/extractors commonly ask for small
- * chunks and forwarding every one to the NAS is latency-bound. The Rust backend already owns
- * pipelining, read-ahead, seek generations, and a bounded cache below JNI, so stacking the same
- * policy here would waste memory and hide seek/cancellation signals. Rust therefore reads directly
- * into Media3's destination buffer while SMBJ keeps the existing two-block cache.
+ * Media3/extractors commonly ask for many small chunks. Forwarding every tiny read directly to the
+ * remote backend is latency-bound for SMBJ and, for Rust SMB, repeatedly preempts the native
+ * speculative refill before it can finish. Both backends therefore use aligned 2 MiB player blocks.
+ * Rust still keeps its native pipelining/read-ahead below JNI, while this upper cache coalesces the
+ * synchronous Media3 call pattern so native prefetch gets useful idle windows instead of a CANCEL
+ * storm. The two-block cap keeps the additional playback memory bounded.
  */
 @UnstableApi
 class SmbDataSource : BaseDataSource(false) {
@@ -73,12 +74,7 @@ class SmbDataSource : BaseDataSource(false) {
         }
 
         val copied = try {
-            val handle = checkNotNull(file)
-            if (handle.ownsReadAhead) {
-                handle.read(position, buffer, offset, requested)
-            } else {
-                readBuffered(position, buffer, offset, requested)
-            }
+            readBuffered(position, buffer, offset, requested)
         } catch (error: Throwable) {
             closeAfterReadFailure(error)
         }
