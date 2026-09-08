@@ -218,21 +218,10 @@ internal fun CastStoryboardStrip(
                                         )
                                     }
 
-                                    Text(
-                                        text = formatVideoDuration(frame.timeMs),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (selected) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            Color.White
-                                        },
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .background(
-                                                Color.Black.copy(alpha = 0.62f),
-                                                RoundedCornerShape(topEnd = 7.dp),
-                                            )
-                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    StoryboardTimestampOverlay(
+                                        timeMs = frame.timeMs,
+                                        selected = selected,
+                                        modifier = Modifier.align(Alignment.BottomStart),
                                     )
                                 }
                             }
@@ -264,9 +253,10 @@ internal fun CastStoryboardStrip(
                             val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
                             val selected = frame.index == nearestIndex
                             val shape = RoundedCornerShape(8.dp)
-                            Column(
+                            Box(
                                 modifier = Modifier
                                     .width(120.dp)
+                                    .aspectRatio(16f / 9f)
                                     .combinedClickable(
                                         enabled = image != null,
                                         onClick = { onSeek(frame.timeMs) },
@@ -279,8 +269,7 @@ internal fun CastStoryboardStrip(
                                         contentDescription = formatVideoDuration(frame.timeMs),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f)
+                                            .fillMaxSize()
                                             .clip(shape)
                                             .then(
                                                 if (selected) {
@@ -298,12 +287,15 @@ internal fun CastStoryboardStrip(
                                     StoryboardPlaceholder(
                                         complete = current.complete,
                                         shape = shape,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f),
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
-                                StoryboardTimestamp(frame.timeMs, selected)
+
+                                StoryboardTimestampOverlay(
+                                    timeMs = frame.timeMs,
+                                    selected = selected,
+                                    modifier = Modifier.align(Alignment.BottomStart),
+                                )
                             }
                         }
 
@@ -392,15 +384,20 @@ private fun StoryboardPlaceholder(
 }
 
 @Composable
-private fun StoryboardTimestamp(timeMs: Long, selected: Boolean) {
+private fun StoryboardTimestampOverlay(
+    timeMs: Long,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = formatVideoDuration(timeMs),
-        style = MaterialTheme.typography.labelMedium,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            Color.White.copy(alpha = 0.72f)
-        },
-        modifier = Modifier.padding(top = 5.dp, start = 2.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+        modifier = modifier
+            .background(
+                Color.Black.copy(alpha = 0.62f),
+                RoundedCornerShape(topEnd = 7.dp),
+            )
+            .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
