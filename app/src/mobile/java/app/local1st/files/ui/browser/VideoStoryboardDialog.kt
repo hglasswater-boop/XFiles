@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
@@ -32,11 +33,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,9 +63,11 @@ import coil3.compose.AsyncImage
 import java.io.File
 import java.security.MessageDigest
 import java.util.LinkedHashMap
+import java.util.LinkedHashSet
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -82,6 +87,27 @@ internal data class StoryboardResult(
     val frames: List<StoryboardFrame>,
 )
 
+/**
+ * A tiny cross-dispatcher priority hint shared by the lazy storyboard UI and the extractor.
+ *
+ * Compose updates this with the item indices that are actually on screen. The extractor reads a
+ * fresh immutable snapshot before every frame, so scrolling immediately changes which pending
+ * thumbnail is generated next without cancelling the MediaMetadataRetriever call already running.
+ */
+internal class StoryboardExtractionPriority {
+    @Volatile
+    private var visibleIndices: List<Int> = emptyList()
+
+    fun updateVisible(indices: List<Int>) {
+        visibleIndices = indices.asSequence()
+            .filter { it >= 0 }
+            .distinct()
+            .toList()
+    }
+
+    fun currentVisible(): List<Int> = visibleIndices
+}
+
 private sealed interface StoryboardUiState {
     data object Loading : StoryboardUiState
     data class Ready(
@@ -100,9 +126,28 @@ internal fun VideoStoryboardDialog(
     val context = LocalContext.current
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
+    val gridState = rememberLazyGridState()
+    val extractionPriority = remember(
+        entry.id,
+        entry.mtime,
+        entry.size,
+        sampleCount,
+        minSpacingSeconds,
+    ) {
+        StoryboardExtractionPriority()
+    }
     var fineFrameIndex by remember(entry.id, entry.mtime, entry.size) {
         mutableStateOf<Int?>(null)
     }
+
+    LaunchedEffect(gridState, extractionPriority) {
+        snapshotFlow {
+            gridState.layoutInfo.visibleItemsInfo.map { it.index }
+        }
+            .distinctUntilChanged()
+            .collect(extractionPriority::updateVisible)
+    }
+
     val state by produceState<StoryboardUiState>(
         initialValue = StoryboardUiState.Loading,
         entry.id,
@@ -110,6 +155,7 @@ internal fun VideoStoryboardDialog(
         entry.size,
         sampleCount,
         minSpacingSeconds,
+        extractionPriority,
     ) {
         var emittedProgress = false
         val result = runCatching {
@@ -118,6 +164,7 @@ internal fun VideoStoryboardDialog(
                 entry = entry,
                 count = sampleCount,
                 minSpacingMs = minSpacingSeconds * 1_000L,
+                priority = extractionPriority,
             ) { partial ->
                 emittedProgress = true
                 value = StoryboardUiState.Ready(partial, complete = false)
@@ -213,6 +260,7 @@ internal fun VideoStoryboardDialog(
                                 }
                             }
                             LazyVerticalGrid(
+                                state = gridState,
                                 columns = GridCells.Adaptive(minSize = 150.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -356,6 +404,7 @@ internal object StoryboardLoader {
         entry: XEntry,
         count: Int,
         minSpacingMs: Long,
+        priority: StoryboardExtractionPriority? = null,
         onProgress: suspend (StoryboardResult) -> Unit,
     ): StoryboardResult = semaphore.withPermit {
         val cacheDir = cacheDir(context, entry)
@@ -363,7 +412,7 @@ internal object StoryboardLoader {
             readCached(cacheDir, count, minSpacingMs)
         }
         if (cached != null) return@withPermit cached
-        generate(context, entry, cacheDir, count, minSpacingMs, onProgress)
+        generate(context, entry, cacheDir, count, minSpacingMs, priority, onProgress)
     }
 
     private fun readCached(
@@ -393,6 +442,7 @@ internal object StoryboardLoader {
         cacheDir: File,
         count: Int,
         minSpacingMs: Long,
+        priority: StoryboardExtractionPriority?,
         onProgress: suspend (StoryboardResult) -> Unit,
     ): StoryboardResult = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
@@ -451,12 +501,22 @@ internal object StoryboardLoader {
                 )
             }.toMutableList()
 
-            if (frames.any { it.file != null }) {
-                emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
+            // Render the complete placeholder grid before extraction begins. That gives Compose a
+            // real viewport to report, instead of guessing that the first N frames are visible.
+            emitProgress(onProgress, StoryboardResult(durationMs, frames.toList()))
+
+            val remaining = LinkedHashSet<Int>()
+            extractionOrder(frames.size).forEach { index ->
+                if (frames[index].file == null) remaining += index
             }
 
-            for (index in extractionOrder(frames.size)) {
-                if (frames[index].file != null) continue
+            while (remaining.isNotEmpty()) {
+                val index = priority
+                    ?.currentVisible()
+                    ?.firstOrNull { it in remaining }
+                    ?: remaining.first()
+                remaining.remove(index)
+
                 val timeMs = frames[index].timeMs
                 val target = frameFile(cacheDir, timeMs)
                 val bitmap = extractFrame(retriever, timeMs)
