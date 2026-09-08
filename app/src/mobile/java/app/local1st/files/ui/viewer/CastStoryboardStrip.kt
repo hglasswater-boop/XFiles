@@ -89,6 +89,7 @@ internal fun CastStoryboardStrip(
     vertical: Boolean,
     showJumpToCurrent: Boolean = true,
     onFinePreviewVisibilityChanged: (Boolean) -> Unit = {},
+    finePreviewDismissSignal: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -181,6 +182,10 @@ internal fun CastStoryboardStrip(
                 }
             }
 
+            LaunchedEffect(finePreviewDismissSignal) {
+                if (finePreviewDismissSignal > 0) hideFinePreview()
+            }
+
             LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
                 if (alignedToPlayback || nearestIndex < 0) return@LaunchedEffect
                 if (positionMs <= 0L && !current.complete) return@LaunchedEffect
@@ -215,7 +220,10 @@ internal fun CastStoryboardStrip(
                                     .fillMaxWidth()
                                     .combinedClickable(
                                         enabled = image != null,
-                                        onClick = { onSeek(frame.timeMs) },
+                                        onClick = {
+                                            onSeek(frame.timeMs)
+                                            hideFinePreview()
+                                        },
                                         onLongClick = { showFinePreview(frame.index) },
                                     ),
                             ) {
@@ -289,7 +297,10 @@ internal fun CastStoryboardStrip(
                                     .aspectRatio(16f / 9f)
                                     .combinedClickable(
                                         enabled = image != null,
-                                        onClick = { onSeek(frame.timeMs) },
+                                        onClick = {
+                                            onSeek(frame.timeMs)
+                                            hideFinePreview()
+                                        },
                                         onLongClick = { showFinePreview(frame.index) },
                                     ),
                             ) {
@@ -355,6 +366,7 @@ internal fun CastStoryboardStrip(
                         TextButton(
                             enabled = nearestIndex >= 0,
                             onClick = {
+                                hideFinePreview()
                                 if (nearestIndex >= 0) {
                                     scope.launch {
                                         listState.animateScrollToItem(nearestIndex)
