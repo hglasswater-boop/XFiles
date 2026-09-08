@@ -5,6 +5,8 @@ import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.net.Uri
 import androidx.activity.ComponentActivity
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -292,11 +294,24 @@ private fun LocalVideoStoryboard(
     }
 
     val configuration = LocalConfiguration.current
-    val stripHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    var finePreviewVisible by remember(entry.id, configuration.orientation) {
+        mutableStateOf(false)
+    }
+    val collapsedHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
         120.dp
     } else {
         126.dp
     }
+    val expandedHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        236.dp
+    } else {
+        252.dp
+    }
+    val stripHeight by animateDpAsState(
+        targetValue = if (finePreviewVisible) expandedHeight else collapsedHeight,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 360f),
+        label = "storyboardHeight",
+    )
 
     Surface(
         color = Color.Black.copy(alpha = 0.9f),
@@ -311,6 +326,9 @@ private fun LocalVideoStoryboard(
             onSeek = { targetMs -> player.seekTo(targetMs) },
             vertical = false,
             showJumpToCurrent = true,
+            onFinePreviewVisibilityChanged = { visible ->
+                finePreviewVisible = visible
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -348,7 +366,7 @@ private fun rememberViewerPictureInPictureMode(): Boolean {
             onDispose { }
         } else {
             val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
-                inPictureInPicture = info.isInPictureInPictureMode
+                inPictureInPicture = info.isPictureInPictureMode
             }
             activity.addOnPictureInPictureModeChangedListener(listener)
             inPictureInPicture = activity.isInPictureInPictureMode
