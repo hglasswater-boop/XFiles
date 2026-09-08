@@ -40,6 +40,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -148,8 +149,11 @@ internal fun StoryboardFinePreviewPanel(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 12.dp, bottomEnd = 12.dp),
-        tonalElevation = 8.dp,
+        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 8.dp, bottomEnd = 8.dp),
+        color = Color.Black.copy(alpha = 0.24f),
+        contentColor = Color.White,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -162,10 +166,10 @@ internal fun StoryboardFinePreviewPanel(
             ) {
                 Box(
                     modifier = Modifier
-                        .width(36.dp)
-                        .height(4.dp)
+                        .width(32.dp)
+                        .height(3.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
+                        .background(Color.White.copy(alpha = 0.16f)),
                 )
             }
 
@@ -214,7 +218,7 @@ internal fun StoryboardFinePreviewPanel(
                         Icon(
                             Icons.Outlined.BrokenImage,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = Color.White.copy(alpha = 0.64f),
                         )
                     }
                 }
@@ -250,8 +254,8 @@ internal fun StoryboardFinePreviewPanel(
                                             .then(
                                                 if (selected) {
                                                     Modifier.border(
-                                                        width = 3.dp,
-                                                        color = MaterialTheme.colorScheme.primary,
+                                                        width = 1.dp,
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.78f),
                                                         shape = shape,
                                                     )
                                                 } else {
@@ -264,7 +268,7 @@ internal fun StoryboardFinePreviewPanel(
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .clip(shape)
-                                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                            .background(Color.White.copy(alpha = 0.06f)),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (!current.complete) {
@@ -276,15 +280,11 @@ internal fun StoryboardFinePreviewPanel(
                                 Text(
                                     text = formatVideoDuration(frame.timeMs),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.inverseOnSurface
-                                    },
+                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.White,
                                     modifier = Modifier
                                         .align(Alignment.BottomStart)
                                         .background(
-                                            MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.78f),
+                                            Color.Black.copy(alpha = 0.62f),
                                             RoundedCornerShape(topEnd = 7.dp),
                                         )
                                         .padding(horizontal = 5.dp, vertical = 2.dp),
