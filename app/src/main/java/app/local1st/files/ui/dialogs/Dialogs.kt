@@ -476,10 +476,13 @@ private fun EntryMenuContent(
             MenuItem("このフォルダの並び順") {
                 vm.dialog.value = DialogRequest.FolderSort(entry)
             }
-            if (entry != null) {
-                MenuItem("別ペインで開く") {
-                    vm.openFolderInOtherPane(entry)
-                    dismiss()
+            MenuItem("別ペインで開く") {
+                vm.openFolderInOtherPane(entry)
+                dismiss()
+            }
+            if (vm.canCreateFileIn(entry)) {
+                MenuItem("中身を1階層上へ") {
+                    vm.requestFlattenOneLevel(entry)
                 }
             }
             MenuItem("コピー") {
