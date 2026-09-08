@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 ENGINE_REPO=${RUST_SMB_REPO:-https://github.com/hglasswater-boop/smb-io-rs.git}
-ENGINE_REF=${RUST_SMB_REF:-178ef865f40750ccee85a0dfc2d6ce3a5a1c2c0d}
+ENGINE_REF=${RUST_SMB_REF:-5ce23fff2555965e1587d864bd2bbced543deb11}
 NDK_VERSION=${NDK_VERSION:-29.0.14206865}
 CARGO_NDK_VERSION=${CARGO_NDK_VERSION:-4.1.2}
 CARGO_NDK_PLATFORM=${CARGO_NDK_PLATFORM:-26}
