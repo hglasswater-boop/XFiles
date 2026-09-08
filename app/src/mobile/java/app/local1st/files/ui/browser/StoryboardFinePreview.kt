@@ -118,6 +118,7 @@ internal fun StoryboardFinePreviewPanel(
     onDismiss: () -> Unit,
     onSelect: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    currentPositionMs: Long? = null,
 ) {
     val context = LocalContext.current
     val state by produceState<FineStoryboardUiState>(
@@ -233,6 +234,19 @@ internal fun StoryboardFinePreviewPanel(
                             abs(frames[index].timeMs - centerTimeMs)
                         } ?: 0
                     }
+                    val playbackIndex = remember(frames, currentPositionMs, stepMs) {
+                        val playback = currentPositionMs
+                        if (playback == null || frames.isEmpty()) {
+                            -1
+                        } else {
+                            val nearest = frames.indices.minByOrNull { index ->
+                                abs(frames[index].timeMs - playback)
+                            } ?: -1
+                            nearest.takeIf { index ->
+                                index >= 0 && abs(frames[index].timeMs - playback) <= stepMs / 2L
+                            } ?: -1
+                        }
+                    }
                     val firstVisibleIndex = (centerIndex - 1).coerceAtLeast(0)
                     val listState = rememberLazyListState(
                         initialFirstVisibleItemIndex = firstVisibleIndex,
@@ -249,6 +263,7 @@ internal fun StoryboardFinePreviewPanel(
                         items(frames, key = { it.timeMs }) { frame ->
                             val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
                             val selected = abs(frame.timeMs - centerTimeMs) <= stepMs / 2L
+                            val playingNow = frame.index == playbackIndex
                             val shape = RoundedCornerShape(9.dp)
                             Box(
                                 modifier = Modifier
@@ -268,14 +283,18 @@ internal fun StoryboardFinePreviewPanel(
                                             .fillMaxSize()
                                             .clip(shape)
                                             .then(
-                                                if (selected) {
-                                                    Modifier.border(
+                                                when {
+                                                    playingNow -> Modifier.border(
+                                                        width = 3.dp,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = shape,
+                                                    )
+                                                    selected -> Modifier.border(
                                                         width = 1.dp,
                                                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.78f),
                                                         shape = shape,
                                                     )
-                                                } else {
-                                                    Modifier
+                                                    else -> Modifier
                                                 },
                                             ),
                                     )
@@ -284,7 +303,18 @@ internal fun StoryboardFinePreviewPanel(
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .clip(shape)
-                                            .background(Color.White.copy(alpha = 0.06f)),
+                                            .background(Color.White.copy(alpha = 0.06f))
+                                            .then(
+                                                if (playingNow) {
+                                                    Modifier.border(
+                                                        width = 3.dp,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = shape,
+                                                    )
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (!current.complete) {
@@ -296,11 +326,19 @@ internal fun StoryboardFinePreviewPanel(
                                 Text(
                                     text = formatVideoDuration(frame.timeMs),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+                                    color = when {
+                                        playingNow -> MaterialTheme.colorScheme.onPrimary
+                                        selected -> MaterialTheme.colorScheme.primary
+                                        else -> Color.White
+                                    },
                                     modifier = Modifier
                                         .align(Alignment.BottomStart)
                                         .background(
-                                            Color.Black.copy(alpha = 0.62f),
+                                            if (playingNow) {
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+                                            } else {
+                                                Color.Black.copy(alpha = 0.62f)
+                                            },
                                             RoundedCornerShape(topEnd = 7.dp),
                                         )
                                         .padding(horizontal = 5.dp, vertical = 2.dp),
