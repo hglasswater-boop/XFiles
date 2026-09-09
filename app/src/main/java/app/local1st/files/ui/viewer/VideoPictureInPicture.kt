@@ -1,8 +1,14 @@
 package app.local1st.files.ui.viewer
 
+import android.app.PendingIntent
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.util.Rational
 import androidx.activity.ComponentActivity
@@ -17,11 +23,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.app.PictureInPictureParamsCompat
+import androidx.core.content.ContextCompat
 import androidx.core.util.Consumer
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import app.local1st.files.R
 
 /**
  * Keeps video playback eligible for Android picture-in-picture while the video player is active.
@@ -43,7 +52,32 @@ internal fun VideoPictureInPicture(
     val latestPlaying by rememberUpdatedState(playing)
     val latestTitle by rememberUpdatedState(title)
     val latestOnModeChanged by rememberUpdatedState(onModeChanged)
+    val pipActions = remember(context) { pipRemoteActions(context) }
     var aspectRatio by remember(player) { mutableStateOf(player.safePipAspectRatio()) }
+
+    DisposableEffect(context, player) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    ACTION_PIP_REPLAY_5 -> player.seekByPip(-PIP_SEEK_STEP_MS)
+                    ACTION_PIP_FORWARD_5 -> player.seekByPip(PIP_SEEK_STEP_MS)
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(ACTION_PIP_REPLAY_5)
+            addAction(ACTION_PIP_FORWARD_5)
+        }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        onDispose {
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -55,12 +89,13 @@ internal fun VideoPictureInPicture(
         onDispose { player.removeListener(listener) }
     }
 
-    LaunchedEffect(activity, playing, title, aspectRatio) {
+    LaunchedEffect(activity, playing, title, aspectRatio, pipActions) {
         activity?.setPictureInPictureParams(
             pipParams(
                 enabled = playing,
                 title = title,
                 aspectRatio = aspectRatio,
+                actions = pipActions,
             ),
         )
     }
@@ -109,6 +144,7 @@ internal fun VideoPictureInPicture(
                                 enabled = true,
                                 title = latestTitle,
                                 aspectRatio = aspectRatio,
+                                actions = pipActions,
                             ),
                         )
                     }
@@ -149,15 +185,62 @@ private fun pipParams(
     enabled: Boolean,
     title: String? = null,
     aspectRatio: Rational = Rational(16, 9),
+    actions: List<RemoteAction> = emptyList(),
 ): PictureInPictureParamsCompat =
     PictureInPictureParamsCompat.Builder()
         .setEnabled(enabled)
         .setAspectRatio(aspectRatio)
         .setSeamlessResizeEnabled(true)
+        .setActions(actions)
         .apply {
             if (!title.isNullOrBlank()) setTitle(title)
         }
         .build()
+
+private fun pipRemoteActions(context: Context): List<RemoteAction> = listOf(
+    pipRemoteAction(
+        context = context,
+        iconRes = R.drawable.ic_pip_replay_5,
+        label = "-5s",
+        action = ACTION_PIP_REPLAY_5,
+        requestCode = PIP_REPLAY_REQUEST_CODE,
+    ),
+    pipRemoteAction(
+        context = context,
+        iconRes = R.drawable.ic_pip_forward_5,
+        label = "+5s",
+        action = ACTION_PIP_FORWARD_5,
+        requestCode = PIP_FORWARD_REQUEST_CODE,
+    ),
+)
+
+private fun pipRemoteAction(
+    context: Context,
+    iconRes: Int,
+    label: String,
+    action: String,
+    requestCode: Int,
+): RemoteAction {
+    val intent = Intent(action).setPackage(context.packageName)
+    val pendingIntent = PendingIntent.getBroadcast(
+        context,
+        requestCode,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    return RemoteAction(
+        Icon.createWithResource(context, iconRes),
+        label,
+        label,
+        pendingIntent,
+    )
+}
+
+private fun Player.seekByPip(deltaMs: Long) {
+    val knownDuration = duration.takeIf { it != C.TIME_UNSET && it > 0L }
+    val target = (currentPosition + deltaMs).coerceAtLeast(0L)
+    seekTo(knownDuration?.let { target.coerceAtMost(it) } ?: target)
+}
 
 private fun Player.safePipAspectRatio(): Rational =
     safePipAspectRatio(videoSize.width, videoSize.height)
@@ -181,4 +264,9 @@ private tailrec fun Context.findComponentActivity(): ComponentActivity? = when (
     else -> null
 }
 
+private const val ACTION_PIP_REPLAY_5 = "app.local1st.files.action.PIP_REPLAY_5"
+private const val ACTION_PIP_FORWARD_5 = "app.local1st.files.action.PIP_FORWARD_5"
+private const val PIP_REPLAY_REQUEST_CODE = 501
+private const val PIP_FORWARD_REQUEST_CODE = 502
+private const val PIP_SEEK_STEP_MS = 5_000L
 private const val MAX_PIP_ASPECT_RATIO = 2.39
