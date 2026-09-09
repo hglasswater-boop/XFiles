@@ -71,6 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.net.toUri
 import androidx.core.util.Consumer
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
@@ -256,24 +258,46 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 label = "storyboardHeight",
             )
             val inPictureInPicture = rememberViewerPictureInPictureMode()
-            var viewerBottomInRootPx by remember(currentEntry.id, playerOrientation) {
+            var viewerBottomInRootPx by remember(currentEntry.id) {
                 mutableFloatStateOf(Float.NaN)
             }
-            var controlsTopInRootPx by remember(currentEntry.id, playerOrientation) {
+            var controlsTopInRootPx by remember(currentEntry.id) {
                 mutableFloatStateOf(Float.NaN)
             }
-            var controlsRestingClearancePx by remember(currentEntry.id, playerOrientation) {
+            var portraitControlsRestingClearancePx by remember(currentEntry.id) {
                 mutableFloatStateOf(Float.NaN)
             }
+            var landscapeControlsRestingClearancePx by remember(currentEntry.id) {
+                mutableFloatStateOf(Float.NaN)
+            }
+            val controlsRestingClearancePx =
+                if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                    landscapeControlsRestingClearancePx
+                } else {
+                    portraitControlsRestingClearancePx
+                }
 
-            LaunchedEffect(viewerBottomInRootPx, controlsTopInRootPx, playerOrientation) {
+            LaunchedEffect(
+                viewerBottomInRootPx,
+                controlsTopInRootPx,
+                playerOrientation,
+                inPictureInPicture,
+                controlsRestingClearancePx,
+            ) {
                 if (
+                    !inPictureInPicture &&
                     controlsRestingClearancePx.isNaN() &&
                     viewerBottomInRootPx.isFinite() &&
                     controlsTopInRootPx.isFinite()
                 ) {
                     val measured = viewerBottomInRootPx - controlsTopInRootPx
-                    if (measured > 0f) controlsRestingClearancePx = measured
+                    if (measured > 0f) {
+                        if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                            landscapeControlsRestingClearancePx = measured
+                        } else {
+                            portraitControlsRestingClearancePx = measured
+                        }
+                    }
                 }
             }
 
@@ -455,12 +479,33 @@ private fun rememberViewerPictureInPictureMode(): Boolean {
         if (activity == null) {
             onDispose { }
         } else {
-            val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
-                inPictureInPicture = info.isInPictureInPictureMode
+            var pipExitPending = false
+            val lifecycleObserver = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME && pipExitPending) {
+                    pipExitPending = false
+                    inPictureInPicture = activity.isInPictureInPictureMode
+                }
             }
+            val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
+                if (info.isInPictureInPictureMode) {
+                    pipExitPending = false
+                    inPictureInPicture = true
+                } else if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    pipExitPending = false
+                    inPictureInPicture = false
+                } else {
+                    // Keep PiP-only UI hidden until the Activity has actually returned to its
+                    // fullscreen layout. Android can report mode=false while the PiP window is
+                    // still expanding, which otherwise lets transient window geometry move the
+                    // persistent storyboard.
+                    pipExitPending = true
+                }
+            }
+            activity.lifecycle.addObserver(lifecycleObserver)
             activity.addOnPictureInPictureModeChangedListener(listener)
             inPictureInPicture = activity.isInPictureInPictureMode
             onDispose {
+                activity.lifecycle.removeObserver(lifecycleObserver)
                 activity.removeOnPictureInPictureModeChangedListener(listener)
             }
         }
