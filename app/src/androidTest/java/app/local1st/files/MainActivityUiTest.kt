@@ -1,42 +1,40 @@
 package app.local1st.files
 
+import android.Manifest
 import android.os.Build
-import androidx.test.core.app.ActivityScenario
+import android.os.ParcelFileDescriptor
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNode
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.BySelector
-import androidx.test.uiautomator.Direction
-import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiObject2
-import androidx.test.uiautomator.Until
-import org.junit.Assert.assertNotNull
-import org.junit.Before
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
+import org.junit.runner.Description
 import org.junit.runner.RunWith
+import org.junit.runners.model.Statement
 
 @RunWith(AndroidJUnit4::class)
 class MainActivityUiTest {
-    private lateinit var device: UiDevice
-    private lateinit var packageName: String
+    private val composeRule = createAndroidComposeRule<MainActivity>()
 
-    @Before
-    fun grantPermissionsNeededByBrowser() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        device = UiDevice.getInstance(instrumentation)
-        packageName = instrumentation.targetContext.packageName
-
-        // The browser is intentionally gated behind All Files Access. Grant it through the
-        // instrumentation shell so CI reaches the real browser instead of the permission page.
-        device.executeShellCommand(
-            "appops set --uid $packageName MANAGE_EXTERNAL_STORAGE allow",
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            device.executeShellCommand(
-                "pm grant $packageName android.permission.POST_NOTIFICATIONS",
-            )
-        }
-    }
+    @get:Rule
+    val rules: RuleChain = RuleChain
+        .outerRule(GrantBrowserPermissionsRule())
+        .around(composeRule)
 
     @Test
     fun searchCanBeOpenedTypedClearedAndClosed() {
@@ -45,24 +43,22 @@ class MainActivityUiTest {
         val closeSearchLabel = context.getString(R.string.close_search)
         val clearQueryLabel = context.getString(R.string.clear_query)
 
-        ActivityScenario.launch(MainActivity::class.java).use {
-            requireObject(By.desc(searchLabel), "Search toolbar button").click()
+        composeRule.onNodeWithContentDescription(searchLabel)
+            .assertExists()
+            .performClick()
 
-            requireObject(By.desc(closeSearchLabel), "Close search button")
-            val input = requireObject(
-                By.clazz("android.widget.EditText"),
-                "Search text field",
-            )
-            input.setText("xfiles")
+        composeRule.onNodeWithContentDescription(closeSearchLabel).assertExists()
+        composeRule.onNode(hasSetTextAction())
+            .assertExists()
+            .performTextInput("xfiles")
 
-            requireObject(By.desc(clearQueryLabel), "Clear query button").click()
-            check(
-                device.wait(Until.gone(By.desc(clearQueryLabel)), UI_TIMEOUT_MS),
-            ) { "Search query did not clear" }
+        composeRule.onNodeWithContentDescription(clearQueryLabel)
+            .assertExists()
+            .performClick()
+        composeRule.onNodeWithContentDescription(clearQueryLabel).assertDoesNotExist()
 
-            requireObject(By.desc(closeSearchLabel), "Close search button").click()
-            requireObject(By.desc(searchLabel), "Search toolbar button after closing search")
-        }
+        composeRule.onNodeWithContentDescription(closeSearchLabel).performClick()
+        composeRule.onNodeWithContentDescription(searchLabel).assertExists()
     }
 
     @Test
@@ -72,43 +68,62 @@ class MainActivityUiTest {
         val settingsLabel = context.getString(R.string.settings)
         val backLabel = context.getString(R.string.back)
 
-        ActivityScenario.launch(MainActivity::class.java).use {
-            requireObject(By.desc(moreLabel), "More toolbar button").click()
+        composeRule.onNodeWithContentDescription(moreLabel)
+            .assertExists()
+            .performClick()
 
-            findTextInCurrentScrollable(settingsLabel).click()
-            requireObject(By.desc(backLabel), "Settings back button")
-            assertNotNull(
-                "Settings title is not visible",
-                device.wait(Until.findObject(By.text(settingsLabel)), UI_TIMEOUT_MS),
-            )
+        composeRule.onNode(hasText(settingsLabel) and hasClickAction())
+            .performScrollTo()
+            .performClick()
 
-            requireObject(By.desc(backLabel), "Settings back button").click()
-            requireObject(By.desc(moreLabel), "More toolbar button after returning")
-        }
+        composeRule.onNodeWithContentDescription(backLabel).assertExists()
+        composeRule.onNodeWithText(settingsLabel).assertExists()
+
+        composeRule.onNodeWithContentDescription(backLabel).performClick()
+        composeRule.onNodeWithContentDescription(moreLabel).assertExists()
     }
 
-    private fun requireObject(
-        selector: BySelector,
-        label: String,
-        timeoutMs: Long = UI_TIMEOUT_MS,
-    ): UiObject2 = device.wait(Until.findObject(selector), timeoutMs)
-        ?: throw AssertionError("Timed out waiting for $label")
+    /**
+     * Runs before the Compose activity rule so [MainActivity] sees the same permissions as a
+     * normal user who already completed storage onboarding.
+     */
+    private class GrantBrowserPermissionsRule : TestRule {
+        override fun apply(base: Statement, description: Description): Statement =
+            object : Statement() {
+                override fun evaluate() {
+                    val instrumentation = InstrumentationRegistry.getInstrumentation()
+                    val packageName = instrumentation.targetContext.packageName
 
-    private fun findTextInCurrentScrollable(text: String): UiObject2 {
-        repeat(MAX_SCROLL_ATTEMPTS) {
-            device.wait(Until.findObject(By.text(text)), SHORT_WAIT_MS)?.let { return it }
+                    shell(
+                        "appops set --uid $packageName MANAGE_EXTERNAL_STORAGE allow",
+                    )
+                    val storageOp = shell(
+                        "appops get $packageName MANAGE_EXTERNAL_STORAGE",
+                    )
+                    check(storageOp.contains("allow", ignoreCase = true)) {
+                        "Failed to grant All Files Access before launching MainActivity: $storageOp"
+                    }
 
-            val scrollable = device.findObjects(By.scrollable(true)).lastOrNull()
-                ?: throw AssertionError("No scrollable container while looking for '$text'")
-            runCatching { scrollable.scroll(Direction.DOWN, 0.8f) }
-            device.waitForIdle()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        instrumentation.uiAutomation.grantRuntimePermission(
+                            packageName,
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        )
+                    }
+
+                    base.evaluate()
+                }
+            }
+
+        private fun shell(command: String): String {
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            val descriptor = instrumentation.uiAutomation.executeShellCommand(command)
+            return descriptor.readFully()
         }
-        throw AssertionError("Could not find '$text' after scrolling")
-    }
 
-    private companion object {
-        const val UI_TIMEOUT_MS = 20_000L
-        const val SHORT_WAIT_MS = 800L
-        const val MAX_SCROLL_ATTEMPTS = 8
+        private fun ParcelFileDescriptor.readFully(): String =
+            ParcelFileDescriptor.AutoCloseInputStream(this).use { input ->
+                BufferedReader(InputStreamReader(input)).use { reader -> reader.readText() }
+            }
     }
 }
