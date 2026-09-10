@@ -337,6 +337,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         hasNext = hasNext,
                         onClose = onClose,
                         videoBottomInset = videoBottomInset,
+                        topBarActions = {
+                            VideoCastButton()
+                        },
                         controlsTopContent = {
                             Spacer(
                                 modifier = Modifier
@@ -349,11 +352,6 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         },
                     )
                 }
-                VideoCastButton(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 12.dp, end = 64.dp),
-                )
                 if (!inPictureInPicture) {
                     LocalVideoStoryboard(
                         player = localPlayer,
