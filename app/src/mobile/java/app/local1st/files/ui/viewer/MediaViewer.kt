@@ -166,6 +166,8 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     var currentIndex by remember(player) {
         mutableIntStateOf(player.currentMediaItemIndex.coerceIn(0, playable.lastIndex))
     }
+    var lastLocalIndex by remember(player) { mutableIntStateOf(currentIndex) }
+    var castHandoffTargetIndex by remember(player) { mutableStateOf<Int?>(null) }
     var playing by remember(player) { mutableStateOf(player.isPlaying) }
     var metadata by remember(player) { mutableStateOf(player.mediaMetadata) }
     var hasPrevious by remember(player) { mutableStateOf(player.hasPreviousMediaItem()) }
@@ -177,9 +179,29 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onEvents(p: Player, events: Player.Events) {
-                currentIndex = p.currentMediaItemIndex.coerceIn(0, playable.lastIndex)
+                val reportedIndex = p.currentMediaItemIndex.coerceIn(0, playable.lastIndex)
+                val isRemoteNow = p.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+                val handoffTarget = when {
+                    isRemoteNow && !remotePlayback -> lastLocalIndex.also {
+                        castHandoffTargetIndex = it
+                    }
+                    isRemoteNow -> castHandoffTargetIndex
+                    else -> null
+                }
+                val expectedMediaId = handoffTarget?.let { playable.getOrNull(it)?.id }
+                val handoffPending = handoffTarget != null &&
+                    expectedMediaId != null &&
+                    p.currentMediaItem?.mediaId != expectedMediaId
+
+                if (handoffPending) {
+                    currentIndex = handoffTarget
+                } else {
+                    castHandoffTargetIndex = null
+                    currentIndex = reportedIndex
+                    metadata = p.mediaMetadata
+                    if (!isRemoteNow) lastLocalIndex = reportedIndex
+                }
                 playing = p.isPlaying
-                metadata = p.mediaMetadata
                 hasPrevious = p.hasPreviousMediaItem()
                 hasNext = p.hasNextMediaItem()
 
@@ -191,7 +213,22 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             }
 
             override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
-                remotePlayback = deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+                val isRemoteNow = deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+                if (isRemoteNow) {
+                    val targetIndex = lastLocalIndex.coerceIn(0, playable.lastIndex)
+                    val expectedMediaId = playable[targetIndex].id
+                    castHandoffTargetIndex = targetIndex.takeIf {
+                        player.currentMediaItem?.mediaId != expectedMediaId
+                    }
+                    currentIndex = targetIndex
+                } else {
+                    castHandoffTargetIndex = null
+                    val reportedIndex = player.currentMediaItemIndex.coerceIn(0, playable.lastIndex)
+                    currentIndex = reportedIndex
+                    lastLocalIndex = reportedIndex
+                    metadata = player.mediaMetadata
+                }
+                remotePlayback = isRemoteNow
             }
         }
         player.addListener(listener)
