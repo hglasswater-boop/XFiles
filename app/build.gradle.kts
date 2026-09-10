@@ -29,6 +29,7 @@ android {
         targetSdk = 37
         versionCode = appBuildNumber
         versionName = appVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
             "SMB_RANDOM_ACCESS_BACKEND",
@@ -158,6 +159,9 @@ dependencies {
     implementation(libs.shizuku.provider)
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:core-ktx:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
 }
 
 tasks.withType<Test>().configureEach {
