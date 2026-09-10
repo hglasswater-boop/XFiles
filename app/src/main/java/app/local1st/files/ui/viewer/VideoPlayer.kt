@@ -143,6 +143,7 @@ fun VideoPlayerScreen(
     videoBottomInset: Dp = 0.dp,
     tvRemoteControls: Boolean = false,
     keepControlsVisible: Boolean = false,
+    topBarActions: @Composable () -> Unit = {},
     controlsOverlay: @Composable BoxScope.() -> Unit = {},
     controlsTopContent: @Composable () -> Unit = {},
 ) {
@@ -615,6 +616,7 @@ fun VideoPlayerScreen(
                     modifier = Modifier.weight(1f),
                 )
                 if (!tvRemoteControls) {
+                    topBarActions()
                     Box {
                         IconButton(onClick = { showPlayerSettings = true }) {
                             Icon(
