@@ -217,6 +217,9 @@ internal object CastPlaybackSessionManager {
                 synchronized(lock) {
                     if (activeSession !== created) return
                     val remoteNow = isRemote(created)
+                    if (remoteNow && !remotePreviously) {
+                        created.handoffTracker.beginRemoteHandoff()
+                    }
                     if (remoteNow) {
                         created.handoffTracker.observe(
                             isRemote = true,
@@ -226,6 +229,7 @@ internal object CastPlaybackSessionManager {
                     } else {
                         created.handoffTracker.noteLocalMedia(player.currentMediaItem?.mediaId)
                     }
+                    remotePreviously = remoteNow
 
                     val currentIndex = created.player.currentMediaItemIndex
                         .coerceIn(0, created.entries.lastIndex)
