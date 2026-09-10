@@ -328,7 +328,11 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                     VideoPlayerScreen(
                         player = localPlayer,
                         entry = currentEntry,
-                        playing = playing,
+                        playing = if (inPictureInPicture) {
+                            localPlayer.playWhenReady && localPlayer.playbackState != Player.STATE_ENDED
+                        } else {
+                            playing
+                        },
                         hasPrevious = hasPrevious,
                         hasNext = hasNext,
                         onClose = onClose,
