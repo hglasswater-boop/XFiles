@@ -115,16 +115,17 @@ internal object CastPlaybackSessionManager {
         if (existing != null && existing.entryIds == ids && isRemote(existing)) {
             val targetMediaId = startEntry?.id
             if (targetMediaId != null) {
+                val reportedRemoteMediaId = existing.remotePlayer.currentMediaItem?.mediaId
                 existing.handoffTracker.beginRemoteHandoff(targetMediaId)
                 existing.handoffTracker.observe(
                     isRemote = true,
-                    reportedMediaId = existing.castPlayer.currentMediaItem?.mediaId,
+                    reportedMediaId = reportedRemoteMediaId,
                 )
                 prewarmCastWindow(existing.relay, existing.entries, resolvedStartIndex)
 
                 when (
                     val action = reusedRemoteSelectionAction(
-                        currentMediaId = existing.castPlayer.currentMediaItem?.mediaId,
+                        currentMediaId = reportedRemoteMediaId,
                         targetMediaId = targetMediaId,
                         targetIndex = resolvedStartIndex,
                         requestedStartMs = requestedStartMs,
@@ -223,8 +224,9 @@ internal object CastPlaybackSessionManager {
                     if (remoteNow) {
                         created.handoffTracker.observe(
                             isRemote = true,
-                            reportedMediaId = player.currentMediaItem?.mediaId,
-                            playbackFailed = player.playerError != null,
+                            reportedMediaId = created.remotePlayer.currentMediaItem?.mediaId,
+                            playbackFailed = player.playerError != null ||
+                                created.remotePlayer.playerError != null,
                         )
                     } else {
                         created.handoffTracker.noteLocalMedia(player.currentMediaItem?.mediaId)
@@ -250,7 +252,7 @@ internal object CastPlaybackSessionManager {
                         created.handoffTracker.beginRemoteHandoff()
                         created.handoffTracker.observe(
                             isRemote = true,
-                            reportedMediaId = created.castPlayer.currentMediaItem?.mediaId,
+                            reportedMediaId = created.remotePlayer.currentMediaItem?.mediaId,
                         )
                     } else if (!remoteNow) {
                         created.handoffTracker.noteLocalMedia(created.castPlayer.currentMediaItem?.mediaId)
@@ -295,7 +297,7 @@ internal object CastPlaybackSessionManager {
         if (isRemote(created)) {
             handoffTracker.observe(
                 isRemote = true,
-                reportedMediaId = castPlayer.currentMediaItem?.mediaId,
+                reportedMediaId = remotePlayer.currentMediaItem?.mediaId,
             )
         } else {
             handoffTracker.noteLocalMedia(castPlayer.currentMediaItem?.mediaId ?: startEntry?.id)
