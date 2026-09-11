@@ -85,17 +85,17 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${VERSION}")
           if [ "$CODE" = "200" ]; then
-            echo "tag=nightly"                                       >> "$GITHUB_OUTPUT"
-            echo "name=XFiles ${VERSION} nightly (build ${BUILD})"  >> "$GITHUB_OUTPUT"
-            echo "prerelease=true"                                   >> "$GITHUB_OUTPUT"
-            echo "apk=XFiles-nightly.apk"                            >> "$GITHUB_OUTPUT"
-            echo "tv_apk=XFiles-TV-nightly.apk"                      >> "$GITHUB_OUTPUT"
+            echo "tag=nightly"                                      >> "$GITHUB_OUTPUT"
+            echo "name=XFiles ${VERSION} nightly (build ${BUILD})" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"                                 >> "$GITHUB_OUTPUT"
+            echo "apk=XFiles-nightly.apk"                          >> "$GITHUB_OUTPUT"
+            echo "tv_apk=XFiles-TV-nightly.apk"                    >> "$GITHUB_OUTPUT"
           else
-            echo "tag=v${VERSION}"                                   >> "$GITHUB_OUTPUT"
-            echo "name=XFiles ${VERSION}"                            >> "$GITHUB_OUTPUT"
-            echo "prerelease=false"                                  >> "$GITHUB_OUTPUT"
-            echo "apk=XFiles-${VERSION}.apk"                         >> "$GITHUB_OUTPUT"
-            echo "tv_apk=XFiles-TV-${VERSION}.apk"                   >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}"                                 >> "$GITHUB_OUTPUT"
+            echo "name=XFiles ${VERSION}"                          >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"                                >> "$GITHUB_OUTPUT"
+            echo "apk=XFiles-${VERSION}.apk"                       >> "$GITHUB_OUTPUT"
+            echo "tv_apk=XFiles-TV-${VERSION}.apk"                 >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD"     >> "$GITHUB_OUTPUT"
@@ -104,18 +104,24 @@ jobs:
           if [ -n "$SINCE" ]; then RANGE="$SINCE..HEAD"; else RANGE=HEAD; fi
           LOG=$(git log --no-merges --reverse --pretty='format:- %s' "$RANGE" \
             | grep -v '^- Bump version to ' || true)
+          NOTES_FILE="docs/releases/${VERSION}.md"
+
           {
             echo 'notes<<RELEASE_NOTES'
-            if [ -n "$SINCE" ]; then
-              echo "### Changes since ${SINCE}"
+            if [ "$CODE" != "200" ] && [ -f "$NOTES_FILE" ]; then
+              cat "$NOTES_FILE"
             else
-              echo "### Changes"
-            fi
-            echo
-            if [ -n "$LOG" ]; then
-              echo "$LOG"
-            else
-              echo "- Rebuild only, no source changes."
+              if [ -n "$SINCE" ]; then
+                echo "### Changes since ${SINCE}"
+              else
+                echo "### Changes"
+              fi
+              echo
+              if [ -n "$LOG" ]; then
+                echo "$LOG"
+              else
+                echo "- Rebuild only, no source changes."
+              fi
             fi
             if [ -n "$SINCE" ]; then
               echo
@@ -162,10 +168,10 @@ jobs:
           name: ${{ steps.decide.outputs.name }}
           prerelease: ${{ steps.decide.outputs.prerelease }}
           body: |
-            **Dual-pane file manager with SMB/NAS, Root & Shizuku. No ads or telemetry.**
+            **NAS-focused Android file manager: dual-pane mobile, Google TV edition, Rust SMB2/3, video storyboards, Root & Shizuku. No ads or telemetry.**
 
             XFiles ${{ steps.decide.outputs.version }} · build ${{ steps.decide.outputs.build }} (${{ github.sha }}).
-            The standard mobile edition keeps touch UI behavior; the separate XFiles TV edition adds Google TV launcher and remote-focus behavior. Chromecast playback is available in both editions.
+            The mobile edition keeps the dual-pane touch workflow and includes Chromecast controls. The separate XFiles TV edition is single-pane and remote-first, and intentionally omits the Cast stack.
 
             ${{ steps.decide.outputs.notes }}
           files: |
