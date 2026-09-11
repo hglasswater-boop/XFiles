@@ -2,6 +2,7 @@ package app.local1st.files.ui.browser
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
@@ -390,7 +391,7 @@ private fun StoryboardFrameCard(
 
 internal object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
-    private const val CACHE_VERSION = 5
+    private const val CACHE_VERSION = 6
     private const val EXTRACT_TIMEOUT_SECONDS = 120L
     private const val JPEG_QUALITY = 82
     private const val FAST_VISIBLE_FRAME_COUNT = 4
@@ -509,6 +510,7 @@ internal object StoryboardLoader {
             extractionOrder(frames.size).forEach { index ->
                 if (frames[index].file == null) remaining += index
             }
+            var preferClosestFrames = false
 
             while (remaining.isNotEmpty()) {
                 val index = priority
@@ -519,7 +521,19 @@ internal object StoryboardLoader {
 
                 val timeMs = frames[index].timeMs
                 val target = frameFile(cacheDir, timeMs)
-                val bitmap = extractFrame(retriever, timeMs)
+                val extracted = extractFrame(
+                    retriever = retriever,
+                    timeMs = timeMs,
+                    preferClosest = preferClosestFrames,
+                )
+                if (extracted.syncWhiteoutRecovered) {
+                    // Once this file proves that its sync frames can decode as blank white while
+                    // the exact frame is valid, skip unreliable sync probes for the remaining
+                    // storyboard. This both fixes the white tiles and avoids paying for two decodes
+                    // per frame on affected videos.
+                    preferClosestFrames = true
+                }
+                val bitmap = extracted.bitmap
                 val written = bitmap?.let { writeFrame(target, it) } == true
                 bitmap?.recycle()
                 frames[index] = StoryboardFrame(
@@ -623,8 +637,24 @@ internal object StoryboardLoader {
         }
     }
 
-    private fun extractFrame(retriever: MediaMetadataRetriever, timeMs: Long): Bitmap? {
+    private data class FrameExtraction(
+        val bitmap: Bitmap?,
+        val syncWhiteoutRecovered: Boolean,
+    )
+
+    private fun extractFrame(
+        retriever: MediaMetadataRetriever,
+        timeMs: Long,
+        preferClosest: Boolean,
+    ): FrameExtraction {
         val timeUs = timeMs * 1_000L
+        if (preferClosest) {
+            return FrameExtraction(
+                bitmap = extractClosestFrame(retriever, timeUs),
+                syncWhiteoutRecovered = false,
+            )
+        }
+
         val sync = runCatching {
             if (Build.VERSION.SDK_INT >= 27) {
                 retriever.getScaledFrameAtTime(
@@ -638,26 +668,67 @@ internal object StoryboardLoader {
                     ?.let(::scaleDown)
             }
         }.getOrNull()
-        if (sync != null && !isNearlyBlackVideoThumbnail(sync)) return sync
+        val syncIsWhiteout = sync?.let(::isNearlyWhiteStoryboardFrame) == true
+        if (sync != null && !syncIsWhiteout && !isNearlyBlackVideoThumbnail(sync)) {
+            return FrameExtraction(sync, syncWhiteoutRecovered = false)
+        }
 
-        val closest = runCatching {
-            if (Build.VERSION.SDK_INT >= 27) {
-                retriever.getScaledFrameAtTime(
-                    timeUs,
-                    MediaMetadataRetriever.OPTION_CLOSEST,
-                    STORYBOARD_WIDTH,
-                    STORYBOARD_HEIGHT,
-                )
-            } else {
-                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
-                    ?.let(::scaleDown)
-            }
-        }.getOrNull()
+        val closest = extractClosestFrame(retriever, timeUs)
         if (closest != null) {
             if (closest !== sync) sync?.recycle()
-            return closest
+            val recoveredWhiteout = syncIsWhiteout && !isNearlyWhiteStoryboardFrame(closest)
+            return FrameExtraction(closest, syncWhiteoutRecovered = recoveredWhiteout)
         }
-        return sync
+        return FrameExtraction(sync, syncWhiteoutRecovered = false)
+    }
+
+    private fun extractClosestFrame(
+        retriever: MediaMetadataRetriever,
+        timeUs: Long,
+    ): Bitmap? = runCatching {
+        if (Build.VERSION.SDK_INT >= 27) {
+            retriever.getScaledFrameAtTime(
+                timeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST,
+                STORYBOARD_WIDTH,
+                STORYBOARD_HEIGHT,
+            )
+        } else {
+            retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                ?.let(::scaleDown)
+        }
+    }.getOrNull()
+
+    /**
+     * Some codecs/devices return a clipped white bitmap for sync-frame requests even though the
+     * actual frame at the same timestamp decodes normally. Treat only overwhelmingly white output
+     * as suspicious, then retry with OPTION_CLOSEST. A genuinely white scene is still preserved
+     * because the exact-frame result is accepted as-is.
+     */
+    private fun isNearlyWhiteStoryboardFrame(bitmap: Bitmap): Boolean {
+        if (bitmap.width <= 0 || bitmap.height <= 0) return false
+        val stepX = (bitmap.width / 16).coerceAtLeast(1)
+        val stepY = (bitmap.height / 16).coerceAtLeast(1)
+        var white = 0
+        var count = 0
+        var y = stepY / 2
+        while (y < bitmap.height) {
+            var x = stepX / 2
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                if (
+                    Color.red(pixel) >= 245 &&
+                    Color.green(pixel) >= 245 &&
+                    Color.blue(pixel) >= 245
+                ) {
+                    white++
+                }
+                count++
+                x += stepX
+            }
+            y += stepY
+        }
+        return count > 0 && white.toDouble() / count >= 0.94
     }
 
     private fun scaleDown(source: Bitmap): Bitmap {
