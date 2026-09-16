@@ -22,4 +22,5 @@
 
     <string name="cast_now_playing">Casting now</string>
     <string name="cast_jump_to_current_storyboard">Current position</string>
+    <string name="player_vertical_storyboard">Vertical storyboard</string>
 </resources>
