@@ -22,4 +22,5 @@
 
     <string name="cast_now_playing">キャスト中</string>
     <string name="cast_jump_to_current_storyboard">再生位置へ</string>
+    <string name="player_vertical_storyboard">縦型ストーリーボード</string>
 </resources>
