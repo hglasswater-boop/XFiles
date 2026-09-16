@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,9 +32,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,6 +58,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.media.formatVideoDuration
@@ -99,6 +106,9 @@ internal fun CastStoryboardStrip(
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
     val listState = rememberLazyListState()
+    var verticalStoryboardVisible by remember(entry.id, entry.mtime, entry.size, vertical) {
+        mutableStateOf(false)
+    }
     val extractionPriority = remember(
         entry.id,
         entry.mtime,
@@ -382,12 +392,10 @@ internal fun CastStoryboardStrip(
                 }
 
                 if (showJumpToCurrent) {
-                    Row(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 2.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         TextButton(
                             enabled = nearestIndex >= 0,
@@ -399,6 +407,7 @@ internal fun CastStoryboardStrip(
                                     }
                                 }
                             },
+                            modifier = Modifier.align(Alignment.Center),
                         ) {
                             Icon(
                                 Icons.Filled.PlayArrow,
@@ -409,6 +418,21 @@ internal fun CastStoryboardStrip(
                                 text = stringResource(R.string.cast_jump_to_current_storyboard),
                                 modifier = Modifier.padding(start = 4.dp),
                             )
+                        }
+
+                        if (!vertical) {
+                            IconButton(
+                                onClick = {
+                                    hideFinePreview()
+                                    verticalStoryboardVisible = true
+                                },
+                                modifier = Modifier.align(Alignment.CenterEnd),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.ViewAgenda,
+                                    contentDescription = stringResource(R.string.player_vertical_storyboard),
+                                )
+                            }
                         }
                     }
                 }
@@ -444,6 +468,61 @@ internal fun CastStoryboardStrip(
                             currentPositionMs = positionMs,
                         )
                     }
+                }
+            }
+        }
+    }
+
+    if (verticalStoryboardVisible && !vertical) {
+        Dialog(
+            onDismissRequest = { verticalStoryboardVisible = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.96f),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.96f)
+                    .fillMaxHeight(0.9f)
+                    .widthIn(max = 520.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.player_vertical_storyboard),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 8.dp),
+                        )
+                        IconButton(onClick = { verticalStoryboardVisible = false }) {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = stringResource(R.string.close),
+                            )
+                        }
+                    }
+
+                    CastStoryboardStrip(
+                        entry = entry,
+                        positionMs = positionMs,
+                        onSeek = onSeek,
+                        vertical = true,
+                        showJumpToCurrent = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                    )
                 }
             }
         }
