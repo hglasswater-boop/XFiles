@@ -25,10 +25,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -86,7 +89,7 @@ private sealed interface CastStoryboardUiState {
 /**
  * Storyboard for the remote Cast controller and local player chrome.
  *
- * Portrait Cast controls use a vertically scrolling compact-preview timeline, while landscape and
+ * Portrait Cast controls use a vertically scrolling two-column timeline, while landscape and
  * the local player use the compact horizontal strip. All layouts reuse the browser storyboard
  * loader and disk cache. Long-pressing a frame expands a precise timeline from the bottom while
  * leaving the coarse storyboard visible, so refinement never interrupts playback context.
@@ -106,6 +109,7 @@ internal fun CastStoryboardStrip(
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
     val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
     var verticalStoryboardVisible by remember(entry.id, entry.mtime, entry.size, vertical) {
         mutableStateOf(false)
     }
@@ -120,11 +124,14 @@ internal fun CastStoryboardStrip(
         StoryboardExtractionPriority()
     }
 
-    LaunchedEffect(listState, extractionPriority, sampleCount) {
+    LaunchedEffect(vertical, listState, gridState, extractionPriority, sampleCount) {
         snapshotFlow {
-            listState.layoutInfo.visibleItemsInfo
-                .map { it.index }
-                .filter { it in 0 until sampleCount }
+            val visibleIndices = if (vertical) {
+                gridState.layoutInfo.visibleItemsInfo.map { it.index }
+            } else {
+                listState.layoutInfo.visibleItemsInfo.map { it.index }
+            }
+            visibleIndices.filter { it in 0 until sampleCount }
         }
             .distinctUntilChanged()
             .collect(extractionPriority::updateVisible)
@@ -223,37 +230,39 @@ internal fun CastStoryboardStrip(
             }
 
             // The loader emits the full placeholder timeline before extracting frames. Align the
-            // list immediately, so the extractor can see the playback-area viewport and fill it
-            // first instead of waiting for an unrelated thumbnail to finish.
+            // viewport immediately, so the extractor can fill the playback area first instead of
+            // waiting for an unrelated thumbnail to finish.
             LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
                 if (alignedToPlayback || nearestIndex < 0) return@LaunchedEffect
                 if (positionMs <= 0L && !current.complete) return@LaunchedEffect
-                listState.scrollToItem(nearestIndex)
+                if (vertical) {
+                    gridState.scrollToItem(nearestIndex)
+                } else {
+                    listState.scrollToItem(nearestIndex)
+                }
                 alignedToPlayback = true
             }
 
             Column(modifier = modifier.fillMaxSize()) {
                 if (vertical) {
-                    LazyColumn(
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    LazyVerticalGrid(
+                        state = gridState,
+                        columns = GridCells.Fixed(2),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
                     ) {
-                        items(frames, key = { it.index }) { frame ->
+                        gridItems(frames, key = { it.index }) { frame ->
                             val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
                             val selected = frame.index == nearestIndex
                             val shape = RoundedCornerShape(10.dp)
-                            val previewModifier = Modifier
-                                .fillMaxWidth(0.48f)
-                                .widthIn(max = 180.dp)
-                                .aspectRatio(16f / 9f)
 
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
                                     .combinedClickable(
                                         enabled = image != null,
                                         onClick = {
@@ -263,54 +272,39 @@ internal fun CastStoryboardStrip(
                                         onLongClick = { showFinePreview(frame.index) },
                                     ),
                             ) {
-                                Box(modifier = previewModifier) {
-                                    if (image != null) {
-                                        AsyncImage(
-                                            model = image,
-                                            contentDescription = formatVideoDuration(frame.timeMs),
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .clip(shape)
-                                                .then(
-                                                    if (selected) {
-                                                        Modifier.border(
-                                                            width = 3.dp,
-                                                            color = MaterialTheme.colorScheme.primary,
-                                                            shape = shape,
-                                                        )
-                                                    } else {
-                                                        Modifier
-                                                    },
-                                                ),
-                                        )
-                                    } else {
-                                        StoryboardPlaceholder(
-                                            complete = current.complete,
-                                            shape = shape,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-
-                                    StoryboardTimestampOverlay(
-                                        timeMs = frame.timeMs,
-                                        selected = selected,
-                                        modifier = Modifier.align(Alignment.BottomStart),
+                                if (image != null) {
+                                    AsyncImage(
+                                        model = image,
+                                        contentDescription = formatVideoDuration(frame.timeMs),
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(shape)
+                                            .then(
+                                                if (selected) {
+                                                    Modifier.border(
+                                                        width = 3.dp,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = shape,
+                                                    )
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ),
+                                    )
+                                } else {
+                                    StoryboardPlaceholder(
+                                        complete = current.complete,
+                                        shape = shape,
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
-                            }
-                        }
 
-                        if (!current.complete) {
-                            item(key = "storyboard-loading") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    LoadingIndicator(Modifier.size(22.dp))
-                                }
+                                StoryboardTimestampOverlay(
+                                    timeMs = frame.timeMs,
+                                    selected = selected,
+                                    modifier = Modifier.align(Alignment.BottomStart),
+                                )
                             }
                         }
                     }
@@ -403,7 +397,11 @@ internal fun CastStoryboardStrip(
                                 hideFinePreview()
                                 if (nearestIndex >= 0) {
                                     scope.launch {
-                                        listState.animateScrollToItem(nearestIndex)
+                                        if (vertical) {
+                                            gridState.animateScrollToItem(nearestIndex)
+                                        } else {
+                                            listState.animateScrollToItem(nearestIndex)
+                                        }
                                     }
                                 }
                             },
