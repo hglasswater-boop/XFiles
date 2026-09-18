@@ -32,6 +32,9 @@ import kotlinx.coroutines.launch
  * from the [OperationEngine], and [BackgroundJobs] such as the package-install pipeline. Both
  * live on the app-lifetime scope; this service holds the process alive with a foreground
  * notification + wake lock and mirrors whatever is running. It stops itself once both are empty.
+ *
+ * Android 14+ SMB transfers normally use [SmbTransferJobService] instead. This service remains the
+ * fallback plus the keep-alive for local operations, background jobs, and older Android releases.
  */
 class OpsService : Service() {
 
@@ -52,13 +55,15 @@ class OpsService : Service() {
                 acquire(WAKELOCK_TIMEOUT_MS)
             }
 
-        // A CPU wake lock keeps the copy coroutine running but does not keep an idle Wi-Fi radio
-        // awake. Hold a plain WifiLock only while an SMB-backed operation is active; do not request
-        // a latency/performance mode whose semantics differ across Android releases.
-        @Suppress("DEPRECATION")
-        wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
-            .createWifiLock("xfiles:ops-wifi")
-            .apply { setReferenceCounted(false) }
+        // The legacy untyped/full WifiLock is non-functional from Android 10 onward. HIGH_PERF
+        // remains effective for background/screen-off transfers through Android 13; on Android 14+
+        // it is remapped to LOW_LATENCY (foreground + screen-on only), so modern SMB work uses UIDT.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION")
+            wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "xfiles:ops-wifi")
+                .apply { setReferenceCounted(false) }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -112,7 +117,7 @@ class OpsService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Android 14+ dataSync FGS time limit: cancel outstanding work and stop cleanly. */
+    /** Android 15+ dataSync FGS time limit: cancel outstanding work and stop cleanly. */
     override fun onTimeout(startId: Int) {
         cancelEverything()
         stop()
