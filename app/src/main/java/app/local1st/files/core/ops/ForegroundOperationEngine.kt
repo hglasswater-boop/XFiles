@@ -9,16 +9,16 @@ import kotlinx.coroutines.launch
 
 /**
  * Starts the operation keep-alive immediately on the same user action that submits the work and
- * classifies which operations actually need the network radio kept awake.
+ * classifies which operations actually need network-aware background execution.
  *
  * Relying only on an asynchronous observer of [OperationEngine.active] leaves a small race where
- * the activity can move to the background before Android receives startForegroundService().
+ * the activity can move to the background before Android receives the keep-alive request.
  * Keeping this as a decorator avoids coupling the copy engine itself to Android service APIs.
  */
 internal class ForegroundOperationEngine(
     private val delegate: OperationEngine,
     scope: CoroutineScope,
-    private val startKeepAlive: () -> Unit,
+    private val startKeepAlive: (running: RunningOp, usesSmb: Boolean) -> Unit,
 ) : OperationEngine by delegate {
     private val networkOpIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _networkKeepAliveRequired = MutableStateFlow(false)
@@ -32,14 +32,15 @@ internal class ForegroundOperationEngine(
 
     override fun submit(op: FileOp): RunningOp {
         val running = delegate.submit(op)
-        if (op.usesSmb()) {
+        val usesSmb = op.usesSmb()
+        if (usesSmb) {
             networkOpIds.update { it + running.id }
             _networkKeepAliveRequired.value = true
             // The delegate starts work before submit() returns. A very short operation can already
             // have left active by this point, so reconcile once synchronously after registration.
             reconcileNetworkOps(delegate.active.value)
         }
-        startKeepAlive()
+        startKeepAlive(running, usesSmb)
         return running
     }
 
