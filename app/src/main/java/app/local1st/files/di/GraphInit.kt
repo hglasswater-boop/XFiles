@@ -9,6 +9,8 @@ import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.fs.priv.ShizukuGate
 import app.local1st.files.core.ops.DefaultOperationEngine
+import app.local1st.files.core.ops.ForegroundOperationEngine
+import app.local1st.files.core.ops.OpsService
 import app.local1st.files.core.search.DefaultSearchEngine
 import kotlinx.coroutines.launch
 
@@ -31,7 +33,10 @@ fun initGraph(graph: Graph) {
         statById = { id -> Graph.fsRegistry.forId(id).stat(id) },
         smbConnections = graph.smbConnections,
     )
-    graph.opEngine = DefaultOperationEngine(Graph.appScope, graph.fsRegistry, Graph.appContext.cacheDir)
+    val operationEngine = DefaultOperationEngine(Graph.appScope, graph.fsRegistry, Graph.appContext.cacheDir)
+    graph.opEngine = ForegroundOperationEngine(operationEngine) {
+        OpsService.start(Graph.appContext)
+    }
     graph.searchEngine = DefaultSearchEngine(graph.fsRegistry)
 
     // Mirror the root-access settings into the process-wide gate consulted by the fs layer.
