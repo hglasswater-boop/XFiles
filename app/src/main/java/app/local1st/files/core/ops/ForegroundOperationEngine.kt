@@ -26,11 +26,7 @@ internal class ForegroundOperationEngine(
 
     init {
         scope.launch {
-            delegate.active.collect { active ->
-                val activeIds = active.mapTo(HashSet()) { it.id }
-                networkOpIds.update { ids -> ids.intersect(activeIds) }
-                _networkKeepAliveRequired.value = networkOpIds.value.isNotEmpty()
-            }
+            delegate.active.collect(::reconcileNetworkOps)
         }
     }
 
@@ -39,9 +35,18 @@ internal class ForegroundOperationEngine(
         if (op.usesSmb()) {
             networkOpIds.update { it + running.id }
             _networkKeepAliveRequired.value = true
+            // The delegate starts work before submit() returns. A very short operation can already
+            // have left active by this point, so reconcile once synchronously after registration.
+            reconcileNetworkOps(delegate.active.value)
         }
         startKeepAlive()
         return running
+    }
+
+    private fun reconcileNetworkOps(active: List<RunningOp>) {
+        val activeIds = active.mapTo(HashSet()) { it.id }
+        networkOpIds.update { ids -> ids.intersect(activeIds) }
+        _networkKeepAliveRequired.value = networkOpIds.value.isNotEmpty()
     }
 
     private fun FileOp.usesSmb(): Boolean = when (this) {
