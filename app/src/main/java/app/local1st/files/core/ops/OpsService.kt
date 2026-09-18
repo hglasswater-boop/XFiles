@@ -6,6 +6,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -30,11 +32,15 @@ import kotlinx.coroutines.launch
  * from the [OperationEngine], and [BackgroundJobs] such as the package-install pipeline. Both
  * live on the app-lifetime scope; this service holds the process alive with a foreground
  * notification + wake lock and mirrors whatever is running. It stops itself once both are empty.
+ *
+ * Android 14+ SMB transfers normally use [SmbTransferJobService] instead. This service remains the
+ * fallback plus the keep-alive for local operations, background jobs, and older Android releases.
  */
 class OpsService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var collecting = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -48,21 +54,43 @@ class OpsService : Service() {
                 setReferenceCounted(false)
                 acquire(WAKELOCK_TIMEOUT_MS)
             }
+
+        // The legacy untyped/full WifiLock is non-functional from Android 10 onward. HIGH_PERF
+        // remains effective for background/screen-off transfers through Android 13; on Android 14+
+        // it is remapped to LOW_LATENCY (foreground + screen-on only), so modern SMB work uses UIDT.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION")
+            wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "xfiles:ops-wifi")
+                .apply { setReferenceCounted(false) }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_CANCEL_ALL) cancelEverything()
 
-        // Must call startForeground promptly. Guard the rare race where the app is no longer
-        // foreground-eligible (the work keeps running on the app scope regardless).
-        runCatching { startForeground(NOTIF_ID, buildNotification(currentNotice())) }
+        // Must call startForeground promptly. Explicitly identify this as user-visible data sync
+        // so modern Android keeps the service in the correct foreground-service class.
+        runCatching {
+            ServiceCompat.startForeground(
+                this,
+                NOTIF_ID,
+                buildNotification(currentNotice()),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        }
 
         if (!collecting) {
             collecting = true
             scope.launch {
-                combine(Graph.opEngine.active, BackgroundJobs.active) { ops, jobs -> ops to jobs }
-                    .flatMapLatest { (ops, jobs) ->
+                combine(
+                    Graph.opEngine.active,
+                    BackgroundJobs.active,
+                    Graph.opEngine.networkKeepAliveRequired,
+                ) { ops, jobs, networkKeepAlive -> Triple(ops, jobs, networkKeepAlive) }
+                    .flatMapLatest { (ops, jobs, networkKeepAlive) ->
+                        syncWifiLock(shouldHold = networkKeepAlive)
                         val count = ops.size + jobs.size
                         val op = ops.firstOrNull()
                         val job = jobs.firstOrNull()
@@ -75,6 +103,7 @@ class OpsService : Service() {
                     }
                     .collect { notice ->
                         if (notice == null) {
+                            syncWifiLock(shouldHold = false)
                             stop()
                         } else {
                             // Renew the wake lock each tick so work longer than the timeout keeps going.
@@ -88,7 +117,7 @@ class OpsService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Android 14+ dataSync FGS time limit: cancel outstanding work and stop cleanly. */
+    /** Android 15+ dataSync FGS time limit: cancel outstanding work and stop cleanly. */
     override fun onTimeout(startId: Int) {
         cancelEverything()
         stop()
@@ -99,12 +128,23 @@ class OpsService : Service() {
         BackgroundJobs.active.value.forEach { it.cancel() }
     }
 
+    private fun syncWifiLock(shouldHold: Boolean) {
+        val lock = wifiLock ?: return
+        if (shouldHold) {
+            if (!lock.isHeld) runCatching { lock.acquire() }
+        } else if (lock.isHeld) {
+            runCatching { lock.release() }
+        }
+    }
+
     private fun stop() {
+        syncWifiLock(shouldHold = false)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        syncWifiLock(shouldHold = false)
         wakeLock?.let { if (it.isHeld) it.release() }
         scope.cancel()
         super.onDestroy()
@@ -120,8 +160,13 @@ class OpsService : Service() {
         title = heading(count, progress.title),
         text = when (progress.state) {
             OpState.SCANNING -> "Scanning… ${progress.currentItem}"
-            else -> "${(progress.fraction * 100).toInt()}%  ·  " +
-                "${Format.bytes(progress.doneBytes)} / ${Format.bytes(progress.totalBytes)}"
+            else -> buildString {
+                append("${(progress.fraction * 100).toInt()}%  ·  ")
+                append("${Format.bytes(progress.doneBytes)} / ${Format.bytes(progress.totalBytes)}")
+                if (progress.showTransferStats && progress.bytesPerSecond > 0L) {
+                    append("  ·  ${Format.bytes(progress.bytesPerSecond)}/s")
+                }
+            }
         },
         fraction = progress.fraction
             .takeIf { progress.state != OpState.SCANNING && progress.totalBytes > 0 },

@@ -16,8 +16,8 @@ import app.local1st.files.core.thumb.RemoteFileFetcher
 import app.local1st.files.core.thumb.RemoteVideoThumbFetcher
 import app.local1st.files.core.thumb.VideoThumbFetcher
 import app.local1st.files.di.Graph
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class XFilesApp : Application(), SingletonImageLoader.Factory {
@@ -27,15 +27,17 @@ class XFilesApp : Application(), SingletonImageLoader.Factory {
         instance = this
         initializeEditionFeatures(this)
         Graph.init(this)
-        startOpsServiceWhenBusy()
+        startOpsServiceForBackgroundJobs()
     }
 
-    /** Bring up the foreground service on the empty→busy edge so work survives backgrounding. */
-    private fun startOpsServiceWhenBusy() {
+    /**
+     * File operations start [OpsService] synchronously from the operation-engine decorator.
+     * Background jobs have no submit wrapper, so keep their empty→busy observer here.
+     */
+    private fun startOpsServiceForBackgroundJobs() {
         Graph.appScope.launch {
-            combine(Graph.opEngine.active, BackgroundJobs.active) { ops, jobs ->
-                ops.isNotEmpty() || jobs.isNotEmpty()
-            }
+            BackgroundJobs.active
+                .map { it.isNotEmpty() }
                 .distinctUntilChanged()
                 .collect { busy -> if (busy) OpsService.start(this@XFilesApp) }
         }

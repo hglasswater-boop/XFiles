@@ -1,5 +1,6 @@
 package app.local1st.files.core.ops
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /** Handle for one running operation. */
@@ -23,10 +24,21 @@ interface OperationEngine {
     /** Ops that are running or awaiting a conflict decision. Finished ops drop off. */
     val active: StateFlow<List<RunningOp>>
 
+    /**
+     * True while at least one operation needs the network radio kept awake in the background.
+     * Engines that do not classify network operations may leave the default false value.
+     */
+    val networkKeepAliveRequired: StateFlow<Boolean>
+        get() = NO_NETWORK_KEEP_ALIVE
+
     /** Fired once per finished op with a user-readable result message (snackbar). */
     val events: kotlinx.coroutines.flow.SharedFlow<OpEvent>
 
     fun submit(op: FileOp): RunningOp
+
+    companion object {
+        private val NO_NETWORK_KEEP_ALIVE = MutableStateFlow(false)
+    }
 }
 
 data class OpEvent(
