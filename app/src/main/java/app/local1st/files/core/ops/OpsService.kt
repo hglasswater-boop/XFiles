@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -51,13 +52,12 @@ class OpsService : Service() {
                 acquire(WAKELOCK_TIMEOUT_MS)
             }
 
-        // Keep Wi-Fi out of power-save while an actual file transfer is active. This matters most
-        // after the activity leaves the foreground: the CPU wake lock keeps our coroutine alive,
-        // but does not keep the Wi-Fi radio in a performance state. Android 14+ transparently maps
-        // HIGH_PERF to the platform's lower-power low-latency mode.
+        // A CPU wake lock keeps the copy coroutine running but does not keep an idle Wi-Fi radio
+        // awake. Hold a plain WifiLock only while a bulk copy/move is active; do not request a
+        // latency/performance mode whose semantics differ across Android releases.
         @Suppress("DEPRECATION")
         wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
-            .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "xfiles:ops-wifi")
+            .createWifiLock("xfiles:ops-wifi")
             .apply { setReferenceCounted(false) }
     }
 
@@ -65,15 +65,25 @@ class OpsService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_CANCEL_ALL) cancelEverything()
 
-        // Must call startForeground promptly. Guard the rare race where the app is no longer
-        // foreground-eligible (the work keeps running on the app scope regardless).
-        runCatching { startForeground(NOTIF_ID, buildNotification(currentNotice())) }
+        // Must call startForeground promptly. Explicitly identify this as user-visible data sync
+        // so modern Android keeps the service in the correct foreground-service class.
+        runCatching {
+            ServiceCompat.startForeground(
+                this,
+                NOTIF_ID,
+                buildNotification(currentNotice()),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        }
 
         if (!collecting) {
             collecting = true
             scope.launch {
                 combine(Graph.opEngine.active, BackgroundJobs.active) { ops, jobs -> ops to jobs }
                     .flatMapLatest { (ops, jobs) ->
+                        // Copy/move operations expose transfer stats. Keep Wi-Fi awake for those
+                        // bulk transfers, while local-only background jobs such as installs and
+                        // archive work do not unnecessarily hold the radio.
                         syncWifiLock(
                             shouldHold = ops.any { it.progress.value.showTransferStats },
                         )
@@ -124,6 +134,7 @@ class OpsService : Service() {
     }
 
     private fun stop() {
+        syncWifiLock(shouldHold = false)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
