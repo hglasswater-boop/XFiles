@@ -112,7 +112,12 @@ open class SmbFileSystem(
             disposition = SMB2CreateDisposition.FILE_OVERWRITE_IF,
         )
         val stream = try {
-            handle.file.outputStream
+            PipelinedAsyncOutputStream(
+                chunkSize = SMB_COPY_CHUNK_SIZE,
+                maxInFlight = SMB_COPY_MAX_IN_FLIGHT,
+            ) { buffer, position, length ->
+                handle.file.writeAsync(buffer, position, 0, length)
+            }
         } catch (error: Throwable) {
             handle.close()
             throw error
@@ -269,7 +274,7 @@ open class SmbFileSystem(
             first.share.equals(second.share, ignoreCase = true)
 
     private fun <T> withShare(config: SmbConnectionConfig, block: (DiskShare) -> T): T {
-        val client = SMBClient()
+        val client = SmbClientFactory.create()
         try {
             val connection = client.connect(config.host, config.port)
             val auth = if (config.username.isBlank()) {
@@ -317,7 +322,7 @@ open class SmbFileSystem(
         access: EnumSet<AccessMask>,
         disposition: SMB2CreateDisposition,
     ): OpenFileHandle {
-        val client = SMBClient()
+        val client = SmbClientFactory.create()
         try {
             val connection = client.connect(target.connection.host, target.connection.port)
             val auth = if (target.connection.username.isBlank()) {
@@ -354,6 +359,11 @@ open class SmbFileSystem(
     companion object {
         const val ROOT_ID = "smb://"
 
+        // SMBJ's regular FileOutputStream waits for every WRITE response before sending the next
+        // request. Keep an 8 MiB bounded window instead so Android can overlap SMB round trips.
+        private const val SMB_COPY_CHUNK_SIZE = 1024 * 1024
+        private const val SMB_COPY_MAX_IN_FLIGHT = 8
+
         private val SHARE_ACCESS: EnumSet<SMB2ShareAccess> = EnumSet.of(
             SMB2ShareAccess.FILE_SHARE_READ,
             SMB2ShareAccess.FILE_SHARE_WRITE,
@@ -365,7 +375,7 @@ open class SmbFileSystem(
          * Nothing is saved and no remote content is modified.
          */
         fun testConnection(config: SmbConnectionConfig, password: String) {
-            val client = SMBClient()
+            val client = SmbClientFactory.create()
             try {
                 val connection = client.connect(config.host, config.port)
                 val auth = if (config.username.isBlank()) {
