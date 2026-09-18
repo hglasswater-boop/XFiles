@@ -40,10 +40,7 @@ class ForegroundOperationEngineTest {
     fun smbOperationKeepsNetworkAliveUntilOperationLeavesActiveList() {
         val delegate = FakeOperationEngine()
         val engine = ForegroundOperationEngine(delegate, scope) { }
-        val op = FileOp.Copy(
-            sources = listOf(entry("smb://server/source.bin")),
-            destDir = entry("file://destination", isDir = true),
-        )
+        val op = smbCopy()
 
         engine.submit(op)
         assertTrue(engine.networkKeepAliveRequired.value)
@@ -52,6 +49,21 @@ class ForegroundOperationEngineTest {
         assertFalse(engine.networkKeepAliveRequired.value)
     }
 
+    @Test
+    fun smbOperationThatFinishesInsideSubmitDoesNotLeaveNetworkKeepAliveStuck() {
+        val delegate = FakeOperationEngine(keepSubmittedOpActive = false)
+        val engine = ForegroundOperationEngine(delegate, scope) { }
+
+        engine.submit(smbCopy())
+
+        assertFalse(engine.networkKeepAliveRequired.value)
+    }
+
+    private fun smbCopy() = FileOp.Copy(
+        sources = listOf(entry("smb://server/source.bin")),
+        destDir = entry("file://destination", isDir = true),
+    )
+
     private fun entry(id: String, isDir: Boolean = false) = XEntry(
         id = id,
         name = id.substringAfterLast('/'),
@@ -59,7 +71,9 @@ class ForegroundOperationEngineTest {
         kind = if (isDir) EntryKind.DIR else EntryKind.FILE,
     )
 
-    private class FakeOperationEngine : OperationEngine {
+    private class FakeOperationEngine(
+        private val keepSubmittedOpActive: Boolean = true,
+    ) : OperationEngine {
         override val active = MutableStateFlow<List<RunningOp>>(emptyList())
         override val events: SharedFlow<OpEvent> = MutableSharedFlow()
         val running = FakeRunningOp()
@@ -68,7 +82,7 @@ class ForegroundOperationEngineTest {
 
         override fun submit(op: FileOp): RunningOp {
             submitCalls++
-            active.value = listOf(running)
+            active.value = if (keepSubmittedOpActive) listOf(running) else emptyList()
             return running
         }
     }
