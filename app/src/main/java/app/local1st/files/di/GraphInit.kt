@@ -34,7 +34,10 @@ fun initGraph(graph: Graph) {
         smbConnections = graph.smbConnections,
     )
     val operationEngine = DefaultOperationEngine(Graph.appScope, graph.fsRegistry, Graph.appContext.cacheDir)
-    graph.opEngine = ForegroundOperationEngine(operationEngine) {
+    graph.opEngine = ForegroundOperationEngine(
+        delegate = operationEngine,
+        scope = Graph.appScope,
+    ) {
         OpsService.start(Graph.appContext)
     }
     graph.searchEngine = DefaultSearchEngine(graph.fsRegistry)
