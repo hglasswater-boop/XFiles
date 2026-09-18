@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -35,6 +36,7 @@ class OpsService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var collecting = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -48,6 +50,15 @@ class OpsService : Service() {
                 setReferenceCounted(false)
                 acquire(WAKELOCK_TIMEOUT_MS)
             }
+
+        // Keep Wi-Fi out of power-save while an actual file transfer is active. This matters most
+        // after the activity leaves the foreground: the CPU wake lock keeps our coroutine alive,
+        // but does not keep the Wi-Fi radio in a performance state. Android 14+ transparently maps
+        // HIGH_PERF to the platform's lower-power low-latency mode.
+        @Suppress("DEPRECATION")
+        wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+            .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "xfiles:ops-wifi")
+            .apply { setReferenceCounted(false) }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -63,6 +74,9 @@ class OpsService : Service() {
             scope.launch {
                 combine(Graph.opEngine.active, BackgroundJobs.active) { ops, jobs -> ops to jobs }
                     .flatMapLatest { (ops, jobs) ->
+                        syncWifiLock(
+                            shouldHold = ops.any { it.progress.value.showTransferStats },
+                        )
                         val count = ops.size + jobs.size
                         val op = ops.firstOrNull()
                         val job = jobs.firstOrNull()
@@ -75,6 +89,7 @@ class OpsService : Service() {
                     }
                     .collect { notice ->
                         if (notice == null) {
+                            syncWifiLock(shouldHold = false)
                             stop()
                         } else {
                             // Renew the wake lock each tick so work longer than the timeout keeps going.
@@ -99,12 +114,22 @@ class OpsService : Service() {
         BackgroundJobs.active.value.forEach { it.cancel() }
     }
 
+    private fun syncWifiLock(shouldHold: Boolean) {
+        val lock = wifiLock ?: return
+        if (shouldHold) {
+            if (!lock.isHeld) runCatching { lock.acquire() }
+        } else if (lock.isHeld) {
+            runCatching { lock.release() }
+        }
+    }
+
     private fun stop() {
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        syncWifiLock(shouldHold = false)
         wakeLock?.let { if (it.isHeld) it.release() }
         scope.cancel()
         super.onDestroy()
