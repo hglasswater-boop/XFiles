@@ -11,6 +11,7 @@ import app.local1st.files.core.fs.priv.ShizukuGate
 import app.local1st.files.core.ops.DefaultOperationEngine
 import app.local1st.files.core.ops.ForegroundOperationEngine
 import app.local1st.files.core.ops.OpsService
+import app.local1st.files.core.ops.SmbTransferJobService
 import app.local1st.files.core.search.DefaultSearchEngine
 import kotlinx.coroutines.launch
 
@@ -37,8 +38,12 @@ fun initGraph(graph: Graph) {
     graph.opEngine = ForegroundOperationEngine(
         delegate = operationEngine,
         scope = Graph.appScope,
-    ) {
-        OpsService.start(Graph.appContext)
+    ) { running, usesSmb ->
+        // Android 14+ gives user-initiated network transfers a dedicated OS-managed execution
+        // class. Older releases, local operations, and rejected UIDT schedules use the existing
+        // foreground-service keep-alive path.
+        val uidtScheduled = usesSmb && SmbTransferJobService.schedule(Graph.appContext, running.id)
+        if (!uidtScheduled) OpsService.start(Graph.appContext)
     }
     graph.searchEngine = DefaultSearchEngine(graph.fsRegistry)
 
