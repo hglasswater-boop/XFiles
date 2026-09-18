@@ -2,20 +2,27 @@ package app.local1st.files.core.ops
 
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForegroundOperationEngineTest {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+
     @Test
     fun submitStartsKeepAliveSynchronouslyAfterDelegating() {
         val delegate = FakeOperationEngine()
         var keepAliveStarts = 0
-        val engine = ForegroundOperationEngine(delegate) {
+        val engine = ForegroundOperationEngine(delegate, scope) {
             assertEquals(1, delegate.submitCalls)
             keepAliveStarts++
         }
@@ -26,13 +33,30 @@ class ForegroundOperationEngineTest {
         assertSame(delegate.running, running)
         assertEquals(1, delegate.submitCalls)
         assertEquals(1, keepAliveStarts)
+        assertFalse(engine.networkKeepAliveRequired.value)
     }
 
-    private fun entry(id: String) = XEntry(
+    @Test
+    fun smbOperationKeepsNetworkAliveUntilOperationLeavesActiveList() {
+        val delegate = FakeOperationEngine()
+        val engine = ForegroundOperationEngine(delegate, scope) { }
+        val op = FileOp.Copy(
+            sources = listOf(entry("smb://server/source.bin")),
+            destDir = entry("file://destination", isDir = true),
+        )
+
+        engine.submit(op)
+        assertTrue(engine.networkKeepAliveRequired.value)
+
+        delegate.active.value = emptyList()
+        assertFalse(engine.networkKeepAliveRequired.value)
+    }
+
+    private fun entry(id: String, isDir: Boolean = false) = XEntry(
         id = id,
         name = id.substringAfterLast('/'),
-        isDir = false,
-        kind = EntryKind.FILE,
+        isDir = isDir,
+        kind = if (isDir) EntryKind.DIR else EntryKind.FILE,
     )
 
     private class FakeOperationEngine : OperationEngine {
@@ -44,6 +68,7 @@ class ForegroundOperationEngineTest {
 
         override fun submit(op: FileOp): RunningOp {
             submitCalls++
+            active.value = listOf(running)
             return running
         }
     }
