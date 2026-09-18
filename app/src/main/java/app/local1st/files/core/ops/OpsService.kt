@@ -156,8 +156,13 @@ class OpsService : Service() {
         title = heading(count, progress.title),
         text = when (progress.state) {
             OpState.SCANNING -> "Scanning… ${progress.currentItem}"
-            else -> "${(progress.fraction * 100).toInt()}%  ·  " +
-                "${Format.bytes(progress.doneBytes)} / ${Format.bytes(progress.totalBytes)}"
+            else -> buildString {
+                append("${(progress.fraction * 100).toInt()}%  ·  ")
+                append("${Format.bytes(progress.doneBytes)} / ${Format.bytes(progress.totalBytes)}")
+                if (progress.showTransferStats && progress.bytesPerSecond > 0L) {
+                    append("  ·  ${Format.bytes(progress.bytesPerSecond)}/s")
+                }
+            }
         },
         fraction = progress.fraction
             .takeIf { progress.state != OpState.SCANNING && progress.totalBytes > 0 },
