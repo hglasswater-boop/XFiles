@@ -53,8 +53,8 @@ class OpsService : Service() {
             }
 
         // A CPU wake lock keeps the copy coroutine running but does not keep an idle Wi-Fi radio
-        // awake. Hold a plain WifiLock only while a bulk copy/move is active; do not request a
-        // latency/performance mode whose semantics differ across Android releases.
+        // awake. Hold a plain WifiLock only while an SMB-backed operation is active; do not request
+        // a latency/performance mode whose semantics differ across Android releases.
         @Suppress("DEPRECATION")
         wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
             .createWifiLock("xfiles:ops-wifi")
@@ -79,14 +79,13 @@ class OpsService : Service() {
         if (!collecting) {
             collecting = true
             scope.launch {
-                combine(Graph.opEngine.active, BackgroundJobs.active) { ops, jobs -> ops to jobs }
-                    .flatMapLatest { (ops, jobs) ->
-                        // Copy/move operations expose transfer stats. Keep Wi-Fi awake for those
-                        // bulk transfers, while local-only background jobs such as installs and
-                        // archive work do not unnecessarily hold the radio.
-                        syncWifiLock(
-                            shouldHold = ops.any { it.progress.value.showTransferStats },
-                        )
+                combine(
+                    Graph.opEngine.active,
+                    BackgroundJobs.active,
+                    Graph.opEngine.networkKeepAliveRequired,
+                ) { ops, jobs, networkKeepAlive -> Triple(ops, jobs, networkKeepAlive) }
+                    .flatMapLatest { (ops, jobs, networkKeepAlive) ->
+                        syncWifiLock(shouldHold = networkKeepAlive)
                         val count = ops.size + jobs.size
                         val op = ops.firstOrNull()
                         val job = jobs.firstOrNull()
