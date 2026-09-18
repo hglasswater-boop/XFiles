@@ -22,9 +22,11 @@ class ForegroundOperationEngineTest {
     fun submitStartsKeepAliveSynchronouslyAfterDelegating() {
         val delegate = FakeOperationEngine()
         var keepAliveStarts = 0
-        val engine = ForegroundOperationEngine(delegate, scope) {
+        var callbackUsesSmb: Boolean? = null
+        val engine = ForegroundOperationEngine(delegate, scope) { _, usesSmb ->
             assertEquals(1, delegate.submitCalls)
             keepAliveStarts++
+            callbackUsesSmb = usesSmb
         }
         val op = FileOp.Delete(listOf(entry("file://source.txt")))
 
@@ -33,16 +35,21 @@ class ForegroundOperationEngineTest {
         assertSame(delegate.running, running)
         assertEquals(1, delegate.submitCalls)
         assertEquals(1, keepAliveStarts)
+        assertFalse(callbackUsesSmb!!)
         assertFalse(engine.networkKeepAliveRequired.value)
     }
 
     @Test
     fun smbOperationKeepsNetworkAliveUntilOperationLeavesActiveList() {
         val delegate = FakeOperationEngine()
-        val engine = ForegroundOperationEngine(delegate, scope) { }
+        var callbackUsesSmb = false
+        val engine = ForegroundOperationEngine(delegate, scope) { _, usesSmb ->
+            callbackUsesSmb = usesSmb
+        }
         val op = smbCopy()
 
         engine.submit(op)
+        assertTrue(callbackUsesSmb)
         assertTrue(engine.networkKeepAliveRequired.value)
 
         delegate.active.value = emptyList()
@@ -52,7 +59,7 @@ class ForegroundOperationEngineTest {
     @Test
     fun smbOperationThatFinishesInsideSubmitDoesNotLeaveNetworkKeepAliveStuck() {
         val delegate = FakeOperationEngine(keepSubmittedOpActive = false)
-        val engine = ForegroundOperationEngine(delegate, scope) { }
+        val engine = ForegroundOperationEngine(delegate, scope) { _, _ -> }
 
         engine.submit(smbCopy())
 
