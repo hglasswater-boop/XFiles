@@ -612,6 +612,12 @@ private fun EntryMenuContent(
 
             if (!entry.isDir) {
                 val canExternalRead = IntentUtils.canExternalRead(entry)
+                if (FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO) {
+                    MenuItem("MP4コンテナを再構築") {
+                        IntentUtils.remuxVideo(context, entry)
+                        dismiss()
+                    }
+                }
                 MenuItem(
                     label = stringResource(R.string.open_with),
                     enabled = canExternalRead,
