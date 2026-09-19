@@ -44,11 +44,12 @@ class RemuxActivity : ComponentActivity() {
     }
 
     private fun startRemux(outputUri: Uri) {
-        val jobId = "video-remux:${source.id}"
+        val sourceEntry = source
+        val jobId = "video-remux:${sourceEntry.id}"
         val job = BackgroundJobs.start(
             id = jobId,
             title = "MP4再構築",
-            message = "${source.name} を再muxしています",
+            message = "${sourceEntry.name} を再muxしています",
         ) ?: run {
             Toast.makeText(this, "この動画はすでに再構築中です", Toast.LENGTH_SHORT).show()
             return
@@ -59,15 +60,15 @@ class RemuxActivity : ComponentActivity() {
             try {
                 VideoRemuxer.remuxToMp4(
                     context = Graph.appContext,
-                    source = source,
+                    source = sourceEntry,
                     outputUri = outputUri,
                     smbConnections = Graph.smbConnections,
                     onProgress = job::bytes,
                     isCancelled = job::isCancelled,
                 )
-                BackgroundJobs.messages.tryEmit("MP4再構築が完了しました: ${source.name}")
+                BackgroundJobs.messages.tryEmit("MP4再構築が完了しました: ${sourceEntry.name}")
             } catch (_: CancellationException) {
-                BackgroundJobs.messages.tryEmit("MP4再構築をキャンセルしました: ${source.name}")
+                BackgroundJobs.messages.tryEmit("MP4再構築をキャンセルしました: ${sourceEntry.name}")
             } catch (error: Throwable) {
                 val detail = generateSequence(error) { it.cause }
                     .mapNotNull { it.message }
