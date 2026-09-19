@@ -3,6 +3,8 @@ package app.local1st.files.ui.viewer
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
+import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -12,6 +14,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import app.local1st.files.core.fs.XId
+import java.io.File
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -22,8 +26,11 @@ import org.videolan.libvlc.MediaPlayer
  *
  * [shadowPlayer] owns the Media3 playlist/timeline/events used by Cast handoff and the existing UI.
  * Its volume is forced to zero. Actual local audio/video output, position and A/V synchronization
- * come from libVLC. Media bytes are always requested from [relay]'s loopback HTTP endpoint, so SMB
- * playback keeps using XFiles' Rust/random-access backend and cache path.
+ * come from libVLC.
+ *
+ * Local/content media deliberately uses a direct file descriptor, matching the Issue #124 A/B
+ * harness that was verified on-device. SMB/root media still uses [relay]'s loopback endpoint so
+ * remote reads and seeks remain on XFiles' Rust/random-access backend.
  */
 @UnstableApi
 internal class LibVlcLocalPlayer(
@@ -31,25 +38,32 @@ internal class LibVlcLocalPlayer(
     private val shadowPlayer: ExoPlayer,
     private val relay: CastMediaRelay,
 ) : ExoPlayer by shadowPlayer {
+    private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val libVlc = LibVLC(context.applicationContext)
+    private val libVlc = LibVLC(appContext)
     private val vlcPlayer = MediaPlayer(libVlc)
 
     private var loadedMediaId: String? = null
     private var desiredPlayWhenReady = false
     private var released = false
     private var attachedVideoOutput: Any? = null
+    private var activeDescriptor: ParcelFileDescriptor? = null
 
     init {
         shadowPlayer.volume = 0f
         vlcPlayer.setEventListener { event ->
-            if (event.type == MediaPlayer.Event.EndReached) {
-                mainHandler.post {
-                    if (released) return@post
-                    if (shadowPlayer.hasNextMediaItem()) {
-                        seekToNextMediaItem()
-                        if (desiredPlayWhenReady) play()
+            when (event.type) {
+                MediaPlayer.Event.EndReached -> {
+                    mainHandler.post {
+                        if (released) return@post
+                        if (shadowPlayer.hasNextMediaItem()) {
+                            seekToNextMediaItem()
+                            if (desiredPlayWhenReady) play()
+                        }
                     }
+                }
+                MediaPlayer.Event.EncounteredError -> {
+                    Log.e(TAG, "libVLC encountered an error for mediaId=$loadedMediaId")
                 }
             }
         }
@@ -144,6 +158,7 @@ internal class LibVlcLocalPlayer(
         desiredPlayWhenReady = false
         runCatching { vlcPlayer.stop() }
         loadedMediaId = null
+        closeActiveDescriptor()
         shadowPlayer.stop()
     }
 
@@ -154,6 +169,7 @@ internal class LibVlcLocalPlayer(
         runCatching { vlcPlayer.setEventListener(null) }
         detachVlcVideoOutput()
         runCatching { vlcPlayer.stop() }
+        closeActiveDescriptor()
         runCatching { vlcPlayer.release() }
         runCatching { libVlc.release() }
         runCatching { shadowPlayer.release() }
@@ -239,15 +255,12 @@ internal class LibVlcLocalPlayer(
         if (released) return
         val mediaItem = shadowPlayer.currentMediaItem ?: return
         val mediaId = mediaItem.mediaId
-        val source = relay.localUrlFor(mediaId)
-            ?: mediaItem.localConfiguration?.uri
-            ?: return
 
         if (loadedMediaId != mediaId) {
             runCatching { vlcPlayer.stop() }
-            val media = Media(libVlc, source).apply {
-                setHWDecoderEnabled(true, false)
-            }
+            closeActiveDescriptor()
+            val media = createVlcMedia(mediaItem) ?: return
+            media.setHWDecoderEnabled(true, false)
             vlcPlayer.media = media
             media.release()
             loadedMediaId = mediaId
@@ -260,9 +273,47 @@ internal class LibVlcLocalPlayer(
         }
     }
 
+    private fun createVlcMedia(mediaItem: MediaItem): Media? {
+        val uri = mediaItem.localConfiguration?.uri ?: return null
+        return when (uri.scheme?.lowercase()) {
+            "file" -> {
+                val path = uri.path ?: return null
+                val descriptor = runCatching {
+                    ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY)
+                }.getOrNull() ?: return null
+                activeDescriptor = descriptor
+                Media(libVlc, descriptor.fileDescriptor)
+            }
+            "content" -> {
+                val descriptor = runCatching {
+                    appContext.contentResolver.openFileDescriptor(uri, "r")
+                }.getOrNull() ?: return null
+                activeDescriptor = descriptor
+                Media(libVlc, descriptor.fileDescriptor)
+            }
+            XId.SCHEME_SMB, XId.SCHEME_ROOT -> {
+                val relayUri = relay.localUrlFor(mediaItem.mediaId) ?: return null
+                Media(libVlc, relayUri)
+            }
+            else -> {
+                val relayUri = relay.localUrlFor(mediaItem.mediaId)
+                Media(libVlc, relayUri ?: uri)
+            }
+        }
+    }
+
+    private fun closeActiveDescriptor() {
+        activeDescriptor?.let { descriptor -> runCatching { descriptor.close() } }
+        activeDescriptor = null
+    }
+
     private fun detachVlcVideoOutput() {
         if (attachedVideoOutput == null) return
         runCatching { vlcPlayer.vlcVout.detachViews() }
         attachedVideoOutput = null
+    }
+
+    private companion object {
+        const val TAG = "XFilesLibVLC"
     }
 }
