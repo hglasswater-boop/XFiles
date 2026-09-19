@@ -154,6 +154,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     add("mobileImplementation", libs.media3.cast)
+    add("mobileDebugImplementation", libs.libvlc)
 
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
