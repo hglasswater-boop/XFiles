@@ -12,7 +12,7 @@ import app.local1st.files.core.media.VideoRemuxer
 import app.local1st.files.core.ops.BackgroundJobs
 import app.local1st.files.core.ops.OpsService
 import app.local1st.files.di.Graph
-import java.util.concurrent.CancellationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -45,7 +45,6 @@ class RemuxActivity : ComponentActivity() {
 
     private fun startRemux(outputUri: Uri) {
         val jobId = "video-remux:${source.id}"
-        val outputName = defaultOutputName(source.name)
         val job = BackgroundJobs.start(
             id = jobId,
             title = "MP4再構築",
@@ -66,7 +65,7 @@ class RemuxActivity : ComponentActivity() {
                     onProgress = job::bytes,
                     isCancelled = job::isCancelled,
                 )
-                BackgroundJobs.messages.tryEmit("MP4再構築が完了しました: $outputName")
+                BackgroundJobs.messages.tryEmit("MP4再構築が完了しました: ${source.name}")
             } catch (_: CancellationException) {
                 BackgroundJobs.messages.tryEmit("MP4再構築をキャンセルしました: ${source.name}")
             } catch (error: Throwable) {
