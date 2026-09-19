@@ -152,7 +152,10 @@ internal object CastPlaybackSessionManager {
         val appContext = context.applicationContext
         val relay = CastMediaRelay(appContext, entries)
         prewarmCastWindow(relay, entries, resolvedStartIndex)
-        val localPlayer = ExoPlayer.Builder(appContext)
+        val localPlayer = ExoPlayer.Builder(
+            appContext,
+            AudioClockDetachedDriftRenderersFactory(appContext),
+        )
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(appContext).setDataSourceFactory(
                     DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
