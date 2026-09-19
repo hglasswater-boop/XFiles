@@ -16,14 +16,14 @@ import app.local1st.files.core.prefs.SmbConnectionRepo
 import java.io.Closeable
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.util.concurrent.CancellationException
+import kotlinx.coroutines.CancellationException
 
 /**
  * Rebuilds a video's MP4 container without decoding or re-encoding any media samples.
  *
  * Android's MediaExtractor parses the source container and MediaMuxer writes the selected tracks
- * into a fresh MP4 index. The sample payload is copied verbatim, which makes this useful for
- * isolating container/index problems from codec/decoder problems without bundling FFmpeg.
+ * into a fresh MP4 index. The compressed sample payload is copied verbatim, which makes this useful
+ * for isolating container/index problems from codec/decoder problems without bundling FFmpeg.
  */
 object VideoRemuxer {
     data class Result(
@@ -52,20 +52,23 @@ object VideoRemuxer {
             when {
                 source.localPath != null -> extractor.setDataSource(source.localPath)
                 source.scheme == "content" -> {
-                    inputFd = resolver.openFileDescriptor(Uri.parse(source.id), "r")
+                    val descriptor = resolver.openFileDescriptor(Uri.parse(source.id), "r")
                         ?: throw IOException("入力動画を開けません")
-                    extractor.setDataSource(inputFd.fileDescriptor)
+                    inputFd = descriptor
+                    extractor.setDataSource(descriptor.fileDescriptor)
                 }
                 source.scheme == XId.SCHEME_ROOT -> {
                     val transport = PrivilegedAccess.fdTransport()
                         ?: throw IOException("Root動画を開くための権限がありません")
-                    inputFd = transport.openFd(source.path, write = false)
+                    val descriptor = transport.openFd(source.path, write = false)
                         ?: throw IOException("入力動画を開けません")
-                    extractor.setDataSource(inputFd.fileDescriptor)
+                    inputFd = descriptor
+                    extractor.setDataSource(descriptor.fileDescriptor)
                 }
                 source.scheme == XId.SCHEME_SMB -> {
-                    remoteSource = SmbMediaDataSource(source, smbConnections)
-                    extractor.setDataSource(remoteSource)
+                    val dataSource = SmbMediaDataSource(source, smbConnections)
+                    remoteSource = dataSource
+                    extractor.setDataSource(dataSource)
                 }
                 else -> throw IOException("この場所の動画はMP4再構築に対応していません")
             }
@@ -93,22 +96,24 @@ object VideoRemuxer {
                     )
                 }
             }
-            if (maximumInputSize > MAX_BUFFER_BYTES) {
+            if (maximumInputSize <= 0 || maximumInputSize > MAX_BUFFER_BYTES) {
                 throw IOException("1サンプルが大きすぎるためMP4再構築できません")
             }
 
-            outputFd = resolver.openFileDescriptor(outputUri, "rwt")
+            val destination = resolver.openFileDescriptor(outputUri, "rwt")
                 ?: throw IOException("出力先を開けません")
-            muxer = MediaMuxer(
-                outputFd.fileDescriptor,
+            outputFd = destination
+            val outputMuxer = MediaMuxer(
+                destination.fileDescriptor,
                 MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
             )
-            if (rotationDegrees != 0) muxer.setOrientationHint(rotationDegrees)
+            muxer = outputMuxer
+            if (rotationDegrees != 0) outputMuxer.setOrientationHint(rotationDegrees)
 
             val trackMap = HashMap<Int, Int>(sourceTracks.size)
             sourceTracks.forEach { track ->
                 val targetTrack = try {
-                    muxer.addTrack(track.format)
+                    outputMuxer.addTrack(track.format)
                 } catch (error: RuntimeException) {
                     val mime = track.format.getString(MediaFormat.KEY_MIME) ?: "unknown"
                     throw IOException("このコーデックはMP4へコピーできません: $mime", error)
@@ -117,7 +122,7 @@ object VideoRemuxer {
                 extractor.selectTrack(track.sourceIndex)
             }
 
-            muxer.start()
+            outputMuxer.start()
             muxerStarted = true
 
             val buffer = ByteBuffer.allocateDirect(maximumInputSize)
@@ -134,7 +139,11 @@ object VideoRemuxer {
                     ?: throw IOException("トラックの対応付けに失敗しました")
 
                 buffer.clear()
-                val sampleSize = extractor.readSampleData(buffer, 0)
+                val sampleSize = try {
+                    extractor.readSampleData(buffer, 0)
+                } catch (error: RuntimeException) {
+                    throw IOException("メディアサンプルを読み取れません", error)
+                }
                 if (sampleSize < 0) break
                 if (sampleSize > buffer.capacity()) {
                     throw IOException("メディアサンプルが大きすぎるためMP4再構築できません")
@@ -151,13 +160,13 @@ object VideoRemuxer {
                 } else {
                     0
                 }
-                muxer.writeSampleData(targetTrack, buffer, info)
+                outputMuxer.writeSampleData(targetTrack, buffer, info)
                 copiedBytes += sampleSize.toLong()
                 onProgress(copiedBytes, totalBytes)
                 extractor.advance()
             }
 
-            muxer.stop()
+            outputMuxer.stop()
             muxerStarted = false
             completed = true
             if (totalBytes > 0L) onProgress(totalBytes, totalBytes)
