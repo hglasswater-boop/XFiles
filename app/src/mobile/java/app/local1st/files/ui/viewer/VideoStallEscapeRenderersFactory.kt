@@ -48,7 +48,7 @@ internal class VideoStallEscapeRenderersFactory(
         if (primaryIndex >= out.size) return
 
         out[primaryIndex] = ForceReleaseVideoRenderer(
-            context = context,
+            appContext = context,
             mediaCodecSelector = mediaCodecSelector,
             allowedVideoJoiningTimeMs = allowedVideoJoiningTimeMs,
             enableDecoderFallback = enableDecoderFallback,
