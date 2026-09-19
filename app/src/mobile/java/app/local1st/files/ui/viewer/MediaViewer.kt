@@ -344,7 +344,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 PLAYER_STORYBOARD_FALLBACK_BOTTOM_CLEARANCE_DP.dp
             }
             val storyboardBottom = storyboardBottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
-            val videoBottomInset = if (inPictureInPicture) {
+            val videoBottomInset = if (inPictureInPicture || ISSUE_124_DISABLE_LOCAL_STORYBOARD) {
                 0.dp
             } else {
                 storyboardBottom + storyboardHeight
@@ -389,7 +389,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         },
                     )
                 }
-                if (!inPictureInPicture) {
+                if (!inPictureInPicture && !ISSUE_124_DISABLE_LOCAL_STORYBOARD) {
                     LocalVideoStoryboard(
                         player = localPlayer,
                         entry = currentEntry,
@@ -725,6 +725,7 @@ internal fun formatPlayTime(ms: Long): String {
     }
 }
 
+private const val ISSUE_124_DISABLE_LOCAL_STORYBOARD = true
 private const val PLAYER_STORYBOARD_FALLBACK_BOTTOM_CLEARANCE_DP = 180
 private const val PLAYER_STORYBOARD_EDGE_GAP_DP = 6
 private const val PLAYER_STORYBOARD_POSITION_REFRESH_MS = 200L
