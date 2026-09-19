@@ -16,7 +16,7 @@ coil = "3.5.0"
 commonsCompress = "1.28.0"
 xz = "1.12"
 junrar = "7.6.0"
-media3 = "1.11.0"
+media3 = "1.11.1"
 iconsExtended = "1.7.8"
 shizuku = "13.1.5"
 smbj = "0.14.0"
@@ -76,7 +76,7 @@ auto-value-annotations = { group = "com.google.auto.value", name = "auto-value-a
 error-prone-annotations = { group = "com.google.errorprone", name = "error_prone_annotations", version.ref = "errorProneAnnotations" }
 protobuf-java-util = { group = "com.google.protobuf", name = "protobuf-java-util", version.ref = "protobuf" }
 dagger = { group = "com.google.dagger", name = "dagger", version.ref = "dagger" }
-javax-inject = { group = "javax.inject", name = "javax.inject", version.ref = "javaxInject" }
+javax-inject = { group = "javax.inject", name = "javax-inject", version.ref = "javaxInject" }
 jose4j = { group = "org.bitbucket.b_c", name = "jose4j", version.ref = "jose4j" }
 slf4j = { group = "org.slf4j", name = "slf4j-api", version.ref = "slf4j" }
 failureaccess = { group = "com.google.guava", name = "failureaccess", version.ref = "failureAccess" }
