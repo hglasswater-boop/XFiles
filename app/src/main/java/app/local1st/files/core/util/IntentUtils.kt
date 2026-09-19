@@ -11,6 +11,7 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.core.graphics.drawable.toBitmap
+import app.local1st.files.RemuxActivity
 import app.local1st.files.core.fs.XEntry
 import java.io.File
 
@@ -77,6 +78,10 @@ object IntentUtils {
     } catch (_: Throwable) {
         false
     }
+
+    /** Launch XFiles' internal zero-transcode MP4 remux save flow for one video. */
+    fun remuxVideo(context: Context, entry: XEntry): Boolean =
+        !entry.isDir && context.launch(RemuxActivity.createIntent(context, entry))
 
     /** Shares local files and supported remote files through the system chooser. */
     fun share(context: Context, entries: List<XEntry>): Boolean {
