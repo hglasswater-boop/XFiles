@@ -56,15 +56,13 @@ object VideoResumeStore {
     fun load(context: Context, mediaId: String): Long =
         prefs(context).getLong(mediaId, 0L).coerceAtLeast(0L)
 
+    /**
+     * Diagnostic build for #124: intentionally disable resume-position writes while keeping
+     * resume reads/restores intact. This removes the 2-second periodic SharedPreferences write
+     * path from active playback. The normal implementation stays unchanged on main.
+     */
     fun save(context: Context, mediaId: String, positionMs: Long, durationMs: Long) {
-        val normalized = normalizeVideoResumePosition(positionMs, durationMs)
-        prefs(context).edit().apply {
-            if (normalized == null) {
-                remove(mediaId)
-            } else {
-                putLong(mediaId, normalized)
-            }
-        }.apply()
+        // Intentionally no-op for #124 A/B diagnosis.
     }
 
     fun clear(context: Context, mediaId: String) {
