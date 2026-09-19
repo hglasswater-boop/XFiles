@@ -69,6 +69,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".RemuxActivity"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
         <receiver
             android:name=".core.util.SelfUpdateInstallReceiver"
             android:exported="false" />
