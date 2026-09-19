@@ -1,6 +1,7 @@
 package app.local1st.files.ui.viewer
 
 import android.content.Context
+import android.util.Log
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.common.AudioAttributes
@@ -9,10 +10,14 @@ import androidx.media3.common.DeviceInfo
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.local1st.files.core.cast.CastPlaybackBridge
 import app.local1st.files.core.cast.CastPlaybackKeepAliveService
@@ -25,6 +30,40 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
+
+private const val CODEC_PROBE_TAG = "XFilesCodecProbe"
+
+/**
+ * Diagnostic selector for #124.
+ *
+ * Keep every non-H.264 track on Media3's normal decoder order, but for H.264 expose only codecs
+ * that Media3 identifies as software-only. If the device has no software H.264 decoder the format
+ * is intentionally unsupported in this diagnostic build rather than silently falling back to the
+ * hardware decoder and invalidating the A/B test.
+ */
+@UnstableApi
+private object SoftwareOnlyH264MediaCodecSelector : MediaCodecSelector {
+    override fun getDecoderInfos(
+        mimeType: String,
+        requiresSecureDecoder: Boolean,
+        requiresTunnelingDecoder: Boolean,
+    ): List<MediaCodecInfo> {
+        val available = MediaCodecSelector.DEFAULT.getDecoderInfos(
+            mimeType,
+            requiresSecureDecoder,
+            requiresTunnelingDecoder,
+        )
+        if (mimeType != MimeTypes.VIDEO_H264) return available
+
+        val softwareOnly = available.filter { it.softwareOnly }
+        Log.i(
+            CODEC_PROBE_TAG,
+            "H.264 decoders=${available.joinToString { \"${it.name}[sw=${it.softwareOnly}]\" }}; " +
+                "forcing=${softwareOnly.joinToString { it.name }.ifEmpty { \"<none>\" }}",
+        )
+        return softwareOnly
+    }
+}
 
 /**
  * Process-scoped owner for mobile Cast playback.
@@ -152,7 +191,9 @@ internal object CastPlaybackSessionManager {
         val appContext = context.applicationContext
         val relay = CastMediaRelay(appContext, entries)
         prewarmCastWindow(relay, entries, resolvedStartIndex)
-        val localPlayer = ExoPlayer.Builder(appContext)
+        val renderersFactory = DefaultRenderersFactory(appContext)
+            .setMediaCodecSelector(SoftwareOnlyH264MediaCodecSelector)
+        val localPlayer = ExoPlayer.Builder(appContext, renderersFactory)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(appContext).setDataSourceFactory(
                     DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
