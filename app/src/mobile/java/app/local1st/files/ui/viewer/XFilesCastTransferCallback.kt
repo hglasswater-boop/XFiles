@@ -3,6 +3,7 @@ package app.local1st.files.ui.viewer
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.PlayerTransferState
 import androidx.media3.common.util.UnstableApi
@@ -20,8 +21,9 @@ internal class XFilesCastTransferCallback(
         val sourceState = PlayerTransferState.fromPlayer(sourcePlayer)
 
         if (targetPlayer === remotePlayer) {
-            val currentItem = sourcePlayer.currentMediaItem
-            val remoteState = if (currentItem == null) {
+            val sourceItems = List(sourcePlayer.mediaItemCount, sourcePlayer::getMediaItemAt)
+            val remoteItems = castReceiverItems(sourceItems, sourcePlayer.currentMediaItemIndex)
+            val remoteState = if (remoteItems.isEmpty()) {
                 sourceState.buildUpon()
                     .setMediaItems(emptyList())
                     .setCurrentMediaItemIndex(C.INDEX_UNSET)
@@ -29,7 +31,7 @@ internal class XFilesCastTransferCallback(
                     .build()
             } else {
                 sourceState.buildUpon()
-                    .setMediaItems(listOf(currentItem))
+                    .setMediaItems(remoteItems)
                     .setCurrentMediaItemIndex(0)
                     .build()
             }
@@ -41,10 +43,7 @@ internal class XFilesCastTransferCallback(
         // active. On return, merge the remote position/play state into that existing playlist
         // instead of replacing it with the receiver's one-item queue.
         val localItems = List(targetPlayer.mediaItemCount, targetPlayer::getMediaItemAt)
-        val remoteMediaId = sourcePlayer.currentMediaItem?.mediaId
-        val localIndex = remoteMediaId?.let { mediaId ->
-            localItems.indexOfFirst { it.mediaId == mediaId }.takeIf { it >= 0 }
-        }
+        val localIndex = matchingLocalMediaIndex(localItems, sourcePlayer.currentMediaItem?.mediaId)
 
         if (localItems.isNotEmpty() && localIndex != null) {
             sourceState.buildUpon()
@@ -58,4 +57,19 @@ internal class XFilesCastTransferCallback(
             sourceState.setToPlayer(targetPlayer)
         }
     }
+}
+
+/** Returns the only item that may be sent to the Cast receiver for a transfer. */
+internal fun castReceiverItems(
+    mediaItems: List<MediaItem>,
+    currentMediaItemIndex: Int,
+): List<MediaItem> = mediaItems.getOrNull(currentMediaItemIndex)?.let(::listOf).orEmpty()
+
+/** Maps the receiver's single current item back into the local folder playlist. */
+internal fun matchingLocalMediaIndex(
+    mediaItems: List<MediaItem>,
+    remoteMediaId: String?,
+): Int? {
+    if (remoteMediaId == null) return null
+    return mediaItems.indexOfFirst { it.mediaId == remoteMediaId }.takeIf { it >= 0 }
 }
