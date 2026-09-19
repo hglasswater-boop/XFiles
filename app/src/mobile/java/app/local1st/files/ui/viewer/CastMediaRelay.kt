@@ -55,11 +55,9 @@ internal class CastMediaRelay(
     private val smbHandles = ConcurrentHashMap<String, SmbRandomAccessFile>()
     private val streamGenerations = ConcurrentHashMap<String, AtomicLong>()
     private val host = findLanIpv4(context)?.hostAddress
-    private val server = if (host != null) {
-        runCatching { ServerSocket(0, 32, InetAddress.getByName("0.0.0.0")) }.getOrNull()
-    } else {
-        null
-    }
+    private val server = runCatching {
+        ServerSocket(0, 32, InetAddress.getByName("0.0.0.0"))
+    }.getOrNull()
 
     private val sourcesById: Map<String, Source> = entries.mapNotNull { entry ->
         val uri = relaySourceUri(entry) ?: return@mapNotNull null
@@ -75,7 +73,7 @@ internal class CastMediaRelay(
 
     private val wakeLock = if (server != null) {
         (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "XFiles:CastRelay")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "XFiles:MediaRelay")
             .apply {
                 setReferenceCounted(false)
                 acquire()
@@ -88,15 +86,29 @@ internal class CastMediaRelay(
         server?.let { relayServer -> executor.execute { acceptLoop(relayServer) } }
     }
 
+    /** URL reachable by a Chromecast on the current LAN. */
     fun urlFor(mediaId: String): Uri? {
         val source = sourcesById[mediaId] ?: return null
         val relayServer = server ?: return null
         val relayHost = host ?: return null
         if (closed.get()) return null
-        return Uri.parse(
-            "http://$relayHost:${relayServer.localPort}/media/${source.token}/${Uri.encode(source.entry.name)}",
-        )
+        return mediaUrl(relayHost, relayServer.localPort, source)
     }
+
+    /**
+     * Loopback URL for the in-process libVLC player. Using the same relay keeps SMB reads on
+     * XFiles' Rust/random-access backend instead of handing smb:// directly to libVLC.
+     */
+    fun localUrlFor(mediaId: String): Uri? {
+        val source = sourcesById[mediaId] ?: return null
+        val relayServer = server ?: return null
+        if (closed.get()) return null
+        return mediaUrl("127.0.0.1", relayServer.localPort, source)
+    }
+
+    private fun mediaUrl(host: String, port: Int, source: Source): Uri = Uri.parse(
+        "http://$host:$port/media/${source.token}/${Uri.encode(source.entry.name)}",
+    )
 
     /**
      * Opens the expensive SMB session/file handles before the Cast receiver asks for them. This is
