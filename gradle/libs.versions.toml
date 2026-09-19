@@ -54,7 +54,7 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
-compose-bom = { group = "androidx.compose.ui", name = "ui-bom", version.ref = "composeBom" }
+compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 compose-ui = { group = "androidx.compose.ui", name = "ui" }
 compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
@@ -77,7 +77,7 @@ auto-value-annotations = { group = "com.google.auto.value", name = "auto-value-a
 error-prone-annotations = { group = "com.google.errorprone", name = "error_prone_annotations", version.ref = "errorProneAnnotations" }
 protobuf-java-util = { group = "com.google.protobuf", name = "protobuf-java-util", version.ref = "protobuf" }
 dagger = { group = "com.google.dagger", name = "dagger", version.ref = "dagger" }
-javax-inject = { group = "javax.inject", name = "javaxInject", version.ref = "javaxInject" }
+javax-inject = { group = "javax.inject", name = "javax.inject", version.ref = "javaxInject" }
 jose4j = { group = "org.bitbucket.b_c", name = "jose4j", version.ref = "jose4j" }
 slf4j = { group = "org.slf4j", name = "slf4j-api", version.ref = "slf4j" }
 failureaccess = { group = "com.google.guava", name = "failureaccess", version.ref = "failureAccess" }
