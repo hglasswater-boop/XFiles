@@ -160,6 +160,11 @@ internal object CastPlaybackSessionManager {
             )
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .build()
+        localPlayer.setTrackSelectionParameters(
+            localPlayer.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                .build(),
+        )
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
             .setMediaItemConverter(
                 XFilesCastMediaItemConverter(
