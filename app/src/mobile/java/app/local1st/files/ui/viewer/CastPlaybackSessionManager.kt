@@ -158,6 +158,7 @@ internal object CastPlaybackSessionManager {
                     DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
                 ),
             )
+            .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .build()
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
