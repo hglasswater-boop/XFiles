@@ -160,6 +160,7 @@ internal object CastPlaybackSessionManager {
             )
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .build()
+        localPlayer.installIssue124Diagnostics(appContext)
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
             .setMediaItemConverter(
                 XFilesCastMediaItemConverter(
