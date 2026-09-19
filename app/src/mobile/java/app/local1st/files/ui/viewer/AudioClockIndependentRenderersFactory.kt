@@ -3,7 +3,6 @@ package app.local1st.files.ui.viewer
 import android.content.Context
 import android.os.Handler
 import androidx.media3.common.C
-import androidx.media3.common.text.TextOutput
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ForwardingRenderer
@@ -11,6 +10,7 @@ import androidx.media3.exoplayer.MediaClock
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.metadata.MetadataOutput
+import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 /**
