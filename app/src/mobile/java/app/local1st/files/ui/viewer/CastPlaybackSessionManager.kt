@@ -57,29 +57,109 @@ internal object CastPlaybackSessionManager {
         var lifecycleListener: Player.Listener? = null,
     )
 
+    /**
+     * Presents the full folder playlist to XFiles while keeping the actual Cast receiver queue at
+     * exactly one item. Local playback still uses the real ExoPlayer playlist. Remote index jumps
+     * are translated into replacing the receiver's sole item.
+     */
     private class HandoffAwarePlayer(
         private val delegatePlayer: Player,
         private val entryIds: List<String>,
         private val mediaItems: List<MediaItem>,
         private val handoffTracker: CastHandoffTracker,
+        private val onRemoteSelection: (mediaItemIndex: Int, positionMs: Long?) -> Unit,
     ) : ForwardingPlayer(delegatePlayer) {
-        private fun pendingTargetIndex(): Int? {
-            if (delegatePlayer.deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE) return null
-            val targetId = handoffTracker.pendingTargetMediaId ?: return null
-            return entryIds.indexOf(targetId).takeIf { it >= 0 }
+        private fun isRemote(): Boolean =
+            delegatePlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+
+        private fun presentedIndex(): Int? {
+            if (!isRemote()) return null
+            val mediaId = handoffTracker.pendingTargetMediaId
+                ?: delegatePlayer.currentMediaItem?.mediaId
+                ?: return null
+            return entryIds.indexOf(mediaId).takeIf { it >= 0 }
         }
 
         override fun getCurrentMediaItemIndex(): Int =
-            pendingTargetIndex() ?: super.getCurrentMediaItemIndex()
+            presentedIndex() ?: super.getCurrentMediaItemIndex()
+
+        override fun getMediaItemCount(): Int =
+            if (isRemote()) mediaItems.size else super.getMediaItemCount()
+
+        override fun getMediaItemAt(index: Int): MediaItem =
+            if (isRemote()) mediaItems[index] else super.getMediaItemAt(index)
 
         override fun getCurrentMediaItem(): MediaItem? =
-            pendingTargetIndex()?.let(mediaItems::getOrNull) ?: super.getCurrentMediaItem()
+            presentedIndex()?.let(mediaItems::getOrNull) ?: super.getCurrentMediaItem()
 
         override fun getMediaMetadata(): MediaMetadata =
-            pendingTargetIndex()
+            presentedIndex()
                 ?.let(mediaItems::getOrNull)
                 ?.mediaMetadata
                 ?: super.getMediaMetadata()
+
+        override fun hasPreviousMediaItem(): Boolean =
+            if (isRemote()) (presentedIndex() ?: 0) > 0 else super.hasPreviousMediaItem()
+
+        override fun hasNextMediaItem(): Boolean =
+            if (isRemote()) {
+                val index = presentedIndex() ?: 0
+                index < mediaItems.lastIndex
+            } else {
+                super.hasNextMediaItem()
+            }
+
+        override fun getPreviousMediaItemIndex(): Int =
+            if (isRemote()) {
+                val index = presentedIndex() ?: return C.INDEX_UNSET
+                (index - 1).takeIf { it >= 0 } ?: C.INDEX_UNSET
+            } else {
+                super.getPreviousMediaItemIndex()
+            }
+
+        override fun getNextMediaItemIndex(): Int =
+            if (isRemote()) {
+                val index = presentedIndex() ?: return C.INDEX_UNSET
+                (index + 1).takeIf { it <= mediaItems.lastIndex } ?: C.INDEX_UNSET
+            } else {
+                super.getNextMediaItemIndex()
+            }
+
+        override fun seekToDefaultPosition(mediaItemIndex: Int) {
+            if (isRemote()) {
+                if (mediaItemIndex in mediaItems.indices) onRemoteSelection(mediaItemIndex, null)
+            } else {
+                super.seekToDefaultPosition(mediaItemIndex)
+            }
+        }
+
+        override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+            if (isRemote()) {
+                if (mediaItemIndex in mediaItems.indices) onRemoteSelection(mediaItemIndex, positionMs)
+            } else {
+                super.seekTo(mediaItemIndex, positionMs)
+            }
+        }
+
+        override fun seekToPreviousMediaItem() {
+            if (isRemote()) {
+                getPreviousMediaItemIndex()
+                    .takeIf { it != C.INDEX_UNSET }
+                    ?.let { onRemoteSelection(it, null) }
+            } else {
+                super.seekToPreviousMediaItem()
+            }
+        }
+
+        override fun seekToNextMediaItem() {
+            if (isRemote()) {
+                getNextMediaItemIndex()
+                    .takeIf { it != C.INDEX_UNSET }
+                    ?.let { onRemoteSelection(it, null) }
+            } else {
+                super.seekToNextMediaItem()
+            }
+        }
     }
 
     private val lock = Any()
@@ -133,14 +213,10 @@ internal object CastPlaybackSessionManager {
                     )
                 ) {
                     ReusedRemoteSelectionAction.None -> Unit
-                    is ReusedRemoteSelectionAction.SeekToDefault -> {
-                        existing.castPlayer.seekToDefaultPosition(action.mediaItemIndex)
-                        existing.castPlayer.playWhenReady = true
-                    }
-                    is ReusedRemoteSelectionAction.SeekToPosition -> {
-                        existing.castPlayer.seekTo(action.mediaItemIndex, action.positionMs)
-                        existing.castPlayer.playWhenReady = true
-                    }
+                    is ReusedRemoteSelectionAction.SeekToDefault ->
+                        existing.player.seekToDefaultPosition(action.mediaItemIndex)
+                    is ReusedRemoteSelectionAction.SeekToPosition ->
+                        existing.player.seekTo(action.mediaItemIndex, action.positionMs)
                 }
             }
             viewerSession = existing
@@ -174,6 +250,7 @@ internal object CastPlaybackSessionManager {
         val castPlayer = CastPlayer.Builder(appContext)
             .setLocalPlayer(localPlayer)
             .setRemotePlayer(remotePlayer)
+            .setTransferCallback(XFilesCastTransferCallback(remotePlayer))
             .build()
         val handoffTracker = CastHandoffTracker(startEntry?.id)
         val presentationPlayer = HandoffAwarePlayer(
@@ -181,6 +258,17 @@ internal object CastPlaybackSessionManager {
             entryIds = ids,
             mediaItems = mediaItems,
             handoffTracker = handoffTracker,
+            onRemoteSelection = { mediaItemIndex, positionMs ->
+                selectRemoteMedia(
+                    castPlayer = castPlayer,
+                    handoffTracker = handoffTracker,
+                    relay = relay,
+                    entries = entries,
+                    mediaItems = mediaItems,
+                    mediaItemIndex = mediaItemIndex,
+                    positionMs = positionMs,
+                )
+            },
         )
         val notificationController = object : CastPlaybackNotificationController {
             override fun togglePlayPause() {
@@ -194,18 +282,15 @@ internal object CastPlaybackSessionManager {
             }
 
             override fun previous() {
-                if (!castPlayer.hasPreviousMediaItem()) return
-                val targetIndex = (castPlayer.currentMediaItemIndex - 1).coerceAtLeast(0)
-                relay.prewarm(listOfNotNull(entries.getOrNull(targetIndex)?.id))
-                castPlayer.seekToDefaultPosition(targetIndex)
+                if (presentationPlayer.hasPreviousMediaItem()) {
+                    presentationPlayer.seekToPreviousMediaItem()
+                }
             }
 
             override fun next() {
-                if (!castPlayer.hasNextMediaItem()) return
-                val targetIndex = (castPlayer.currentMediaItemIndex + 1)
-                    .coerceAtMost(entries.lastIndex)
-                relay.prewarm(listOfNotNull(entries.getOrNull(targetIndex)?.id))
-                castPlayer.seekToDefaultPosition(targetIndex)
+                if (presentationPlayer.hasNextMediaItem()) {
+                    presentationPlayer.seekToNextMediaItem()
+                }
             }
         }
 
@@ -287,13 +372,34 @@ internal object CastPlaybackSessionManager {
             lifecycleListener = lifecycleListener,
         )
         castPlayer.addListener(lifecycleListener)
-        castPlayer.setMediaItems(
-            mediaItems,
-            resolvedStartIndex,
-            initialStartMs ?: C.TIME_UNSET,
-        )
-        castPlayer.prepare()
-        castPlayer.playWhenReady = true
+
+        if (isRemote(created)) {
+            // Cast was already connected before this viewer/session was created. Keep the local
+            // folder playlist ready for a future transfer back, but load only the selected item on
+            // the receiver. This is the critical cross-folder path.
+            localPlayer.setMediaItems(
+                mediaItems,
+                resolvedStartIndex,
+                initialStartMs ?: C.TIME_UNSET,
+            )
+            selectRemoteMedia(
+                castPlayer = castPlayer,
+                handoffTracker = handoffTracker,
+                relay = relay,
+                entries = entries,
+                mediaItems = mediaItems,
+                mediaItemIndex = resolvedStartIndex,
+                positionMs = initialStartMs,
+            )
+        } else {
+            castPlayer.setMediaItems(
+                mediaItems,
+                resolvedStartIndex,
+                initialStartMs ?: C.TIME_UNSET,
+            )
+            castPlayer.prepare()
+            castPlayer.playWhenReady = true
+        }
 
         activeSession = created
         viewerSession = created
@@ -323,6 +429,28 @@ internal object CastPlaybackSessionManager {
         }
     }
 
+    private fun selectRemoteMedia(
+        castPlayer: CastPlayer,
+        handoffTracker: CastHandoffTracker,
+        relay: CastMediaRelay,
+        entries: List<XEntry>,
+        mediaItems: List<MediaItem>,
+        mediaItemIndex: Int,
+        positionMs: Long?,
+    ) {
+        val targetItem = mediaItems.getOrNull(mediaItemIndex) ?: return
+        handoffTracker.beginRemoteHandoff(targetItem.mediaId)
+        entries.getOrNull(mediaItemIndex)?.id?.let { relay.prewarm(listOf(it)) }
+
+        if (positionMs != null) {
+            castPlayer.setMediaItem(targetItem, positionMs)
+        } else {
+            castPlayer.setMediaItem(targetItem)
+        }
+        castPlayer.prepare()
+        castPlayer.playWhenReady = true
+    }
+
     private fun prewarmCastWindow(relay: CastMediaRelay, entries: List<XEntry>, centerIndex: Int) {
         if (entries.isEmpty()) return
         val center = centerIndex.coerceIn(0, entries.lastIndex)
@@ -350,8 +478,8 @@ internal object CastPlaybackSessionManager {
             entry = session.entries[index],
             playlist = session.entries,
             playing = !handoffPending && session.castPlayer.isPlaying,
-            hasPrevious = if (handoffPending) index > 0 else session.castPlayer.hasPreviousMediaItem(),
-            hasNext = if (handoffPending) index < session.entries.lastIndex else session.castPlayer.hasNextMediaItem(),
+            hasPrevious = session.player.hasPreviousMediaItem(),
+            hasNext = session.player.hasNextMediaItem(),
         )
         _activePlayback.value = playback
 
