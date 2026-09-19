@@ -29,10 +29,10 @@ import kotlinx.coroutines.flow.receiveAsFlow
 /**
  * Process-scoped owner for mobile Cast playback.
  *
- * A Cast receiver may still be reading media through [CastMediaRelay] after the viewer screen is
- * dismissed. Keeping the player stack and relay here lets that playback continue while the user
- * returns to the file browser. While playback is remote, a media-playback foreground service also
- * keeps this process and relay eligible to run when XFiles itself is backgrounded.
+ * Local playback uses libVLC through [LibVlcLocalPlayer]. A muted Media3 shadow player preserves
+ * playlist/timeline/listener behavior for the existing UI and seamless Cast handoff. Remote Cast
+ * playback remains Media3/Google Cast. Both local libVLC and Chromecast read remote files through
+ * [CastMediaRelay], so SMB continues to use XFiles' Rust/random-access backend.
  */
 @UnstableApi
 internal object CastPlaybackSessionManager {
@@ -152,14 +152,22 @@ internal object CastPlaybackSessionManager {
         val appContext = context.applicationContext
         val relay = CastMediaRelay(appContext, entries)
         prewarmCastWindow(relay, entries, resolvedStartIndex)
-        val localPlayer = ExoPlayer.Builder(appContext)
+        val shadowPlayer = ExoPlayer.Builder(appContext)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(appContext).setDataSourceFactory(
                     DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
                 ),
             )
-            .setAudioAttributes(AudioAttributes.DEFAULT, true)
+            // libVLC owns audible local output and audio focus. The Media3 shadow exists only for
+            // playlist/timeline events and Cast handoff state.
+            .setAudioAttributes(AudioAttributes.DEFAULT, false)
             .build()
+            .apply { volume = 0f }
+        val localPlayer = LibVlcLocalPlayer(
+            context = appContext,
+            shadowPlayer = shadowPlayer,
+            relay = relay,
+        )
         val remotePlayer = RemoteCastPlayer.Builder(appContext)
             .setMediaItemConverter(
                 XFilesCastMediaItemConverter(
