@@ -1,7 +1,6 @@
 package app.local1st.files.ui.viewer
 
 import android.content.Context
-import android.util.Log
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.common.AudioAttributes
@@ -31,8 +30,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 
-private const val CODEC_PROBE_TAG = "XFilesCodecProbe"
-
 /**
  * Diagnostic selector for #124.
  *
@@ -54,14 +51,7 @@ private object SoftwareOnlyH264MediaCodecSelector : MediaCodecSelector {
             requiresTunnelingDecoder,
         )
         if (mimeType != MimeTypes.VIDEO_H264) return available
-
-        val softwareOnly = available.filter { it.softwareOnly }
-        Log.i(
-            CODEC_PROBE_TAG,
-            "H.264 decoders=${available.joinToString { \"${it.name}[sw=${it.softwareOnly}]\" }}; " +
-                "forcing=${softwareOnly.joinToString { it.name }.ifEmpty { \"<none>\" }}",
-        )
-        return softwareOnly
+        return available.filter { it.softwareOnly }
     }
 }
 
