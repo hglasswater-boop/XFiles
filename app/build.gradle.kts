@@ -154,6 +154,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     add("mobileImplementation", libs.media3.cast)
+    add("mobileImplementation", "org.videolan.android:libvlc-all:3.7.6")
 
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
