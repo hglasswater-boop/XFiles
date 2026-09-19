@@ -12,6 +12,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.local1st.files.core.cast.CastPlaybackBridge
@@ -152,7 +153,9 @@ internal object CastPlaybackSessionManager {
         val appContext = context.applicationContext
         val relay = CastMediaRelay(appContext, entries)
         prewarmCastWindow(relay, entries, resolvedStartIndex)
-        val localPlayer = ExoPlayer.Builder(appContext)
+        val renderersFactory = DefaultRenderersFactory(appContext)
+            .setVideoRendererEarlySchedulingThresholdUs(0L)
+        val localPlayer = ExoPlayer.Builder(appContext, renderersFactory)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(appContext).setDataSourceFactory(
                     DefaultDataSource.Factory(appContext, XFilesRemoteDataSource.Factory()),
