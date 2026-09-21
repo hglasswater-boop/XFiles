@@ -4,6 +4,11 @@ import kotlin.math.abs
 
 internal const val STORYBOARD_DUPLICATE_SYNC_VERIFY_MIN_DISTANCE_MS = 5_000L
 
+/**
+ * Flags a repeated sync-frame fingerprint only when the requested timestamps are meaningfully
+ * separated. The caller then verifies that suspicious sample with an exact-position decode before
+ * deciding that sync seeking is unreliable for the video.
+ */
 internal fun shouldVerifyDuplicateStoryboardSync(
     previousFingerprint: Long?,
     currentFingerprint: Long,
