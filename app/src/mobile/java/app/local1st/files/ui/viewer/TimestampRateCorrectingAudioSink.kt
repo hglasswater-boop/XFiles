@@ -147,7 +147,8 @@ internal class TimestampRateCorrectingAudioSink(
 @UnstableApi
 internal class TimestampRateCorrectingRenderersFactory(
     context: Context,
-    private val playbackAudioOffsetController: PlaybackAudioOffsetController? = null,
+    private val playbackAudioOffsetController: PlaybackAudioOffsetController =
+        PlaybackAudioOffset.controller,
 ) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(
         context: Context,
@@ -160,8 +161,6 @@ internal class TimestampRateCorrectingRenderersFactory(
             enableAudioOutputPlaybackParams,
         ) ?: return null
         val rateCorrectingSink = TimestampRateCorrectingAudioSink(defaultSink)
-        return playbackAudioOffsetController
-            ?.let { PlaybackOffsetAudioSink(rateCorrectingSink, it) }
-            ?: rateCorrectingSink
+        return PlaybackOffsetAudioSink(rateCorrectingSink, playbackAudioOffsetController)
     }
 }
