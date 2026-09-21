@@ -1,5 +1,6 @@
 package app.local1st.files.ui.viewer
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -197,6 +198,24 @@ internal fun CastStoryboardStrip(
                 minSpacingSeconds,
                 vertical,
             ) { mutableStateOf(false) }
+            var previousPlaybackPositionMs by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Long?>(null) }
+            var previousPlaybackObservedAtMs by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Long?>(null) }
+            var previousNearestIndex by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Int?>(null) }
             var fineFrameIndex by remember(
                 entry.id,
                 entry.mtime,
@@ -241,6 +260,58 @@ internal fun CastStoryboardStrip(
                     listState.scrollToItem(nearestIndex)
                 }
                 alignedToPlayback = true
+            }
+
+            // Keep the current storyboard frame visible after an explicit seek without turning the
+            // storyboard into a second playback scrubber. Normal forward playback is ignored, and
+            // user scrolling always wins over automatic positioning.
+            LaunchedEffect(positionMs, nearestIndex, vertical, alignedToPlayback) {
+                val observedAtMs = SystemClock.elapsedRealtime()
+                val previousPositionMs = previousPlaybackPositionMs
+                val previousObservedAtMs = previousPlaybackObservedAtMs
+                val previousIndex = previousNearestIndex
+                previousPlaybackPositionMs = positionMs
+                previousPlaybackObservedAtMs = observedAtMs
+                previousNearestIndex = nearestIndex
+
+                if (
+                    !alignedToPlayback ||
+                    previousPositionMs == null ||
+                    previousObservedAtMs == null ||
+                    previousIndex == null
+                ) {
+                    return@LaunchedEffect
+                }
+                val shouldFollow = shouldAutoFollowStoryboard(
+                    previousPositionMs = previousPositionMs,
+                    positionMs = positionMs,
+                    elapsedRealtimeMs = observedAtMs - previousObservedAtMs,
+                    previousNearestIndex = previousIndex,
+                    nearestIndex = nearestIndex,
+                )
+                if (!shouldFollow) return@LaunchedEffect
+
+                val userOrProgrammaticScrollInProgress = if (vertical) {
+                    gridState.isScrollInProgress
+                } else {
+                    listState.isScrollInProgress
+                }
+                if (userOrProgrammaticScrollInProgress) return@LaunchedEffect
+
+                val alreadyVisible = if (vertical) {
+                    gridState.layoutInfo.visibleItemsInfo.any { it.index == nearestIndex }
+                } else {
+                    listState.layoutInfo.visibleItemsInfo.any { it.index == nearestIndex }
+                }
+                if (alreadyVisible) return@LaunchedEffect
+
+                scope.launch {
+                    if (vertical) {
+                        gridState.animateScrollToItem(nearestIndex)
+                    } else {
+                        listState.animateScrollToItem(nearestIndex)
+                    }
+                }
             }
 
             Column(modifier = modifier.fillMaxSize()) {
