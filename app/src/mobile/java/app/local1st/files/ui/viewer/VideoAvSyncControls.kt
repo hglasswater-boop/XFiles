@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -16,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -25,17 +28,24 @@ import app.local1st.files.core.prefs.VIDEO_AV_SYNC_MAX_OFFSET_MS
 import app.local1st.files.core.prefs.VideoAvSyncStore
 import app.local1st.files.ui.components.TooltipIconButton
 import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
-/** Manual, per-video A/V sync control. Automatic estimation is layered on this same offset path. */
+/** Per-video manual A/V sync control with an offline lip/speech estimate for local files. */
 @Composable
 internal fun VideoAvSyncButton(
     player: ExoPlayer,
     entry: XEntry,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     var showDialog by remember(entry.id) { mutableStateOf(false) }
     var offsetMs by remember(entry.id) {
         mutableLongStateOf(VideoAvSyncStore.load(context, entry.id))
+    }
+    var analyzing by remember(entry.id) { mutableStateOf(false) }
+    var analysisResult by remember(entry.id) {
+        mutableStateOf<LocalLipSyncAnalysisResult?>(null)
     }
 
     fun applyOffset(requestedMs: Long) {
@@ -51,6 +61,28 @@ internal fun VideoAvSyncButton(
             // A same-position seek flushes AudioSink/decoder state and makes the new correction
             // start at a clean playback window without changing play/pause state.
             player.seekTo(player.currentPosition.coerceAtLeast(0L))
+        }
+    }
+
+    fun startAutomaticAnalysis() {
+        if (analyzing || entry.localPath == null) return
+        val analysisPositionMs = player.currentPosition.coerceAtLeast(0L)
+        val resumeAfterAnalysis = player.isPlaying
+        player.pause()
+        analysisResult = null
+        analyzing = true
+        scope.launch {
+            try {
+                analysisResult = LocalLipSyncAnalyzer.analyze(
+                    localPath = entry.localPath,
+                    centerPositionMs = analysisPositionMs,
+                )
+            } finally {
+                analyzing = false
+                if (resumeAfterAnalysis && player.currentMediaItem?.mediaId == entry.id) {
+                    player.play()
+                }
+            }
         }
     }
 
@@ -82,7 +114,7 @@ internal fun VideoAvSyncButton(
 
     if (showDialog) {
         AlertDialog(
-            onDismissRequest = { showDialog = false },
+            onDismissRequest = { if (!analyzing) showDialog = false },
             title = { Text("音ズレ補正") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -92,10 +124,16 @@ internal fun VideoAvSyncButton(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                     ) {
-                        TextButton(onClick = { applyOffset(offsetMs - 100L) }) {
+                        TextButton(
+                            enabled = !analyzing,
+                            onClick = { applyOffset(offsetMs - 100L) },
+                        ) {
                             Text("前へ100")
                         }
-                        TextButton(onClick = { applyOffset(offsetMs - 50L) }) {
+                        TextButton(
+                            enabled = !analyzing,
+                            onClick = { applyOffset(offsetMs - 50L) },
+                        ) {
                             Text("前へ50")
                         }
                     }
@@ -103,23 +141,73 @@ internal fun VideoAvSyncButton(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                     ) {
-                        TextButton(onClick = { applyOffset(offsetMs + 50L) }) {
+                        TextButton(
+                            enabled = !analyzing,
+                            onClick = { applyOffset(offsetMs + 50L) },
+                        ) {
                             Text("後ろへ50")
                         }
-                        TextButton(onClick = { applyOffset(offsetMs + 100L) }) {
+                        TextButton(
+                            enabled = !analyzing,
+                            onClick = { applyOffset(offsetMs + 100L) },
+                        ) {
                             Text("後ろへ100")
                         }
                     }
-                    Text("この値は動画ごとに保存されます。自動解析はこの補正値を安全に提案する機能として追加します。")
+
+                    TextButton(
+                        enabled = !analyzing && entry.localPath != null,
+                        onClick = ::startAutomaticAnalysis,
+                    ) {
+                        if (analyzing) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text("  口と声を解析中…")
+                        } else {
+                            Text("口と声から自動解析")
+                        }
+                    }
+                    if (entry.localPath == null) {
+                        Text("自動解析は現在ローカル動画のみ対応です。手動補正はこのまま利用できます。")
+                    }
+                    when (val result = analysisResult) {
+                        is LocalLipSyncAnalysisResult.Success -> {
+                            val analysis = result.analysis
+                            val suggested = analysis.estimate.offsetMs
+                            val confidencePercent = (analysis.confidence * 100f).roundToInt()
+                            Text(
+                                "推定: ${avSyncDescription(suggested).removePrefix("現在: ")} " +
+                                    "(信頼度 $confidencePercent%)",
+                            )
+                            if (analysis.confidence >= AUTO_SUGGESTION_MIN_CONFIDENCE) {
+                                TextButton(
+                                    enabled = !analyzing,
+                                    onClick = { applyOffset(suggested) },
+                                ) {
+                                    Text("推定値を使う")
+                                }
+                            } else {
+                                Text("信頼度が低いため自動適用候補にはしません。話している顔が見える位置で再解析してください。")
+                            }
+                        }
+                        is LocalLipSyncAnalysisResult.Unavailable -> Text(result.reason)
+                        null -> Unit
+                    }
+                    Text("補正値は動画ごとに保存されます。自動解析の推定値も、確認して選んだ場合だけ適用します。")
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showDialog = false }) {
+                TextButton(
+                    enabled = !analyzing,
+                    onClick = { showDialog = false },
+                ) {
                     Text("閉じる")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { applyOffset(0L) }) {
+                TextButton(
+                    enabled = !analyzing,
+                    onClick = { applyOffset(0L) },
+                ) {
                     Text("リセット")
                 }
             },
@@ -138,3 +226,5 @@ private fun avSyncTooltip(offsetMs: Long): String = when {
     offsetMs > 0L -> "音ズレ補正: 音声 ${offsetMs}ms 後ろへ"
     else -> "音ズレ補正"
 }
+
+private const val AUTO_SUGGESTION_MIN_CONFIDENCE = 0.35f
