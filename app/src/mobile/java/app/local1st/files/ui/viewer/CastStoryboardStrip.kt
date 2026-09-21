@@ -74,9 +74,12 @@ import app.local1st.files.ui.browser.StoryboardLoader
 import app.local1st.files.ui.browser.StoryboardResult
 import app.local1st.files.ui.browser.storyboardFineStepMs
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import kotlin.math.abs
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+
+private const val STORYBOARD_MEMORY_CACHE_VERSION_EXTRA = "xfiles-storyboard-file-version"
 
 private sealed interface CastStoryboardUiState {
     data object Loading : CastStoryboardUiState
@@ -345,7 +348,13 @@ internal fun CastStoryboardStrip(
                             ) {
                                 if (image != null) {
                                     AsyncImage(
-                                        model = image,
+                                        model = ImageRequest.Builder(context)
+                                            .data(image)
+                                            .memoryCacheKeyExtra(
+                                                STORYBOARD_MEMORY_CACHE_VERSION_EXTRA,
+                                                "${image.lastModified()}:${image.length()}",
+                                            )
+                                            .build(),
                                         contentDescription = formatVideoDuration(frame.timeMs),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
@@ -407,7 +416,13 @@ internal fun CastStoryboardStrip(
                             ) {
                                 if (image != null) {
                                     AsyncImage(
-                                        model = image,
+                                        model = ImageRequest.Builder(context)
+                                            .data(image)
+                                            .memoryCacheKeyExtra(
+                                                STORYBOARD_MEMORY_CACHE_VERSION_EXTRA,
+                                                "${image.lastModified()}:${image.length()}",
+                                            )
+                                            .build(),
                                         contentDescription = formatVideoDuration(frame.timeMs),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
