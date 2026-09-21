@@ -1,23 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="mobile_update_available_title">XFiles update available</string>
+    <string name="mobile_diagnostic_available_title">XFiles diagnostic build available</string>
     <string name="mobile_update_available_message">Version %1$s, build %2$d is available on GitHub.</string>
     <string name="mobile_update_install_permission_hint">The first update requires allowing XFiles to install unknown apps in Android settings.</string>
-    <string name="mobile_update_install">Download and update</string>
+    <string name="mobile_update_install">Download and install</string>
     <string name="mobile_update_downloading">Downloading…</string>
-    <string name="mobile_update_preparing_install">Preparing update…</string>
+    <string name="mobile_update_preparing_install">Preparing install…</string>
     <string name="mobile_update_later">Later</string>
-    <string name="mobile_update_error">Update failed: %1$s</string>
+    <string name="mobile_update_error">Install failed: %1$s</string>
 
     <string name="update_settings_title">Updates</string>
     <string name="update_current_version">Current version: %1$s (%2$d)</string>
-    <string name="update_auto_check">Automatically check for updates</string>
-    <string name="update_auto_check_summary">Check GitHub for the latest build every time XFiles starts.</string>
+    <string name="update_auto_check">Automatically check normal updates</string>
+    <string name="update_auto_check_summary">Check GitHub for the latest normal build every time XFiles starts.</string>
     <string name="update_last_checked">Last checked: %1$s</string>
     <string name="update_never_checked">Last checked: never</string>
     <string name="update_check_now">Check now</string>
     <string name="update_checking">Checking…</string>
     <string name="update_up_to_date">You already have the latest build.</string>
+    <string name="update_normal_up_to_date">The latest normal build is already installed.</string>
+    <string name="update_diagnostic_up_to_date">No newer diagnostic build is available.</string>
+    <string name="update_install_latest_normal">Install latest normal build</string>
+    <string name="update_install_diagnostic">Install diagnostic build</string>
+    <string name="update_diagnostic_summary">Diagnostic builds install as a separate app and do not replace the normal XFiles installation.</string>
     <string name="update_check_failed">Update check failed: %1$s</string>
 
     <string name="cast_now_playing">Casting now</string>
