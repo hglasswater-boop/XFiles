@@ -39,6 +39,19 @@ jobs:
         id: build_number
         run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
 
+      - name: Select debug package identity
+        id: package_mode
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "diagnostic=false" >> "$GITHUB_OUTPUT"
+            echo "mobile_package=app.local1st.files" >> "$GITHUB_OUTPUT"
+            echo "tv_package=app.local1st.files.tv" >> "$GITHUB_OUTPUT"
+          else
+            echo "diagnostic=true" >> "$GITHUB_OUTPUT"
+            echo "mobile_package=app.local1st.files.diagnostic" >> "$GITHUB_OUTPUT"
+            echo "tv_package=app.local1st.files.tv.diagnostic" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Require stable signing secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -65,15 +78,37 @@ jobs:
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
+        run: |
+          ./gradlew \
+            :app:assembleMobileDebug \
+            :app:assembleTvDebug \
+            -PbuildNumber=${{ steps.build_number.outputs.value }} \
+            -PxfilesDiagnosticBuild=${{ steps.package_mode.outputs.diagnostic }}
+
+      - name: Verify APK package identities
+        run: |
+          set -eu
+          AAPT=$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          test -x "$AAPT"
+          MOBILE_APK=app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
+          TV_APK=app/build/outputs/apk/tv/debug/app-tv-debug.apk
+          MOBILE_PACKAGE=$($AAPT dump badging "$MOBILE_APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          TV_PACKAGE=$($AAPT dump badging "$TV_APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          test "$MOBILE_PACKAGE" = "${{ steps.package_mode.outputs.mobile_package }}"
+          test "$TV_PACKAGE" = "${{ steps.package_mode.outputs.tv_package }}"
 
       - name: Name debug APKs
         id: apk_name
         run: |
           set -eu
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          MOBILE_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-          TV_NAME="XFiles-TV-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          if [ "${{ steps.package_mode.outputs.diagnostic }}" = "true" ]; then
+            MOBILE_NAME="XFiles-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+            TV_NAME="XFiles-TV-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          else
+            MOBILE_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+            TV_NAME="XFiles-TV-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          fi
           cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
           cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
           echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
