@@ -76,7 +76,7 @@ internal fun VideoAvSyncButton(
 
     TooltipIconButton(
         label = avSyncTooltip(offsetMs),
-        imageVector = Icons.Outlined.Sync,
+        icon = Icons.Outlined.Sync,
         onClick = { showDialog = true },
     )
 
