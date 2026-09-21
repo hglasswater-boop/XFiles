@@ -28,8 +28,6 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
-          # Branch builds consume the latest cache from main without spending time uploading it.
-          # Main refreshes the Gradle dependency/build cache for subsequent runs.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Build Rust SMB JNI libraries
@@ -70,8 +68,6 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
-      # Build once, already signed. The previous workflow assembled both flavors once to warm
-      # app/build and then assembled the exact same tasks again with signing enabled.
       - name: Assemble stable-signed debug APKs
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
@@ -140,6 +136,21 @@ jobs:
             --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ steps.build_number.outputs.value }}" \
             --prerelease \
             --notes "Signed mobile and Google TV debug APKs built from main at $GITHUB_SHA."
+
+      - name: Publish diagnostic-latest release
+        if: startsWith(github.ref, 'refs/heads/diagnose/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release delete diagnostic-latest --cleanup-tag -y 2>/dev/null || true
+          gh release create diagnostic-latest \
+            "${{ steps.apk_name.outputs.mobile_name }}" \
+            "${{ steps.apk_name.outputs.tv_name }}" \
+            --target "$GITHUB_SHA" \
+            --title "XFiles diagnostic build ${{ steps.build_number.outputs.value }}" \
+            --prerelease \
+            --notes "Side-by-side diagnostic APKs built from $GITHUB_REF_NAME at $GITHUB_SHA. They do not replace the normal XFiles package."
 
       - name: Record debug run metadata
         if: github.ref == 'refs/heads/main'
