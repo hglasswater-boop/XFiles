@@ -23,6 +23,18 @@ class FilenameSearchQueryTest {
     }
 
     @Test
+    fun extensionSearch_matchesWithOrWithoutLeadingDot() {
+        val bareExtension = FilenameSearchQuery.matcher("mp4")
+        val dottedExtension = FilenameSearchQuery.matcher(".mp4")
+
+        assertTrue(bareExtension("movie.mp4"))
+        assertTrue(bareExtension("MOVIE.MP4"))
+        assertTrue(dottedExtension("movie.mp4"))
+        assertTrue(dottedExtension("MOVIE.MP4"))
+        assertFalse(dottedExtension("movie.mp4.bak"))
+    }
+
+    @Test
     fun starWildcard_matchesWholeFilenameCaseInsensitively() {
         val matcher = FilenameSearchQuery.matcher("*.mp4")
 
