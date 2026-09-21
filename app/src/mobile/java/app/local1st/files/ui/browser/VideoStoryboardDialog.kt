@@ -465,7 +465,7 @@ private fun StoryboardFrameCard(
 
 internal object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
-    private const val CACHE_VERSION = 6
+    private const val CACHE_VERSION = 7
     private const val EXTRACT_TIMEOUT_SECONDS = 120L
     private const val JPEG_QUALITY = 82
     private const val FAST_VISIBLE_FRAME_COUNT = 4
@@ -592,6 +592,8 @@ internal object StoryboardLoader {
                 if (frames[index].file == null) remaining += index
             }
             var preferClosestFrames = false
+            var previousSyncFingerprint: Long? = null
+            var previousSyncTimeMs: Long? = null
 
             while (remaining.isNotEmpty()) {
                 val index = priority
@@ -606,12 +608,17 @@ internal object StoryboardLoader {
                     retriever = retriever,
                     timeMs = timeMs,
                     preferClosest = preferClosestFrames,
+                    previousSyncFingerprint = previousSyncFingerprint,
+                    previousSyncTimeMs = previousSyncTimeMs,
                 )
-                if (extracted.syncWhiteoutRecovered) {
-                    // Once this file proves that its sync frames can decode as blank white while
-                    // the exact frame is valid, skip unreliable sync probes for the remaining
-                    // storyboard. This both fixes the white tiles and avoids paying for two decodes
-                    // per frame on affected videos.
+                extracted.syncFingerprint?.let { fingerprint ->
+                    previousSyncFingerprint = fingerprint
+                    previousSyncTimeMs = timeMs
+                }
+                if (extracted.syncWhiteoutRecovered || extracted.duplicateSyncRecovered) {
+                    // Once sync seeking proves unreliable for this file, use exact-position frames
+                    // for the rest of the storyboard instead of repeatedly trusting the same bad
+                    // sync sample. This also avoids paying for duplicate verification on each frame.
                     preferClosestFrames = true
                 }
                 val bitmap = extracted.bitmap
@@ -721,18 +728,24 @@ internal object StoryboardLoader {
     private data class FrameExtraction(
         val bitmap: Bitmap?,
         val syncWhiteoutRecovered: Boolean,
+        val duplicateSyncRecovered: Boolean,
+        val syncFingerprint: Long?,
     )
 
     private fun extractFrame(
         retriever: MediaMetadataRetriever,
         timeMs: Long,
         preferClosest: Boolean,
+        previousSyncFingerprint: Long?,
+        previousSyncTimeMs: Long?,
     ): FrameExtraction {
         val timeUs = timeMs * 1_000L
         if (preferClosest) {
             return FrameExtraction(
                 bitmap = extractClosestFrame(retriever, timeUs),
                 syncWhiteoutRecovered = false,
+                duplicateSyncRecovered = false,
+                syncFingerprint = null,
             )
         }
 
@@ -750,17 +763,70 @@ internal object StoryboardLoader {
             }
         }.getOrNull()
         val syncIsWhiteout = sync?.let(::isNearlyWhiteStoryboardFrame) == true
-        if (sync != null && !syncIsWhiteout && !isNearlyBlackVideoThumbnail(sync)) {
-            return FrameExtraction(sync, syncWhiteoutRecovered = false)
+        val syncIsBlack = sync?.let(::isNearlyBlackVideoThumbnail) == true
+        val syncFingerprint = sync
+            ?.takeUnless { syncIsWhiteout || syncIsBlack }
+            ?.let(::storyboardFrameFingerprint)
+
+        if (sync != null && syncFingerprint != null) {
+            val duplicateNeedsVerification = shouldVerifyDuplicateStoryboardSync(
+                previousFingerprint = previousSyncFingerprint,
+                currentFingerprint = syncFingerprint,
+                previousTimeMs = previousSyncTimeMs,
+                currentTimeMs = timeMs,
+            )
+            if (!duplicateNeedsVerification) {
+                return FrameExtraction(
+                    bitmap = sync,
+                    syncWhiteoutRecovered = false,
+                    duplicateSyncRecovered = false,
+                    syncFingerprint = syncFingerprint,
+                )
+            }
+
+            // A broken/sparse sync index can return the exact same keyframe for widely separated
+            // timestamps. Verify only suspicious duplicates with an exact-position decode so the
+            // normal fast path, especially SMB, does not gain extra reads.
+            val closest = extractClosestFrame(retriever, timeUs)
+            val closestFingerprint = closest?.let(::storyboardFrameFingerprint)
+            if (
+                closest != null &&
+                shouldPreferClosestStoryboardFrames(syncFingerprint, closestFingerprint)
+            ) {
+                sync.recycle()
+                return FrameExtraction(
+                    bitmap = closest,
+                    syncWhiteoutRecovered = false,
+                    duplicateSyncRecovered = true,
+                    syncFingerprint = syncFingerprint,
+                )
+            }
+            if (closest != null && closest !== sync) closest.recycle()
+            return FrameExtraction(
+                bitmap = sync,
+                syncWhiteoutRecovered = false,
+                duplicateSyncRecovered = false,
+                syncFingerprint = syncFingerprint,
+            )
         }
 
         val closest = extractClosestFrame(retriever, timeUs)
         if (closest != null) {
             if (closest !== sync) sync?.recycle()
             val recoveredWhiteout = syncIsWhiteout && !isNearlyWhiteStoryboardFrame(closest)
-            return FrameExtraction(closest, syncWhiteoutRecovered = recoveredWhiteout)
+            return FrameExtraction(
+                bitmap = closest,
+                syncWhiteoutRecovered = recoveredWhiteout,
+                duplicateSyncRecovered = false,
+                syncFingerprint = syncFingerprint,
+            )
         }
-        return FrameExtraction(sync, syncWhiteoutRecovered = false)
+        return FrameExtraction(
+            bitmap = sync,
+            syncWhiteoutRecovered = false,
+            duplicateSyncRecovered = false,
+            syncFingerprint = syncFingerprint,
+        )
     }
 
     private fun extractClosestFrame(
@@ -779,6 +845,26 @@ internal object StoryboardLoader {
                 ?.let(::scaleDown)
         }
     }.getOrNull()
+
+    private fun storyboardFrameFingerprint(bitmap: Bitmap): Long {
+        if (bitmap.width <= 0 || bitmap.height <= 0) return 0L
+        val columns = 8
+        val rows = 8
+        var hash = 0xcbf29ce484222325UL.toLong()
+        for (row in 0 until rows) {
+            val y = (((row + 0.5) * bitmap.height) / rows)
+                .toInt()
+                .coerceIn(0, bitmap.height - 1)
+            for (column in 0 until columns) {
+                val x = (((column + 0.5) * bitmap.width) / columns)
+                    .toInt()
+                    .coerceIn(0, bitmap.width - 1)
+                val rgb = bitmap.getPixel(x, y) and 0x00ffffff
+                hash = (hash xor rgb.toLong()) * 0x100000001b3L
+            }
+        }
+        return hash
+    }
 
     /**
      * Some codecs/devices return a clipped white bitmap for sync-frame requests even though the
