@@ -27,18 +27,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -58,9 +62,13 @@ import app.local1st.files.core.fs.XId
 import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.VideoStoryboardSettings
+import app.local1st.files.core.thumb.RemoteVideoThumbFetcher
+import app.local1st.files.core.thumb.VideoThumb
+import app.local1st.files.core.thumb.VideoThumbFetcher
 import app.local1st.files.core.thumb.isNearlyBlackVideoThumbnail
 import app.local1st.files.di.Graph
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import java.io.File
 import java.security.MessageDigest
 import java.util.LinkedHashMap
@@ -69,6 +77,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -76,6 +85,7 @@ import kotlinx.coroutines.withContext
 // Slightly sharper than the original 320x180 preview while staying light enough for SMB batches.
 private const val STORYBOARD_WIDTH = 384
 private const val STORYBOARD_HEIGHT = 216
+private const val STORYBOARD_MEMORY_CACHE_VERSION_EXTRA = "xfiles-storyboard-file-version"
 
 internal data class StoryboardFrame(
     val index: Int,
@@ -123,11 +133,13 @@ internal fun VideoStoryboardDialog(
     entry: XEntry,
     onDismiss: () -> Unit,
     onPlayFrom: (Long) -> Unit,
+    onThumbnailRegenerated: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
     val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
     val extractionPriority = remember(
         entry.id,
         entry.mtime,
@@ -139,6 +151,12 @@ internal fun VideoStoryboardDialog(
     }
     var fineFrameIndex by remember(entry.id, entry.mtime, entry.size) {
         mutableStateOf<Int?>(null)
+    }
+    var reloadGeneration by remember(entry.id, entry.mtime, entry.size) {
+        mutableIntStateOf(0)
+    }
+    var regenerating by remember(entry.id, entry.mtime, entry.size) {
+        mutableStateOf(false)
     }
 
     LaunchedEffect(gridState, extractionPriority) {
@@ -157,7 +175,9 @@ internal fun VideoStoryboardDialog(
         sampleCount,
         minSpacingSeconds,
         extractionPriority,
+        reloadGeneration,
     ) {
+        value = StoryboardUiState.Loading
         var emittedProgress = false
         val result = runCatching {
             StoryboardLoader.load(
@@ -177,6 +197,11 @@ internal fun VideoStoryboardDialog(
                 if (emittedProgress) value else StoryboardUiState.Failed
             },
         )
+    }
+    val canRegenerate = !regenerating && when (val current = state) {
+        StoryboardUiState.Loading -> false
+        StoryboardUiState.Failed -> true
+        is StoryboardUiState.Ready -> current.complete
     }
 
     Dialog(
@@ -202,6 +227,48 @@ internal fun VideoStoryboardDialog(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    TextButton(
+                        enabled = canRegenerate,
+                        onClick = {
+                            scope.launch {
+                                regenerating = true
+                                fineFrameIndex = null
+                                StoryboardLoader.invalidate(context, entry)
+                                val thumbnailInvalidated = withContext(Dispatchers.IO) {
+                                    if (entry.scheme == XId.SCHEME_SMB) {
+                                        RemoteVideoThumbFetcher.invalidateCache(context, entry)
+                                    } else {
+                                        VideoThumbFetcher.invalidateCache(
+                                            context,
+                                            VideoThumb(
+                                                path = entry.localPath ?: entry.path,
+                                                mtime = entry.mtime,
+                                                size = entry.size,
+                                                privileged = entry.localPath == null,
+                                            ),
+                                        )
+                                    }
+                                }
+                                if (thumbnailInvalidated) onThumbnailRegenerated()
+                                reloadGeneration += 1
+                                regenerating = false
+                            }
+                        },
+                    ) {
+                        if (regenerating) {
+                            LoadingIndicator(Modifier.size(18.dp))
+                        } else {
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.refresh),
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
                     IconButton(onClick = onDismiss) {
                         Icon(
                             Icons.Outlined.Close,
@@ -339,6 +406,7 @@ private fun StoryboardFrameCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
     Column(
         Modifier
@@ -351,7 +419,13 @@ private fun StoryboardFrameCard(
     ) {
         if (image != null) {
             AsyncImage(
-                model = image,
+                model = ImageRequest.Builder(context)
+                    .data(image)
+                    .memoryCacheKeyExtra(
+                        STORYBOARD_MEMORY_CACHE_VERSION_EXTRA,
+                        "${image.lastModified()}:${image.length()}",
+                    )
+                    .build(),
                 contentDescription = formatVideoDuration(frame.timeMs),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -414,6 +488,13 @@ internal object StoryboardLoader {
         }
         if (cached != null) return@withPermit cached
         generate(context, entry, cacheDir, count, minSpacingMs, priority, onProgress)
+    }
+
+    suspend fun invalidate(context: Context, entry: XEntry): Boolean = semaphore.withPermit {
+        withContext(Dispatchers.IO) {
+            val directory = cacheDir(context, entry)
+            !directory.exists() || directory.deleteRecursively()
+        }
     }
 
     private fun readCached(
