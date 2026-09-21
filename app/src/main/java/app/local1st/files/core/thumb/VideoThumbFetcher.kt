@@ -29,13 +29,16 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Coil model for a video file's poster frame. [mtime]/[size] are part of the cache key,
- * so an overwritten video naturally invalidates its stale thumbnail.
+ * so an overwritten video naturally invalidates its stale thumbnail. [generation] is a transient
+ * UI cache-buster used after an explicit per-video regeneration; it deliberately does not change
+ * the persistent cache-file name.
  */
 data class VideoThumb(
     val path: String,
     val mtime: Long,
     val size: Long,
     val privileged: Boolean = false,
+    val generation: Int = 0,
 )
 
 /**
@@ -293,7 +296,7 @@ class VideoThumbFetcher(
 
     class Key : Keyer<VideoThumb> {
         override fun key(data: VideoThumb, options: Options): String =
-            "video-thumb-v8:${data.path}:${data.mtime}:${data.size}"
+            "video-thumb-v8:${data.path}:${data.mtime}:${data.size}:g${data.generation}"
     }
 
     companion object {
@@ -310,6 +313,12 @@ class VideoThumbFetcher(
         }
 
         private var writesUntilPrune = 1
+
+        /** Deletes only this video's generated poster cache. */
+        fun invalidateCache(context: Context, data: VideoThumb): Boolean {
+            val file = cacheFile(context.applicationContext, data)
+            return !file.exists() || file.delete()
+        }
 
         private fun cacheFile(context: Context, data: VideoThumb): File {
             val digest = MessageDigest.getInstance("SHA-256")
