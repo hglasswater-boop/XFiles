@@ -12,6 +12,8 @@ val appBaseVersionName = Properties().apply {
 val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull()
 val appBuildNumber = ciBuildNumber ?: 1
 val appVersionName = ciBuildNumber?.let { "$appBaseVersionName-b$it" } ?: appBaseVersionName
+val diagnosticBuild =
+    (project.findProperty("xfilesDiagnosticBuild") as String?)?.toBooleanStrictOrNull() ?: false
 val ciKeystore: String? = System.getenv("XFILES_KEYSTORE")
 val smbRandomAccessBackend =
     ((project.findProperty("xfilesSmbBackend") as String?) ?: "auto").lowercase()
@@ -62,6 +64,10 @@ android {
 
     buildTypes {
         debug {
+            if (diagnosticBuild) {
+                applicationIdSuffix = ".diagnostic"
+                versionNameSuffix = "-diagnostic"
+            }
             if (ciKeystore != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
