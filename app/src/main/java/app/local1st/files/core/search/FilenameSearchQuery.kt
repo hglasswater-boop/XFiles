@@ -3,9 +3,10 @@ package app.local1st.files.core.search
 /**
  * Shared filename-search query semantics used by both the UI and search engine.
  *
- * Plain text is matched as a case-insensitive substring. When `*` or `?` is present,
- * the query is treated as a whole-filename glob where `*` matches zero or more
- * characters and `?` matches exactly one character.
+ * - Plain text is matched as a case-insensitive substring.
+ * - A leading-dot query such as `.mp4` is treated as an extension suffix.
+ * - When `*` or `?` is present, the query is treated as a whole-filename glob where
+ *   `*` matches zero or more characters and `?` matches exactly one character.
  */
 internal object FilenameSearchQuery {
     const val MIN_LITERAL_LENGTH = 2
@@ -20,6 +21,9 @@ internal object FilenameSearchQuery {
 
     fun matcher(query: String): (String) -> Boolean {
         if (!query.any(::isWildcard)) {
+            if (query.startsWith('.') && query.length > 1) {
+                return { name -> name.endsWith(query, ignoreCase = true) }
+            }
             return { name -> name.contains(query, ignoreCase = true) }
         }
 
