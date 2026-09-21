@@ -50,6 +50,8 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android NDK
         run: sdkmanager "ndk;${NDK_VERSION}"
@@ -111,6 +113,7 @@ jobs:
             :app:assembleMobileDebug \
             :app:assembleTvDebug \
             -PbuildNumber=${{ steps.build_number.outputs.value }} \
+            -PxfilesDiagnosticBuild=true \
             -PxfilesSmbBackend=rust
 
       - name: Name Rust SMB APKs
@@ -118,8 +121,8 @@ jobs:
         run: |
           set -eu
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          MOBILE_NAME="XFiles-RustSMB-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-          TV_NAME="XFiles-TV-RustSMB-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          MOBILE_NAME="XFiles-RustSMB-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          TV_NAME="XFiles-TV-RustSMB-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
           cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
           cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
           echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
