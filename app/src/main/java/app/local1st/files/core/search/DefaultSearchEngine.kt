@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.flowOn
 class DefaultSearchEngine(private val registry: FsRegistry) : SearchEngine {
 
     override fun search(root: XEntry, query: String): Flow<SearchHit> = flow {
-        val matcher = buildMatcher(query)
+        val matcher = FilenameSearchQuery.matcher(query)
         val deque = ArrayDeque<XEntry>()
         val visitedContainers = HashSet<String>()
         var visited = 0
@@ -76,29 +76,10 @@ class DefaultSearchEngine(private val registry: FsRegistry) : SearchEngine {
         return DENIED_PREFIXES.any { path == it || path.startsWith("$it/") }
     }
 
-    /** Substring match, or whole-name wildcard match when the query contains '*' / '?'. */
-    private fun buildMatcher(query: String): (String) -> Boolean {
-        if ('*' !in query && '?' !in query) {
-            return { name -> name.contains(query, ignoreCase = true) }
-        }
-        val pattern = StringBuilder(query.length + 8)
-        for (c in query) {
-            when (c) {
-                '*' -> pattern.append(".*")
-                '?' -> pattern.append('.')
-                in REGEX_METACHARS -> pattern.append('\\').append(c)
-                else -> pattern.append(c)
-            }
-        }
-        val regex = Regex(pattern.toString(), RegexOption.IGNORE_CASE)
-        return { name -> regex.matches(name) }
-    }
-
     private companion object {
         const val MAX_HITS = 500
         const val MAX_VISITED = 50_000
         const val MAX_ARCHIVE_BYTES = 100L * 1024 * 1024
         val DENIED_PREFIXES = listOf("/proc", "/sys", "/dev")
-        const val REGEX_METACHARS = "\\^$.|+()[]{}"
     }
 }
