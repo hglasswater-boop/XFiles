@@ -375,6 +375,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         onClose = onClose,
                         videoBottomInset = videoBottomInset,
                         topBarActions = {
+                            VideoAvSyncButton(player = localPlayer, entry = currentEntry)
                             VideoCastButton()
                         },
                         controlsTopContent = {
