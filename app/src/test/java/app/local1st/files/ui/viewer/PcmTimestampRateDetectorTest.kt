@@ -20,6 +20,32 @@ class PcmTimestampRateDetectorTest {
     }
 
     @Test
+    fun issue152ProvidedCadence_keepsDeclared44100Rate() {
+        val detector = PcmTimestampRateDetector(44_100)
+        val ptsUs = longArrayOf(
+            32_993,
+            56_213,
+            79_433,
+            102_653,
+            125_873,
+            149_093,
+            172_313,
+            195_533,
+            218_753,
+            241_973,
+            265_193,
+            288_413,
+        )
+
+        var decision: Int? = null
+        for (pts in ptsUs) {
+            decision = detector.observe(pts, 1024) ?: decision
+        }
+
+        assertEquals(44_100, decision)
+    }
+
+    @Test
     fun providedSampleCadence_detects48000Timeline() {
         val detector = PcmTimestampRateDetector(44_100)
         val ptsUs = longArrayOf(
