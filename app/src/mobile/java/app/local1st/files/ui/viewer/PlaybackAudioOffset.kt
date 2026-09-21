@@ -13,6 +13,11 @@ import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
+/** Process-scoped A/V offset state for the single local playback session. */
+internal object PlaybackAudioOffset {
+    val controller = PlaybackAudioOffsetController()
+}
+
 /**
  * Mutable playback offset shared by the player UI and the AudioSink.
  *
