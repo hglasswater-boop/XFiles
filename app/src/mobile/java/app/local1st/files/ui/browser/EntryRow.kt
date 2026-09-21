@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -553,6 +554,7 @@ private fun EntryThumbnail(
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
     var showStoryboard by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    var thumbnailGeneration by remember(entry.id, entry.mtime, entry.size) { mutableIntStateOf(0) }
     val previewDescription = if (isVideo) {
         "${entry.name} · ${stringResource(R.string.details)}"
     } else {
@@ -599,13 +601,17 @@ private fun EntryThumbnail(
         }
         AsyncImage(
             model = when {
-                entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(entry)
+                entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(
+                    entry = entry,
+                    generation = thumbnailGeneration,
+                )
                 entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
                 isVideo -> VideoThumb(
                     path = entry.localPath ?: entry.path,
                     mtime = entry.mtime,
                     size = entry.size,
                     privileged = entry.localPath == null,
+                    generation = thumbnailGeneration,
                 )
                 entry.localPath != null -> File(entry.localPath)
                 else -> PrivFile(entry.path, entry.mtime, entry.size)
@@ -661,6 +667,10 @@ private fun EntryThumbnail(
             entry = entry,
             onDismiss = { showStoryboard = false },
             onPlayFrom = onOpenAt,
+            onThumbnailRegenerated = {
+                loaded = false
+                thumbnailGeneration += 1
+            },
         )
     }
 }
