@@ -1,7 +1,7 @@
 package app.local1st.files.ui.viewer
 
-import android.graphics.AudioFormat
 import android.graphics.Bitmap
+import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -351,11 +351,10 @@ private fun accumulatePcmEnergy(
     val sampleRate = format.integerOrDefault(MediaFormat.KEY_SAMPLE_RATE, 0)
     val channels = format.integerOrDefault(MediaFormat.KEY_CHANNEL_COUNT, 0)
     if (sampleRate <= 0 || channels <= 0) return
-    val encoding = if (android.os.Build.VERSION.SDK_INT >= 24) {
-        format.integerOrDefault(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
-    } else {
-        AudioFormat.ENCODING_PCM_16BIT
-    }
+    val encoding = format.integerOrDefault(
+        MediaFormat.KEY_PCM_ENCODING,
+        AudioFormat.ENCODING_PCM_16BIT,
+    )
     val bytesPerSample = when (encoding) {
         AudioFormat.ENCODING_PCM_FLOAT -> 4
         AudioFormat.ENCODING_PCM_8BIT -> 1
@@ -373,9 +372,9 @@ private fun accumulatePcmEnergy(
         var energy = 0.0
         for (channel in 0 until channels) {
             val amplitude = when (encoding) {
-                AudioFormat.ENCODING_PCM_FLOAT -> view.float.toDouble().coerceIn(-1.0, 1.0)
+                AudioFormat.ENCODING_PCM_FLOAT -> view.getFloat().toDouble().coerceIn(-1.0, 1.0)
                 AudioFormat.ENCODING_PCM_8BIT -> ((view.get().toInt() and 0xff) - 128) / 128.0
-                else -> view.short / 32768.0
+                else -> view.getShort() / 32768.0
             }
             energy += amplitude * amplitude
         }
