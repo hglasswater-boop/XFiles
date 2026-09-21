@@ -2,6 +2,7 @@ package app.local1st.files
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
@@ -42,7 +43,25 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+private enum class MobileReleaseChannel(
+    val releaseTag: String,
+    val packageName: String,
+    val assetPattern: Regex,
+) {
+    NORMAL(
+        releaseTag = "debug-latest",
+        packageName = "app.local1st.files",
+        assetPattern = Regex("^XFiles-(?!TV-|Diagnostic-)(.+)-b(\\d+)-debug\\.apk$"),
+    ),
+    DIAGNOSTIC(
+        releaseTag = "diagnostic-latest",
+        packageName = "app.local1st.files.diagnostic",
+        assetPattern = Regex("^XFiles-Diagnostic-(.+)-b(\\d+)-debug\\.apk$"),
+    ),
+}
+
 private data class MobileRelease(
+    val channel: MobileReleaseChannel,
     val versionName: String,
     val buildNumber: Int,
     val assetName: String,
@@ -50,13 +69,12 @@ private data class MobileRelease(
 )
 
 private object MobileSelfUpdater {
-    private const val RELEASE_API =
-        "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/debug-latest"
+    private const val RELEASE_API_PREFIX =
+        "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/"
     private const val PREFS = "mobile_self_update"
     private const val LAST_AUTO_CHECK = "last_auto_check"
     private const val AUTO_CHECK_ENABLED = "auto_check_enabled"
     private const val AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
-    private val mobileAssetPattern = Regex("^XFiles-(?!TV-)(.+)-b(\\d+)-debug\\.apk$")
 
     fun isAutoCheckEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -87,34 +105,41 @@ private object MobileSelfUpdater {
         return now
     }
 
-    suspend fun check(): MobileRelease? = withContext(Dispatchers.IO) {
-        val connection = openConnection(RELEASE_API, "application/vnd.github+json")
-        try {
-            val code = connection.responseCode
-            if (code !in 200..299) error("GitHub HTTP $code")
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val assets = JSONObject(body).getJSONArray("assets")
-            var newest: MobileRelease? = null
-            for (index in 0 until assets.length()) {
-                val asset = assets.getJSONObject(index)
-                val name = asset.optString("name")
-                val match = mobileAssetPattern.matchEntire(name) ?: continue
-                val build = match.groupValues[2].toIntOrNull() ?: continue
-                val candidate = MobileRelease(
-                    versionName = match.groupValues[1],
-                    buildNumber = build,
-                    assetName = name,
-                    downloadUrl = asset.getString("browser_download_url"),
-                )
-                if (newest == null || candidate.buildNumber > newest.buildNumber) {
-                    newest = candidate
+    suspend fun check(context: Context, channel: MobileReleaseChannel): MobileRelease? =
+        withContext(Dispatchers.IO) {
+            val connection = openConnection(
+                RELEASE_API_PREFIX + channel.releaseTag,
+                "application/vnd.github+json",
+            )
+            try {
+                val code = connection.responseCode
+                if (code == HttpURLConnection.HTTP_NOT_FOUND) return@withContext null
+                if (code !in 200..299) error("GitHub HTTP $code")
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                val assets = JSONObject(body).getJSONArray("assets")
+                var newest: MobileRelease? = null
+                for (index in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(index)
+                    val name = asset.optString("name")
+                    val match = channel.assetPattern.matchEntire(name) ?: continue
+                    val build = match.groupValues[2].toIntOrNull() ?: continue
+                    val candidate = MobileRelease(
+                        channel = channel,
+                        versionName = match.groupValues[1],
+                        buildNumber = build,
+                        assetName = name,
+                        downloadUrl = asset.getString("browser_download_url"),
+                    )
+                    if (newest == null || candidate.buildNumber > newest.buildNumber) {
+                        newest = candidate
+                    }
                 }
+                val installedBuild = installedBuildNumber(context, channel.packageName)
+                newest?.takeIf { installedBuild == null || it.buildNumber > installedBuild }
+            } finally {
+                connection.disconnect()
             }
-            newest?.takeIf { it.buildNumber > BuildConfig.VERSION_CODE }
-        } finally {
-            connection.disconnect()
         }
-    }
 
     suspend fun downloadAndValidate(context: Context, release: MobileRelease): File =
         withContext(Dispatchers.IO) {
@@ -159,18 +184,27 @@ private object MobileSelfUpdater {
     }
 
     @Suppress("DEPRECATION")
+    private fun installedBuildNumber(context: Context, packageName: String): Int? =
+        try {
+            context.packageManager.getPackageInfo(packageName, 0).versionCode
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
+
+    @Suppress("DEPRECATION")
     private fun validateApk(context: Context, apk: File, release: MobileRelease) {
         val packageInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
             ?: error("Downloaded APK could not be read")
-        if (packageInfo.packageName != context.packageName) {
-            error("Downloaded APK is not XFiles")
+        if (packageInfo.packageName != release.channel.packageName) {
+            error("Downloaded APK package does not match the selected channel")
         }
         val downloadedBuild = packageInfo.versionCode.toLong()
-        if (downloadedBuild <= BuildConfig.VERSION_CODE.toLong()) {
-            error("Downloaded APK is not newer than the installed build")
-        }
         if (downloadedBuild != release.buildNumber.toLong()) {
             error("Downloaded APK build number does not match the GitHub asset")
+        }
+        val installedBuild = installedBuildNumber(context, release.channel.packageName)
+        if (installedBuild != null && downloadedBuild <= installedBuild.toLong()) {
+            error("Downloaded APK is not newer than the installed build")
         }
     }
 
@@ -191,9 +225,40 @@ fun EditionUpdateSettingsSection() {
     val scope = rememberCoroutineScope()
     var autoCheckEnabled by remember { mutableStateOf(MobileSelfUpdater.isAutoCheckEnabled(context)) }
     var lastCheck by remember { mutableStateOf(MobileSelfUpdater.lastCheck(context)) }
-    var checking by remember { mutableStateOf(false) }
+    var checkingChannel by remember { mutableStateOf<MobileReleaseChannel?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<MobileRelease?>(null) }
+
+    fun requestInstall(channel: MobileReleaseChannel) {
+        scope.launch {
+            checkingChannel = channel
+            statusMessage = null
+            runCatching { MobileSelfUpdater.check(context, channel) }
+                .onSuccess { found ->
+                    if (channel == MobileReleaseChannel.NORMAL) {
+                        lastCheck = MobileSelfUpdater.markChecked(context)
+                    }
+                    if (found == null) {
+                        statusMessage = context.getString(
+                            if (channel == MobileReleaseChannel.NORMAL) {
+                                R.string.update_normal_up_to_date
+                            } else {
+                                R.string.update_diagnostic_up_to_date
+                            },
+                        )
+                    } else {
+                        release = found
+                    }
+                }
+                .onFailure { error ->
+                    statusMessage = context.getString(
+                        R.string.update_check_failed,
+                        error.message ?: error.javaClass.simpleName,
+                    )
+                }
+            checkingChannel = null
+        }
+    }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -253,38 +318,47 @@ fun EditionUpdateSettingsSection() {
                 )
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                enabled = !checking,
-                onClick = {
-                    scope.launch {
-                        checking = true
-                        statusMessage = null
-                        runCatching { MobileSelfUpdater.check() }
-                            .onSuccess { found ->
-                                lastCheck = MobileSelfUpdater.markChecked(context)
-                                if (found == null) {
-                                    statusMessage = context.getString(R.string.update_up_to_date)
-                                } else {
-                                    release = found
-                                }
-                            }
-                            .onFailure { error ->
-                                statusMessage = context.getString(
-                                    R.string.update_check_failed,
-                                    error.message ?: error.javaClass.simpleName,
-                                )
-                            }
-                        checking = false
-                    }
-                },
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    stringResource(
-                        if (checking) R.string.update_checking
-                        else R.string.update_check_now,
-                    ),
-                )
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = checkingChannel == null,
+                    onClick = { requestInstall(MobileReleaseChannel.NORMAL) },
+                ) {
+                    Text(
+                        stringResource(
+                            if (checkingChannel == MobileReleaseChannel.NORMAL) {
+                                R.string.update_checking
+                            } else {
+                                R.string.update_install_latest_normal
+                            },
+                        ),
+                    )
+                }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = checkingChannel == null,
+                    onClick = { requestInstall(MobileReleaseChannel.DIAGNOSTIC) },
+                ) {
+                    Text(
+                        stringResource(
+                            if (checkingChannel == MobileReleaseChannel.DIAGNOSTIC) {
+                                R.string.update_checking
+                            } else {
+                                R.string.update_install_diagnostic
+                            },
+                        ),
+                    )
+                }
             }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.update_diagnostic_summary),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
@@ -309,7 +383,17 @@ private fun EditionSettingsUpdateDialog(
 
     AlertDialog(
         onDismissRequest = { if (!downloading && !preparingInstall) onDismiss() },
-        title = { Text(stringResource(R.string.mobile_update_available_title)) },
+        title = {
+            Text(
+                stringResource(
+                    if (available.channel == MobileReleaseChannel.NORMAL) {
+                        R.string.mobile_update_available_title
+                    } else {
+                        R.string.mobile_diagnostic_available_title
+                    },
+                ),
+            )
+        },
         text = {
             Column {
                 Text(
@@ -400,7 +484,7 @@ fun EditionStartupUpdateCheck() {
 
     LaunchedEffect(Unit) {
         if (!MobileSelfUpdater.autoCheckDue(context)) return@LaunchedEffect
-        runCatching { MobileSelfUpdater.check() }
+        runCatching { MobileSelfUpdater.check(context, MobileReleaseChannel.NORMAL) }
             .onSuccess {
                 MobileSelfUpdater.markChecked(context)
                 release = it
