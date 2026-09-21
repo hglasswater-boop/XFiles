@@ -154,5 +154,4 @@ internal class TimestampRateCorrectingRenderersFactory(
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink? =
         super.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams)
-            ?.let(::TimestampRateCorrectingAudioSink)
 }
