@@ -9,8 +9,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.util.ArrayDeque
 
 /**
  * Protects playback from malformed PCM timelines where decoded frame count and buffer PTS advance
@@ -21,36 +19,30 @@ import java.util.ArrayDeque
  * expected-vs-actual timestamp error and repeatedly performs a discontinuity correction. Because
  * the audio renderer owns the media clock, each correction stalls video frame release as well.
  *
- * We probe only the first few decoded PCM buffers, infer the effective sample rate from frame count
- * versus PTS, and snap only a clearly matching standard sample rate. Normal streams are forwarded
- * with their declared rate unchanged. The PCM bytes are not resampled: changing the sink input rate
- * intentionally reinterprets samples at the timeline rate, which is what the malformed stream's PTS
- * already describes.
+ * The probe is observational: normal PCM is forwarded to the real AudioSink immediately from the
+ * first buffer. If a sustained timestamp/frame-count mismatch resolves to another standard sample
+ * rate, the sink is reconfigured for subsequent audio. This keeps the #124 correction without
+ * holding roughly 200 ms of otherwise healthy audio at startup, which can itself create visible
+ * A/V offset on normal 44.1 kHz content.
  */
 @UnstableApi
 internal class TimestampRateCorrectingAudioSink(
     sink: AudioSink,
 ) : ForwardingAudioSink(sink) {
-    private data class BufferedAudio(
-        val buffer: ByteBuffer,
-        val presentationTimeUs: Long,
-        val encodedAccessUnitCount: Int,
-    )
-
-    private var pendingProbeConfig: AudioSink.AudioSinkConfig? = null
+    private var probeConfig: AudioSink.AudioSinkConfig? = null
     private var detector: PcmTimestampRateDetector? = null
-    private val bufferedAudio = ArrayDeque<BufferedAudio>()
+    private var lastObservedPresentationTimeUs: Long? = null
 
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
+        super.configure(audioSinkConfig)
         if (!isProbeEligible(audioSinkConfig.format)) {
             clearProbe()
-            super.configure(audioSinkConfig)
             return
         }
 
-        pendingProbeConfig = audioSinkConfig
+        probeConfig = audioSinkConfig
         detector = PcmTimestampRateDetector(audioSinkConfig.format.sampleRate)
-        bufferedAudio.clear()
+        lastObservedPresentationTimeUs = null
     }
 
     override fun handleBuffer(
@@ -58,60 +50,22 @@ internal class TimestampRateCorrectingAudioSink(
         presentationTimeUs: Long,
         encodedAccessUnitCount: Int,
     ): Boolean {
-        if (pendingProbeConfig != null) {
-            val config = checkNotNull(pendingProbeConfig)
-            val frameSize = Util.getPcmFrameSize(config.format.pcmEncoding, config.format.channelCount)
-            if (frameSize <= 0 || buffer.remaining() % frameSize != 0) {
-                finishProbe(config.format.sampleRate)
-            } else {
-                val frames = buffer.remaining() / frameSize
-                bufferedAudio.addLast(
-                    BufferedAudio(
-                        buffer = copyAndConsume(buffer),
-                        presentationTimeUs = presentationTimeUs,
-                        encodedAccessUnitCount = encodedAccessUnitCount,
-                    ),
-                )
-                val decision = checkNotNull(detector).observe(presentationTimeUs, frames)
-                if (decision != null) {
-                    finishProbe(decision)
-                }
-                // We copied and consumed this renderer buffer. Buffered copies are drained below or
-                // on the next callback if AudioTrack applies back pressure.
-                drainBufferedAudio()
-                return true
-            }
-        }
-
-        if (!drainBufferedAudio()) return false
+        observeForRateCorrection(buffer, presentationTimeUs)
         return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
     }
 
     override fun playToEndOfStream() {
-        pendingProbeConfig?.let { finishProbe(it.format.sampleRate) }
-        if (!drainBufferedAudio()) return
+        clearProbe()
         super.playToEndOfStream()
     }
 
-    override fun hasPendingData(): Boolean =
-        bufferedAudio.isNotEmpty() || pendingProbeConfig != null || super.hasPendingData()
-
-    override fun isEnded(): Boolean =
-        bufferedAudio.isEmpty() && pendingProbeConfig == null && super.isEnded()
-
     override fun handleDiscontinuity() {
-        pendingProbeConfig?.let { config ->
-            bufferedAudio.clear()
-            detector = PcmTimestampRateDetector(config.format.sampleRate)
-        }
+        resetProbeWindow()
         super.handleDiscontinuity()
     }
 
     override fun flush() {
-        bufferedAudio.clear()
-        pendingProbeConfig?.let { config ->
-            detector = PcmTimestampRateDetector(config.format.sampleRate)
-        }
+        resetProbeWindow()
         super.flush()
     }
 
@@ -125,48 +79,48 @@ internal class TimestampRateCorrectingAudioSink(
         super.release()
     }
 
-    private fun finishProbe(sampleRate: Int) {
-        val original = pendingProbeConfig ?: return
-        val corrected = if (sampleRate == original.format.sampleRate) {
-            original
-        } else {
-            copyConfigWithSampleRate(original, sampleRate)
+    private fun observeForRateCorrection(buffer: ByteBuffer, presentationTimeUs: Long) {
+        val config = probeConfig ?: return
+        val currentDetector = detector ?: return
+
+        // MediaCodecAudioRenderer may retry the same ByteBuffer while AudioTrack is applying
+        // back pressure. A retry must not look like a zero-duration timestamp discontinuity.
+        if (lastObservedPresentationTimeUs == presentationTimeUs) return
+
+        val frameSize = Util.getPcmFrameSize(config.format.pcmEncoding, config.format.channelCount)
+        if (frameSize <= 0 || buffer.remaining() % frameSize != 0) {
+            clearProbe()
+            return
         }
-        pendingProbeConfig = null
-        detector = null
-        super.configure(corrected)
+
+        val frames = buffer.remaining() / frameSize
+        lastObservedPresentationTimeUs = presentationTimeUs
+        val decision = currentDetector.observe(presentationTimeUs, frames) ?: return
+        finishProbe(decision)
     }
 
-    private fun drainBufferedAudio(): Boolean {
-        if (pendingProbeConfig != null) return false
-        while (bufferedAudio.isNotEmpty()) {
-            val head = bufferedAudio.first()
-            if (!super.handleBuffer(
-                    head.buffer,
-                    head.presentationTimeUs,
-                    head.encodedAccessUnitCount,
-                )
-            ) {
-                return false
-            }
-            bufferedAudio.removeFirst()
+    private fun finishProbe(sampleRate: Int) {
+        val original = probeConfig ?: return
+        clearProbe()
+        if (sampleRate != original.format.sampleRate) {
+            // DefaultAudioSink supports configuration changes while data is queued. Let it drain the
+            // already submitted short probe window, then apply the corrected rate without dropping
+            // or replaying PCM. The malformed #124 stream is detected long before its old 200 ms
+            // discontinuity threshold is reached.
+            super.configure(copyConfigWithSampleRate(original, sampleRate))
         }
-        return true
+    }
+
+    private fun resetProbeWindow() {
+        val config = probeConfig ?: return
+        detector = PcmTimestampRateDetector(config.format.sampleRate)
+        lastObservedPresentationTimeUs = null
     }
 
     private fun clearProbe() {
-        pendingProbeConfig = null
+        probeConfig = null
         detector = null
-        bufferedAudio.clear()
-    }
-
-    private fun copyAndConsume(source: ByteBuffer): ByteBuffer {
-        val duplicate = source.duplicate()
-        val copy = ByteBuffer.allocateDirect(duplicate.remaining()).order(ByteOrder.LITTLE_ENDIAN)
-        copy.put(duplicate)
-        copy.flip()
-        source.position(source.limit())
-        return copy
+        lastObservedPresentationTimeUs = null
     }
 
     private fun copyConfigWithSampleRate(
