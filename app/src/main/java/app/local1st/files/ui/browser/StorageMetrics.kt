@@ -12,6 +12,7 @@ import app.local1st.files.core.util.Format
 import app.local1st.files.di.Graph
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -54,7 +55,7 @@ internal fun rememberFolderSize(
     if (!enabled || entry.kind != EntryKind.DIR || isSmbStorageConnectionRoot(entry)) return null
     FolderSizeCache.ensureInvalidationCollector()
     val key = FolderSizeKey(entry.id, entry.mtime)
-    val size by produceState<Long?>(FolderSizeCache.peek(key), key, startLoad) {
+    val size by produceState<Long?>(FolderSizeCache.peek(key), key) {
         if (value == null) value = FolderSizeCache.load(key, entry)
         Graph.opEngine.events.collect { event ->
             if (event.dirtyDirIds.any { dirty -> pathsOverlap(entry.id, dirty) }) {
@@ -93,9 +94,10 @@ internal fun rememberStorageSpace(entry: XEntry): StorageSpace? {
 
 internal fun storageDetails(entry: XEntry, space: StorageSpace?): String {
     if (space == null) return entry.badge.orEmpty()
-    val capacity = "${Format.bytes(space.freeBytes)} free of ${Format.bytes(space.totalBytes)}"
-    // Local volume badges already contain the same capacity text from the first synchronous root
-    // snapshot. SMB badges instead carry the UNC path, which remains useful alongside capacity.
+    val percent = if (space.usedFraction >= 0f) (space.usedFraction * 100f).roundToInt() else 0
+    val capacity = "使用 $percent% · ${Format.bytes(space.usedBytes)} / ${Format.bytes(space.totalBytes)} · 空き ${Format.bytes(space.freeBytes)}"
+    // Local volume badges already contain capacity text from the first synchronous root snapshot.
+    // SMB badges instead carry the UNC path, which remains useful alongside the live capacity.
     return if (isSmbStorageConnectionRoot(entry)) {
         entry.badge?.takeIf { it.isNotBlank() }?.let { "$it · $capacity" } ?: capacity
     } else {
