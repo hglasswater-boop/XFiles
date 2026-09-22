@@ -78,6 +78,13 @@ internal fun rememberStorageSpace(entry: XEntry): StorageSpace? {
         key1 = entry.id,
     ) {
         if (value == null) value = StorageSpaceCache.load(entry, force = false)
+        launch {
+            Graph.opEngine.events.collect { event ->
+                if (event.dirtyDirIds.any { dirty -> isSameOrAncestor(entry.id, dirty) }) {
+                    value = StorageSpaceCache.load(entry, force = true)
+                }
+            }
+        }
         while (isActive) {
             // Capacity queries are cheap compared with recursive folder scans. Refreshing once a
             // minute also catches writes made by other devices, which never emit an XFiles op event.
@@ -91,7 +98,13 @@ internal fun rememberStorageSpace(entry: XEntry): StorageSpace? {
 internal fun storageDetails(entry: XEntry, space: StorageSpace?): String {
     if (space == null) return entry.badge.orEmpty()
     val capacity = "${Format.bytes(space.freeBytes)} free of ${Format.bytes(space.totalBytes)}"
-    return entry.badge?.takeIf { it.isNotBlank() }?.let { "$it · $capacity" } ?: capacity
+    // Local volume badges already contain the same capacity text from the first synchronous root
+    // snapshot. SMB badges instead carry the UNC path, which remains useful alongside capacity.
+    return if (isSmbConnectionRoot(entry)) {
+        entry.badge?.takeIf { it.isNotBlank() }?.let { "$it · $capacity" } ?: capacity
+    } else {
+        capacity
+    }
 }
 
 private object StorageSpaceCache {
