@@ -71,6 +71,7 @@ import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
+import app.local1st.files.core.prefs.FolderSizeSettings
 import app.local1st.files.core.thumb.AppIcon
 import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
@@ -116,6 +117,8 @@ fun EntryRow(
     val isVolume = entry.kind == EntryKind.VOLUME_INTERNAL ||
         entry.kind == EntryKind.VOLUME_SD ||
         entry.kind == EntryKind.VOLUME_USB
+    val storageRoot = isStorageRoot(entry)
+    val liveStorageSpace = if (richContent && storageRoot) rememberStorageSpace(entry) else null
     val selectable = !isVolume &&
         entry.id != "${XId.SCHEME_SMB}://" &&
         entry.kind != EntryKind.APPS_ROOT &&
@@ -272,10 +275,14 @@ fun EntryRow(
                 color = if (node.error != null) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurface,
             )
-            if (entry.isDir && node.error == null && entry.badge == null) {
+            if (entry.isDir && node.error == null && entry.badge == null && !storageRoot) {
                 FolderDetailsRow(node = node, loadFolderCount = true)
             } else {
-                val details = node.error ?: entryDetails(node)
+                val details = node.error ?: if (storageRoot) {
+                    storageDetails(entry, liveStorageSpace)
+                } else {
+                    entryDetails(node)
+                }
                 if (details.isNotEmpty()) {
                     Text(
                         details,
@@ -287,9 +294,10 @@ fun EntryRow(
                     )
                 }
             }
-            if (isVolume && entry.progress >= 0f) {
+            val usageProgress = liveStorageSpace?.usedFraction ?: entry.progress
+            if (storageRoot && usageProgress >= 0f) {
                 LinearProgressIndicator(
-                    progress = { entry.progress },
+                    progress = { usageProgress },
                     strokeCap = StrokeCap.Round,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -610,7 +618,13 @@ private fun EntryThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
 @Composable
 private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
     val entry = node.entry
+    val folderSizeMode by FolderSizeSettings.state(Graph.appContext).collectAsState()
     val directCounts = if (loadFolderCount) rememberFolderFileCount(entry) else null
+    val folderSize = rememberFolderSize(
+        entry = entry,
+        enabled = loadFolderCount && folderSizeMode.allows(entry),
+        startLoad = !node.expanded,
+    )
     val fallbackCount = if (directCounts == null && entry.childCountHint >= 0) {
         pluralStringResource(
             R.plurals.item_count_plural,
@@ -622,26 +636,42 @@ private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
     }
     val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
     val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
-    if (directCounts == null && fallbackCount.isEmpty() && created.isEmpty()) return
+    if (directCounts == null && fallbackCount.isEmpty() && folderSize == null && created.isEmpty()) return
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        when {
-            directCounts != null -> FolderCountSummary(
-                counts = directCounts,
-                modifier = Modifier.weight(1f),
-            )
-            fallbackCount.isNotEmpty() -> Text(
-                fallbackCount,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            else -> Spacer(Modifier.weight(1f))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f),
+        ) {
+            when {
+                directCounts != null -> FolderCountSummary(counts = directCounts)
+                fallbackCount.isNotEmpty() -> Text(
+                    fallbackCount,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (folderSize != null) {
+                if (directCounts != null || fallbackCount.isNotEmpty()) {
+                    Text(
+                        " · ",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    Format.bytes(folderSize),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (created.isNotEmpty()) {
             Text(

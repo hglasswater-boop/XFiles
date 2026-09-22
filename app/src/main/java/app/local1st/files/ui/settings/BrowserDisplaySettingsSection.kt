@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.core.prefs.BrowserDisplayPreset
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
+import app.local1st.files.core.prefs.FolderSizeMode
+import app.local1st.files.core.prefs.FolderSizeSettings
 import app.local1st.files.core.prefs.ThumbnailSize
 import app.local1st.files.core.prefs.VideoStoryboardSettings
 import kotlin.math.roundToInt
@@ -34,6 +36,7 @@ import kotlin.math.roundToInt
 internal fun BrowserDisplaySettingsSection() {
     val context = LocalContext.current
     val config by BrowserDisplaySettings.state(context).collectAsState()
+    val folderSizeMode by FolderSizeSettings.state(context).collectAsState()
     val storyboardSampleCount by VideoStoryboardSettings.state(context).collectAsState()
     val storyboardMinSpacingSeconds by VideoStoryboardSettings.spacingState(context).collectAsState()
     val preset = BrowserDisplayPreset.matching(config)
@@ -161,6 +164,22 @@ internal fun BrowserDisplaySettingsSection() {
             )
             Text(
                 "階層数は見た目のインデントだけを制限します。フォルダ構造や展開状態は変わりません。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+            DisplayRadioRow(
+                title = "フォルダ容量",
+                options = listOf(
+                    FolderSizeMode.OFF to "表示しない",
+                    FolderSizeMode.LOCAL_ONLY to "ローカルのみ",
+                    FolderSizeMode.LOCAL_AND_SMB to "ローカル + SMB",
+                ),
+                selected = folderSizeMode,
+                onSelect = { FolderSizeSettings.setMode(context, it) },
+            )
+            Text(
+                "フォルダ容量は配下を再帰的に集計します。SMBはネットワーク負荷を抑えるため1フォルダずつ計算し、結果をキャッシュします。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),

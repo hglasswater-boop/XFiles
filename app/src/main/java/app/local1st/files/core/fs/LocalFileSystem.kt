@@ -1,6 +1,7 @@
 package app.local1st.files.core.fs
 
 import android.os.Build
+import android.os.StatFs
 import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.util.FileTypes
 import java.io.File
@@ -10,7 +11,10 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.FileAlreadyExistsException
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
@@ -185,6 +189,33 @@ class LocalFileSystem(
 
     override fun canWrite(entry: XEntry): Boolean = File(entry.path).canWrite()
 
+    override fun storageSpace(entry: XEntry): StorageSpace? {
+        val path = entry.localPath ?: entry.path
+        return try {
+            val stat = StatFs(path)
+            StorageSpace(totalBytes = stat.totalBytes, freeBytes = stat.availableBytes)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+    }
+
+    override fun directorySize(entry: XEntry): Long? {
+        if (!entry.isDir) return null
+        val root = File(entry.localPath ?: entry.path).toPath()
+        if (!Files.exists(root)) return null
+        var total = 0L
+        Files.walkFileTree(
+            root,
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isRegularFile) total = saturatedAdd(total, attrs.size())
+                    return FileVisitResult.CONTINUE
+                }
+            },
+        )
+        return total
+    }
+
     /**
      * Saves an edited local file with the existing atomic File path when that works.
      * Only its failed API 26-29 secondary-volume case falls through to SAF.
@@ -314,6 +345,9 @@ class LocalFileSystem(
             throw IOException(directError.message, e)
         }
     }
+
+    private fun saturatedAdd(current: Long, value: Long): Long =
+        if (value > 0L && current > Long.MAX_VALUE - value) Long.MAX_VALUE else current + value
 }
 
 /** CREATE_NEW is the invariant behind the UI's promise that creating never overwrites. */
