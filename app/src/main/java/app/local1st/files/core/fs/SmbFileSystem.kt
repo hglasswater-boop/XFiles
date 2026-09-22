@@ -18,6 +18,7 @@ import java.io.FilterOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.ArrayDeque
 import java.util.EnumSet
 
 /** SMB2/SMB3 filesystem backed by SMBJ. Each saved connection represents one share. */
@@ -237,6 +238,28 @@ open class SmbFileSystem(
 
     override fun canWrite(entry: XEntry): Boolean = entry.id != ROOT_ID
 
+    override fun storageSpace(entry: XEntry): StorageSpace? {
+        if (entry.id == ROOT_ID) return null
+        val target = target(entry.id)
+        return withShare(target.connection) { share ->
+            val info = share.shareInformation
+            StorageSpace(
+                totalBytes = info.totalSpace,
+                // Match Android StatFs.availableBytes semantics: show space available to the
+                // authenticated caller, respecting server-side quotas when present.
+                freeBytes = info.callerFreeSpace,
+            )
+        }
+    }
+
+    override fun directorySize(entry: XEntry): Long? {
+        if (!entry.isDir || entry.id == ROOT_ID) return null
+        val target = target(entry.id)
+        return withShare(target.connection) { share ->
+            directorySizeOnShare(share, target.path)
+        }
+    }
+
     private fun connectionEntry(config: SmbConnectionConfig): XEntry = XEntry(
         id = "$scheme://${config.id}",
         name = config.name,
@@ -300,6 +323,45 @@ open class SmbFileSystem(
         } finally {
             runCatching { client.close() }
         }
+    }
+
+    /**
+     * Walk one SMB directory tree on one authenticated share connection. Reparse-point
+     * directories are intentionally not followed: Windows junctions/symlinks can point back to an
+     * ancestor or outside the selected folder, which would make a folder-size scan loop or count
+     * unrelated data.
+     */
+    private fun directorySizeOnShare(share: DiskShare, rootPath: String): Long {
+        val pending = ArrayDeque<String>()
+        pending.add(rootPath)
+        var total = 0L
+        while (pending.isNotEmpty()) {
+            val current = pending.removeLast()
+            share.list(toSmbPath(current))
+                .asSequence()
+                .filterNot { it.fileName == "." || it.fileName == ".." }
+                .forEach { info ->
+                    val isDir = EnumWithValue.EnumUtils.isSet(
+                        info.fileAttributes,
+                        FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
+                    )
+                    val isReparsePoint = EnumWithValue.EnumUtils.isSet(
+                        info.fileAttributes,
+                        FileAttributes.FILE_ATTRIBUTE_REPARSE_POINT,
+                    )
+                    if (isDir) {
+                        if (!isReparsePoint) {
+                            pending.add(
+                                if (current.isEmpty()) info.fileName
+                                else "$current/${info.fileName}",
+                            )
+                        }
+                    } else {
+                        total = saturatedAdd(total, info.endOfFile)
+                    }
+                }
+        }
+        return total
     }
 
     private class OpenFileHandle(
@@ -417,5 +479,8 @@ open class SmbFileSystem(
         )
 
         private fun toSmbPath(path: String): String = path.replace('/', '\\')
+
+        private fun saturatedAdd(current: Long, value: Long): Long =
+            if (value > 0L && current > Long.MAX_VALUE - value) Long.MAX_VALUE else current + value
     }
 }
