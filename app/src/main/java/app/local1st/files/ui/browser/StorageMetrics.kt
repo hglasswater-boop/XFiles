@@ -27,7 +27,7 @@ private data class FolderSizeKey(
 )
 
 /** True for a saved SMB connection row directly below the synthetic SMB root. */
-internal fun isSmbConnectionRoot(entry: XEntry): Boolean =
+private fun isSmbStorageConnectionRoot(entry: XEntry): Boolean =
     entry.scheme == XId.SCHEME_SMB &&
         entry.id != "${XId.SCHEME_SMB}://" &&
         entry.path.isNotBlank() &&
@@ -38,12 +38,12 @@ internal fun isStorageRoot(entry: XEntry): Boolean =
     entry.kind == EntryKind.VOLUME_INTERNAL ||
         entry.kind == EntryKind.VOLUME_SD ||
         entry.kind == EntryKind.VOLUME_USB ||
-        isSmbConnectionRoot(entry)
+        isSmbStorageConnectionRoot(entry)
 
 /**
- * Recursive folder size for a browser row. [startLoad] lets expanded ancestors reuse an already
- * cached value without launching another overlapping subtree scan; collapsed child folders do the
- * actual work. Recursive IO stays fully disabled unless the display setting requested it.
+ * Recursive folder size for a browser row. Recursive IO stays fully disabled unless the display
+ * setting requested it. Loads are bounded globally, so expanded folders still get a size without
+ * turning a directory full of visible rows into parallel SMB walks.
  */
 @Composable
 internal fun rememberFolderSize(
@@ -51,18 +51,14 @@ internal fun rememberFolderSize(
     enabled: Boolean,
     startLoad: Boolean,
 ): Long? {
-    if (!enabled || entry.kind != EntryKind.DIR || isSmbConnectionRoot(entry)) return null
+    if (!enabled || entry.kind != EntryKind.DIR || isSmbStorageConnectionRoot(entry)) return null
     FolderSizeCache.ensureInvalidationCollector()
     val key = FolderSizeKey(entry.id, entry.mtime)
     val size by produceState<Long?>(FolderSizeCache.peek(key), key, startLoad) {
-        if (value == null && startLoad) value = FolderSizeCache.load(key, entry)
+        if (value == null) value = FolderSizeCache.load(key, entry)
         Graph.opEngine.events.collect { event ->
             if (event.dirtyDirIds.any { dirty -> pathsOverlap(entry.id, dirty) }) {
-                value = if (startLoad) {
-                    FolderSizeCache.load(key, entry, force = true)
-                } else {
-                    FolderSizeCache.peek(key)
-                }
+                value = FolderSizeCache.load(key, entry, force = true)
             }
         }
     }
@@ -100,7 +96,7 @@ internal fun storageDetails(entry: XEntry, space: StorageSpace?): String {
     val capacity = "${Format.bytes(space.freeBytes)} free of ${Format.bytes(space.totalBytes)}"
     // Local volume badges already contain the same capacity text from the first synchronous root
     // snapshot. SMB badges instead carry the UNC path, which remains useful alongside capacity.
-    return if (isSmbConnectionRoot(entry)) {
+    return if (isSmbStorageConnectionRoot(entry)) {
         entry.badge?.takeIf { it.isNotBlank() }?.let { "$it · $capacity" } ?: capacity
     } else {
         capacity
