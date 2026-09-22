@@ -2,6 +2,7 @@ package app.local1st.files.ui.dialogs
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -164,55 +165,61 @@ fun MainDialogs(vm: MainViewModel) {
             }
             AlertDialog(
                 onDismissRequest = dismiss,
-                title = { Text(req.entry.name) },
+                title = {
+                    SelectionContainer {
+                        Text(req.entry.name)
+                    }
+                },
                 text = {
-                    Column {
-                        val displayLocation = when (req.entry.scheme) {
-                            XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
-                            XId.SCHEME_ROOT -> "root:${req.entry.path}"
-                            else -> req.entry.path
-                        }
-                        Text(stringResource(R.string.location, displayLocation))
-                        if (!req.entry.isDir) {
-                            Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
-                        }
-                        Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
-                        req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
-                        videoMetadata?.let { metadata ->
-                            if (metadata.width != null && metadata.height != null) {
-                                Text(
-                                    stringResource(
-                                        R.string.video_resolution,
-                                        "${metadata.width} × ${metadata.height}",
-                                    ),
-                                )
+                    SelectionContainer {
+                        Column {
+                            val displayLocation = when (req.entry.scheme) {
+                                XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
+                                XId.SCHEME_ROOT -> "root:${req.entry.path}"
+                                else -> req.entry.path
                             }
-                            metadata.frameRate?.let {
-                                Text(
-                                    stringResource(
-                                        R.string.video_frame_rate,
-                                        formatVideoFrameRate(it),
-                                    ),
-                                )
+                            Text(stringResource(R.string.location, displayLocation))
+                            if (!req.entry.isDir) {
+                                Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
                             }
-                            metadata.durationMs?.let {
-                                Text(
-                                    stringResource(
-                                        R.string.video_duration,
-                                        formatVideoDuration(it),
-                                    ),
-                                )
-                            }
-                            metadata.codec?.let {
-                                Text(stringResource(R.string.video_codec, it))
-                            }
-                            metadata.bitrate?.let {
-                                Text(
-                                    stringResource(
-                                        R.string.video_bitrate,
-                                        formatVideoBitrate(it),
-                                    ),
-                                )
+                            Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
+                            req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
+                            videoMetadata?.let { metadata ->
+                                if (metadata.width != null && metadata.height != null) {
+                                    Text(
+                                        stringResource(
+                                            R.string.video_resolution,
+                                            "${metadata.width} × ${metadata.height}",
+                                        ),
+                                    )
+                                }
+                                metadata.frameRate?.let {
+                                    Text(
+                                        stringResource(
+                                            R.string.video_frame_rate,
+                                            formatVideoFrameRate(it),
+                                        ),
+                                    )
+                                }
+                                metadata.durationMs?.let {
+                                    Text(
+                                        stringResource(
+                                            R.string.video_duration,
+                                            formatVideoDuration(it),
+                                        ),
+                                    )
+                                }
+                                metadata.codec?.let {
+                                    Text(stringResource(R.string.video_codec, it))
+                                }
+                                metadata.bitrate?.let {
+                                    Text(
+                                        stringResource(
+                                            R.string.video_bitrate,
+                                            formatVideoBitrate(it),
+                                        ),
+                                    )
+                                }
                             }
                         }
                     }
