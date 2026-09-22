@@ -179,6 +179,7 @@ internal fun CastStoryboardStrip(
         }
         loadedState
     }
+    val sharedReadyState = state as? CastStoryboardUiState.Ready
 
     when (val current = state) {
         CastStoryboardUiState.Loading -> {
@@ -260,7 +261,7 @@ internal fun CastStoryboardStrip(
                 if (finePreviewDismissSignal > 0) hideFinePreview()
             }
 
-            // The loader emits the full placeholder timeline before extraction begins. Align the
+            // The loader emits the full placeholder timeline before extracting frames. Align the
             // viewport immediately, so the extractor can fill the playback area first instead of
             // waiting for an unrelated thumbnail to finish.
             LaunchedEffect(frames.size, nearestIndex, current.complete, vertical) {
@@ -566,7 +567,7 @@ internal fun CastStoryboardStrip(
         }
     }
 
-    if (verticalStoryboardVisible && !vertical) {
+    if (verticalStoryboardVisible && !vertical && sharedReadyState != null) {
         Dialog(
             onDismissRequest = { verticalStoryboardVisible = false },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -605,8 +606,8 @@ internal fun CastStoryboardStrip(
                         onSeek = onSeek,
                         vertical = true,
                         showJumpToCurrent = true,
-                        sharedResult = current.result,
-                        sharedComplete = current.complete,
+                        sharedResult = sharedReadyState.result,
+                        sharedComplete = sharedReadyState.complete,
                         sharedExtractionPriority = extractionPriority,
                         modifier = Modifier
                             .fillMaxWidth()
