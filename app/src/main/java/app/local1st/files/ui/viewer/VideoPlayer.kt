@@ -19,7 +19,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -32,7 +31,6 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,7 +38,6 @@ import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
@@ -84,21 +81,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
@@ -123,12 +118,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
- * Video chrome replacing PlayerView's stock controller: instead of a full-screen scrim,
- * a compact bottom card that can be dragged vertically off whatever region is being
- * watched. Tapping the time display switches it to a frame counter, and in frame mode
- * every seek control steps by exactly one frame. Horizontal swipes on the video itself
- * seek (by time, or by frame in frame mode). A vertical swipe on the right half changes
- * the device media volume, while double-tapping the left/right half seeks -/+10 seconds.
+ * Video chrome replacing PlayerView's stock controller with compact bottom controls.
+ * Tapping the time display switches it to a frame counter, and in frame mode every seek
+ * control steps by exactly one frame. Horizontal swipes on the video itself seek (by time,
+ * or by frame in frame mode). A vertical swipe on the right half changes the device media
+ * volume, while double-tapping the left/right half seeks -/+10 seconds.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -162,7 +156,6 @@ fun VideoPlayerScreen(
     var interactionTick by remember { mutableIntStateOf(0) }
     var sliderPos by remember { mutableStateOf<Float?>(null) }
     var sliderWasPlaying by remember { mutableStateOf(false) }
-    var cardDragging by remember { mutableStateOf(false) }
     var showPlayerSettings by remember { mutableStateOf(false) }
     val tvFocusRequester = remember { FocusRequester() }
 
@@ -200,8 +193,6 @@ fun VideoPlayerScreen(
     val view = LocalView.current
     val context = LocalContext.current
     val seekWhileDragging by VideoPlayerSettings.seekWhileDragging(context).collectAsState()
-    val controlsTransparencyPercent by
-        VideoPlayerSettings.controlsTransparencyPercent(context).collectAsState()
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -338,8 +329,7 @@ fun VideoPlayerScreen(
             controlsVisible = true
         }
     }
-    val interacting =
-        scrubbing || volumeAdjusting || cardDragging || sliderPos != null || keepControlsVisible
+    val interacting = scrubbing || volumeAdjusting || sliderPos != null || keepControlsVisible
     LaunchedEffect(controlsVisible, playing, interacting, interactionTick) {
         if (controlsVisible && playing && !interacting) {
             delay(AUTO_HIDE_MS)
@@ -350,15 +340,11 @@ fun VideoPlayerScreen(
     val statusBarsIns = WindowInsets.statusBarsIgnoringVisibility
     val navBarsIns = WindowInsets.navigationBarsIgnoringVisibility
     val cutout = WindowInsets.displayCutout
-    var parentHeightPx by remember { mutableIntStateOf(0) }
-    var cardHeightPx by remember { mutableIntStateOf(0) }
-    var cardOffsetY by remember { mutableFloatStateOf(0f) }
 
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onSizeChanged { parentHeightPx = it.height }
             .then(
                 if (tvRemoteControls) {
                     Modifier
@@ -629,60 +615,42 @@ fun VideoPlayerScreen(
                             expanded = showPlayerSettings,
                             onDismissRequest = { showPlayerSettings = false },
                         ) {
-                        Text(
-                            "シークバー",
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (seekWhileDragging) {
-                                        "✓  ドラッグ中に映像を追従"
-                                    } else {
-                                        "　 ドラッグ中に映像を追従"
-                                    },
-                                )
-                            },
-                            onClick = {
-                                VideoPlayerSettings.setSeekWhileDragging(context, true)
-                                showPlayerSettings = false
-                                interactionTick++
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (!seekWhileDragging) {
-                                        "✓  指を離した時に移動"
-                                    } else {
-                                        "　 指を離した時に移動"
-                                    },
-                                )
-                            },
-                            onClick = {
-                                VideoPlayerSettings.setSeekWhileDragging(context, false)
-                                showPlayerSettings = false
-                                interactionTick++
-                            },
-                        )
-                        Text(
-                            "操作パネル透過率 $controlsTransparencyPercent%",
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                            Slider(
-                                value = controlsTransparencyPercent.toFloat(),
-                                onValueChange = { value ->
-                                    VideoPlayerSettings.setControlsTransparencyPercent(
-                                        context,
-                                        (value / 5f).roundToInt() * 5,
+                            Text(
+                                "シークバー",
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (seekWhileDragging) {
+                                            "✓  ドラッグ中に映像を追従"
+                                        } else {
+                                            "　 ドラッグ中に映像を追従"
+                                        },
                                     )
+                                },
+                                onClick = {
+                                    VideoPlayerSettings.setSeekWhileDragging(context, true)
+                                    showPlayerSettings = false
                                     interactionTick++
                                 },
-                                valueRange = 0f..60f,
-                                steps = 11,
-                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (!seekWhileDragging) {
+                                            "✓  指を離した時に移動"
+                                        } else {
+                                            "　 指を離した時に移動"
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    VideoPlayerSettings.setSeekWhileDragging(context, false)
+                                    showPlayerSettings = false
+                                    interactionTick++
+                                },
                             )
                         }
                     }
@@ -722,20 +690,11 @@ fun VideoPlayerScreen(
                         cutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                     ),
                 )
-                .padding(bottom = 10.dp)
-                .offset {
-                    val travel = (
-                        parentHeightPx - cardHeightPx - statusBarsIns.getTop(this) -
-                            navBarsIns.getBottom(this) - 10.dp.roundToPx()
-                        ).coerceAtLeast(0)
-                    IntOffset(0, cardOffsetY.roundToInt().coerceIn(-travel, 0))
-                },
+                .padding(bottom = 10.dp),
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onSizeChanged { cardHeightPx = it.height },
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 controlsTopContent()
                 Box(
@@ -744,48 +703,18 @@ fun VideoPlayerScreen(
                         .padding(horizontal = 12.dp),
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
-                            alpha = 1f - controlsTransparencyPercent / 100f,
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pointerInput(Unit) {
-                                detectVerticalDragGestures(
-                                    onDragStart = { cardDragging = true },
-                                    onDragEnd = {
-                                        cardDragging = false
-                                        interactionTick++
-                                    },
-                                    onDragCancel = {
-                                        cardDragging = false
-                                        interactionTick++
-                                    },
-                                    onVerticalDrag = { change, dy ->
-                                        change.consume()
-                                        val travel = (
-                                            parentHeightPx - cardHeightPx - statusBarsIns.getTop(this) -
-                                                navBarsIns.getBottom(this) - 10.dp.toPx()
-                                            ).coerceAtLeast(0f)
-                                        cardOffsetY = (cardOffsetY + dy).coerceIn(-travel, 0f)
-                                    },
-                                )
-                            },
+                        color = Color.Transparent,
+                        contentColor = Color.White,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-                            Box(
-                                Modifier
-                                    .align(Alignment.CenterHorizontally)
-                                    .size(width = 36.dp, height = 4.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        CircleShape,
-                                    ),
-                            )
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
                             val approx = if (fps > 0f && isStandardFps(fps)) "" else "≈"
                             val total = totalFramesNow()
-                            val modeColor = if (frameMode) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface
+                            val modeColor = if (frameMode) MaterialTheme.colorScheme.primary else Color.White
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -864,59 +793,59 @@ fun VideoPlayerScreen(
                                     horizontalArrangement = Arrangement.Center,
                                     modifier = Modifier.align(Alignment.Center),
                                 ) {
-                                if (hasPrevious || hasNext) {
-                                    TooltipIconButton(
-                                        stringResource(R.string.previous_video),
-                                        Icons.Outlined.SkipPrevious,
-                                        enabled = hasPrevious,
+                                    if (hasPrevious || hasNext) {
+                                        TooltipIconButton(
+                                            stringResource(R.string.previous_video),
+                                            Icons.Outlined.SkipPrevious,
+                                            enabled = hasPrevious,
+                                        ) {
+                                            player.seekToPreviousMediaItem()
+                                            interactionTick++
+                                        }
+                                    }
+                                    if (frameMode) {
+                                        TooltipIconButton(stringResource(R.string.previous_frame), Icons.Outlined.ChevronLeft) {
+                                            stepFrame(-1)
+                                        }
+                                    } else {
+                                        TooltipIconButton(stringResource(R.string.back_5_seconds), Icons.Outlined.Replay5) {
+                                            stepSeconds(-STEP_SECONDS)
+                                        }
+                                    }
+                                    TooltipBox(
+                                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                        tooltip = { PlainTooltip { Text(stringResource(if (playing) R.string.pause else R.string.play)) } },
+                                        state = rememberTooltipState(),
                                     ) {
-                                        player.seekToPreviousMediaItem()
-                                        interactionTick++
+                                        FilledIconButton(
+                                            onClick = { togglePlayback() },
+                                            modifier = Modifier.size(44.dp),
+                                        ) {
+                                            Icon(
+                                                if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                                                contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
+                                            )
+                                        }
                                     }
-                                }
-                                if (frameMode) {
-                                    TooltipIconButton(stringResource(R.string.previous_frame), Icons.Outlined.ChevronLeft) {
-                                        stepFrame(-1)
+                                    if (frameMode) {
+                                        TooltipIconButton(stringResource(R.string.next_frame), Icons.Outlined.ChevronRight) {
+                                            stepFrame(1)
+                                        }
+                                    } else {
+                                        TooltipIconButton(stringResource(R.string.forward_5_seconds), Icons.Outlined.Forward5) {
+                                            stepSeconds(STEP_SECONDS)
+                                        }
                                     }
-                                } else {
-                                    TooltipIconButton(stringResource(R.string.back_5_seconds), Icons.Outlined.Replay5) {
-                                        stepSeconds(-STEP_SECONDS)
+                                    if (hasPrevious || hasNext) {
+                                        TooltipIconButton(
+                                            stringResource(R.string.next_video),
+                                            Icons.Outlined.SkipNext,
+                                            enabled = hasNext,
+                                        ) {
+                                            player.seekToNextMediaItem()
+                                            interactionTick++
+                                        }
                                     }
-                                }
-                                TooltipBox(
-                                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                                    tooltip = { PlainTooltip { Text(stringResource(if (playing) R.string.pause else R.string.play)) } },
-                                    state = rememberTooltipState(),
-                                ) {
-                                    FilledIconButton(
-                                        onClick = { togglePlayback() },
-                                        modifier = Modifier.size(44.dp),
-                                    ) {
-                                        Icon(
-                                            if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                                            contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
-                                        )
-                                    }
-                                }
-                                if (frameMode) {
-                                    TooltipIconButton(stringResource(R.string.next_frame), Icons.Outlined.ChevronRight) {
-                                        stepFrame(1)
-                                    }
-                                } else {
-                                    TooltipIconButton(stringResource(R.string.forward_5_seconds), Icons.Outlined.Forward5) {
-                                        stepSeconds(STEP_SECONDS)
-                                    }
-                                }
-                                if (hasPrevious || hasNext) {
-                                    TooltipIconButton(
-                                        stringResource(R.string.next_video),
-                                        Icons.Outlined.SkipNext,
-                                        enabled = hasNext,
-                                    ) {
-                                        player.seekToNextMediaItem()
-                                        interactionTick++
-                                    }
-                                }
                                 }
                                 if (orientationController != null) {
                                     Row(
