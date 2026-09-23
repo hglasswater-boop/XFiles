@@ -97,9 +97,10 @@ internal fun storageDetails(entry: XEntry, space: StorageSpace?): String {
     val percent = if (space.usedFraction >= 0f) (space.usedFraction * 100f).roundToInt() else 0
     val capacity = "使用 $percent% · ${Format.bytes(space.usedBytes)} / ${Format.bytes(space.totalBytes)} · 空き ${Format.bytes(space.freeBytes)}"
     // Local volume badges already contain capacity text from the first synchronous root snapshot.
-    // SMB badges instead carry the UNC path, which remains useful alongside the live capacity.
+    // SMB badges instead carry the UNC path. Keep that path on its own metadata line and place the
+    // live capacity on the following line so neither has to compete for horizontal space.
     return if (isSmbStorageConnectionRoot(entry)) {
-        entry.badge?.takeIf { it.isNotBlank() }?.let { "$it · $capacity" } ?: capacity
+        entry.badge?.takeIf { it.isNotBlank() }?.let { "$it\n$capacity" } ?: capacity
     } else {
         capacity
     }

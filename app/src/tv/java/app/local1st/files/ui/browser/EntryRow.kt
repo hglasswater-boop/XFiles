@@ -287,7 +287,7 @@ fun EntryRow(
                     Text(
                         details,
                         style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
+                        maxLines = if (storageRoot && node.error == null) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
                         color = if (node.error != null) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -637,49 +637,48 @@ private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
     val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
     val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
     if (directCounts == null && fallbackCount.isEmpty() && folderSize == null && created.isEmpty()) return
+    val hasSummary = directCounts != null || fallbackCount.isNotEmpty() || created.isNotEmpty()
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f),
-        ) {
-            when {
-                directCounts != null -> FolderCountSummary(counts = directCounts)
-                fallbackCount.isNotEmpty() -> Text(
-                    fallbackCount,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (folderSize != null) {
-                if (directCounts != null || fallbackCount.isNotEmpty()) {
-                    Text(
-                        " · ",
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (hasSummary) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                when {
+                    directCounts != null -> FolderCountSummary(
+                        counts = directCounts,
+                        modifier = Modifier.weight(1f),
+                    )
+                    fallbackCount.isNotEmpty() -> Text(
+                        fallbackCount,
                         style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    else -> Spacer(Modifier.weight(1f))
+                }
+                if (created.isNotEmpty()) {
+                    Text(
+                        created,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
                     )
                 }
-                Text(
-                    Format.bytes(folderSize),
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
-        if (created.isNotEmpty()) {
+        if (folderSize != null) {
             Text(
-                created,
+                Format.bytes(folderSize),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp),
+                modifier = Modifier.padding(top = if (hasSummary) 1.dp else 0.dp),
             )
         }
     }
