@@ -12,7 +12,6 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.XEntry
-import app.local1st.files.core.fs.priv.TransportPref
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -89,25 +88,30 @@ data class SessionState(val panes: List<SessionPane>, val activePane: Int)
  */
 data class Favorite(val id: String, val isDir: Boolean)
 
-/** Default for the Root-access switch: the home-screen row is visible; writes stay read-only. */
-const val DEFAULT_ROOT_ENABLED = true
-
 private const val MAX_SESSION_DIRECTORIES = 128
 internal const val MAX_SESSION_RENDER_NODES = 32
 private const val MAX_SESSION_RENDER_DEPTH = 64
 
+/** App Manager and privileged-root ids may survive in preferences from older releases. */
+internal fun isRetiredEntryId(id: String): Boolean =
+    id.startsWith("apps://") || id.startsWith("root://")
+
 private fun encodeSessionDirectories(directories: List<SessionDirectory>): String {
     val array = JSONArray()
-    directories.distinctBy { it.id }.take(MAX_SESSION_DIRECTORIES).forEach { directory ->
-        array.put(
-            JSONObject()
-                .put("id", directory.id)
-                .put("name", directory.name)
-                .put("dir", directory.isDir)
-                .put("kind", directory.kind.name)
-                .put("local", directory.localPath ?: JSONObject.NULL),
-        )
-    }
+    directories
+        .filterNot { isRetiredEntryId(it.id) }
+        .distinctBy { it.id }
+        .take(MAX_SESSION_DIRECTORIES)
+        .forEach { directory ->
+            array.put(
+                JSONObject()
+                    .put("id", directory.id)
+                    .put("name", directory.name)
+                    .put("dir", directory.isDir)
+                    .put("kind", directory.kind.name)
+                    .put("local", directory.localPath ?: JSONObject.NULL),
+            )
+        }
     return array.toString()
 }
 
@@ -120,7 +124,7 @@ private fun decodeSessionDirectories(json: String?): List<SessionDirectory> {
             for (index in 0 until minOf(array.length(), MAX_SESSION_DIRECTORIES)) {
                 val value = array.optJSONObject(index) ?: continue
                 val id = value.optString("id")
-                if (!id.contains("://") || !seen.add(id)) continue
+                if (!id.contains("://") || isRetiredEntryId(id) || !seen.add(id)) continue
                 val kind = runCatching { EntryKind.valueOf(value.optString("kind")) }
                     .getOrNull() ?: continue
                 val localPath = value.opt("local")
@@ -144,32 +148,35 @@ private fun JSONObject.nullableString(key: String): String? =
 
 private fun encodeSessionRender(snapshot: SessionRenderSnapshot): String {
     val nodes = JSONArray()
-    snapshot.nodes.take(MAX_SESSION_RENDER_NODES).forEach { node ->
-        val entry = node.entry
-        nodes.put(
-            JSONObject()
-                .put("i", entry.id)
-                .put("n", entry.name)
-                .put("d", entry.isDir)
-                .put("s", entry.size)
-                .put("t", entry.mtime)
-                .put("m", entry.mime ?: JSONObject.NULL)
-                .put("h", entry.hidden)
-                .put("r", entry.canRead)
-                .put("w", entry.canWrite)
-                .put("k", entry.kind.name)
-                .put("c", entry.childCountHint)
-                .put("b", entry.badge ?: JSONObject.NULL)
-                .put("l", entry.localPath ?: JSONObject.NULL)
-                .put("p", entry.progress.toDouble())
-                .put("f", entry.pinned)
-                .put("q", node.key)
-                .put("z", node.depth)
-                .put("x", node.expanded)
-                .put("g", node.guides.joinToString("") { if (it) "1" else "0" })
-                .put("e", node.isLastChild),
-        )
-    }
+    snapshot.nodes
+        .filterNot { isRetiredEntryId(it.entry.id) }
+        .take(MAX_SESSION_RENDER_NODES)
+        .forEach { node ->
+            val entry = node.entry
+            nodes.put(
+                JSONObject()
+                    .put("i", entry.id)
+                    .put("n", entry.name)
+                    .put("d", entry.isDir)
+                    .put("s", entry.size)
+                    .put("t", entry.mtime)
+                    .put("m", entry.mime ?: JSONObject.NULL)
+                    .put("h", entry.hidden)
+                    .put("r", entry.canRead)
+                    .put("w", entry.canWrite)
+                    .put("k", entry.kind.name)
+                    .put("c", entry.childCountHint)
+                    .put("b", entry.badge ?: JSONObject.NULL)
+                    .put("l", entry.localPath ?: JSONObject.NULL)
+                    .put("p", entry.progress.toDouble())
+                    .put("f", entry.pinned)
+                    .put("q", node.key)
+                    .put("z", node.depth)
+                    .put("x", node.expanded)
+                    .put("g", node.guides.joinToString("") { if (it) "1" else "0" })
+                    .put("e", node.isLastChild),
+            )
+        }
     return JSONObject()
         .put("at", snapshot.initialIndex)
         .put("nodes", nodes)
@@ -185,7 +192,7 @@ private fun decodeSessionRender(json: String?): SessionRenderSnapshot? {
             for (index in 0 until minOf(array.length(), MAX_SESSION_RENDER_NODES)) {
                 val value = array.optJSONObject(index) ?: continue
                 val id = value.optString("i")
-                if (!id.contains("://")) continue
+                if (!id.contains("://") || isRetiredEntryId(id)) continue
                 val kind = runCatching { EntryKind.valueOf(value.optString("k")) }
                     .getOrNull() ?: continue
                 val isDir = value.optBoolean("d", kind == EntryKind.DIR)
@@ -245,9 +252,6 @@ class SettingsRepo(private val context: Context) {
     private val keyThemeMode = stringPreferencesKey("theme_mode")
     private val keyDynamicColor = booleanPreferencesKey("dynamic_color")
     private val keyTextWrap = booleanPreferencesKey("text_wrap")
-    private val keyRootEnabled = booleanPreferencesKey("root_enabled")
-    private val keyRootReadOnly = booleanPreferencesKey("root_read_only")
-    private val keyPrivilegedTransport = stringPreferencesKey("privileged_transport")
     private val keySafVolumeTrees = stringPreferencesKey("saf_volume_trees")
     // JSON array, not a string set: favorites keep their user-defined order.
     private val keyFavorites = stringPreferencesKey("favorites")
@@ -298,16 +302,6 @@ class SettingsRepo(private val context: Context) {
      */
     val textWrap: Flow<Boolean> = setting { it[keyTextWrap] ?: false }
 
-    /** Root row is on the home screen by default; Read-only still blocks privileged writes. */
-    val rootEnabled: Flow<Boolean> = setting { it[keyRootEnabled] ?: DEFAULT_ROOT_ENABLED }
-
-    /** Read-only root mode is the safe default: block writes that need root. */
-    val rootReadOnly: Flow<Boolean> = setting { it[keyRootReadOnly] ?: true }
-
-    val privilegedTransport: Flow<TransportPref> = setting {
-        TransportPref.fromStoredValue(it[keyPrivilegedTransport] ?: "auto")
-    }
-
     /** Persisted SAF tree URI per secondary-volume id (API 26-29 only). */
     val safVolumeTrees: Flow<Map<String, String>> = setting { prefs ->
         val json = prefs[keySafVolumeTrees] ?: return@setting emptyMap()
@@ -331,13 +325,15 @@ class SettingsRepo(private val context: Context) {
             List(arr.length()) { i ->
                 val o = arr.getJSONObject(i)
                 Favorite(id = o.getString("id"), isDir = o.optBoolean("dir", true))
-            }
+            }.filterNot { isRetiredEntryId(it.id) }
         }.getOrDefault(emptyList())
     }
 
     suspend fun setFavorites(favorites: List<Favorite>) = context.dataStore.edit { prefs ->
         val arr = JSONArray()
-        favorites.forEach { arr.put(JSONObject().put("id", it.id).put("dir", it.isDir)) }
+        favorites.filterNot { isRetiredEntryId(it.id) }.forEach {
+            arr.put(JSONObject().put("id", it.id).put("dir", it.isDir))
+        }
         prefs[keyFavorites] = arr.toString()
     }
 
@@ -357,8 +353,10 @@ class SettingsRepo(private val context: Context) {
         return SessionState(
             panes = List(2) { i ->
                 SessionPane(
-                    expandedIds = prefs[keySessionExpanded[i]] ?: emptySet(),
-                    focusedId = prefs[keySessionFocused[i]],
+                    expandedIds = (prefs[keySessionExpanded[i]] ?: emptySet())
+                        .filterNot(::isRetiredEntryId)
+                        .toSet(),
+                    focusedId = prefs[keySessionFocused[i]]?.takeUnless(::isRetiredEntryId),
                     directories = decodeSessionDirectories(prefs[keySessionDirectories[i]]),
                     renderSnapshot = decodeSessionRender(prefs[keySessionRender[i]]),
                 )
@@ -369,13 +367,16 @@ class SettingsRepo(private val context: Context) {
 
     suspend fun saveSession(state: SessionState) = context.dataStore.edit { prefs ->
         state.panes.take(2).forEachIndexed { i, pane ->
-            prefs[keySessionExpanded[i]] = pane.expandedIds
-            val focused = pane.focusedId
+            prefs[keySessionExpanded[i]] = pane.expandedIds.filterNot(::isRetiredEntryId).toSet()
+            val focused = pane.focusedId?.takeUnless(::isRetiredEntryId)
             if (focused != null) prefs[keySessionFocused[i]] = focused
             else prefs.remove(keySessionFocused[i])
-            if (pane.directories.isEmpty()) prefs.remove(keySessionDirectories[i])
-            else prefs[keySessionDirectories[i]] = encodeSessionDirectories(pane.directories)
-            val renderSnapshot = pane.renderSnapshot
+            val directories = pane.directories.filterNot { isRetiredEntryId(it.id) }
+            if (directories.isEmpty()) prefs.remove(keySessionDirectories[i])
+            else prefs[keySessionDirectories[i]] = encodeSessionDirectories(directories)
+            val renderSnapshot = pane.renderSnapshot?.let { snapshot ->
+                snapshot.copy(nodes = snapshot.nodes.filterNot { isRetiredEntryId(it.entry.id) })
+            }
             if (renderSnapshot == null || renderSnapshot.nodes.isEmpty()) {
                 prefs.remove(keySessionRender[i])
             } else {
@@ -395,9 +396,4 @@ class SettingsRepo(private val context: Context) {
     suspend fun setThemeMode(value: ThemeMode) = context.dataStore.edit { it[keyThemeMode] = value.name }
     suspend fun setDynamicColor(value: Boolean) = context.dataStore.edit { it[keyDynamicColor] = value }
     suspend fun setTextWrap(value: Boolean) = context.dataStore.edit { it[keyTextWrap] = value }
-    suspend fun setRootEnabled(value: Boolean) = context.dataStore.edit { it[keyRootEnabled] = value }
-    suspend fun setRootReadOnly(value: Boolean) = context.dataStore.edit { it[keyRootReadOnly] = value }
-    suspend fun setPrivilegedTransport(value: TransportPref) = context.dataStore.edit {
-        it[keyPrivilegedTransport] = value.storedValue
-    }
 }

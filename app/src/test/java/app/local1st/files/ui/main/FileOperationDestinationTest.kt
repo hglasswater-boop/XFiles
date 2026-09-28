@@ -10,11 +10,10 @@ class FileOperationDestinationTest {
     @Test
     fun writableFilesystemDirectoriesCanBeOtherPaneDestinations() {
         assertTrue(isFileOperationDestination(directory("file:///storage/emulated/0/Download")))
-        assertTrue(isFileOperationDestination(directory("root:///data/local/tmp")))
     }
 
     @Test
-    fun missingReadOnlyVirtualAndNonDirectoryTargetsAreRejected() {
+    fun missingReadOnlyVirtualRemovedAndNonDirectoryTargetsAreRejected() {
         assertFalse(isFileOperationDestination(null))
         assertFalse(
             isFileOperationDestination(
@@ -23,6 +22,7 @@ class FileOperationDestinationTest {
         )
         assertFalse(isFileOperationDestination(directory("zip:///storage/emulated/0/a.zip!/docs")))
         assertFalse(isFileOperationDestination(directory("apps://@user")))
+        assertFalse(isFileOperationDestination(directory("root:///data/local/tmp")))
         assertFalse(
             isFileOperationDestination(
                 XEntry(

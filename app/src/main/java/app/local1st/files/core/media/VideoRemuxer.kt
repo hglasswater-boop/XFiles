@@ -11,7 +11,6 @@ import android.os.ParcelFileDescriptor
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.prefs.SmbConnectionRepo
 import java.io.Closeable
 import java.io.IOException
@@ -53,14 +52,6 @@ object VideoRemuxer {
                 source.localPath != null -> extractor.setDataSource(source.localPath)
                 source.scheme == "content" -> {
                     val descriptor = resolver.openFileDescriptor(Uri.parse(source.id), "r")
-                        ?: throw IOException("入力動画を開けません")
-                    inputFd = descriptor
-                    extractor.setDataSource(descriptor.fileDescriptor)
-                }
-                source.scheme == XId.SCHEME_ROOT -> {
-                    val transport = PrivilegedAccess.fdTransport()
-                        ?: throw IOException("Root動画を開くための権限がありません")
-                    val descriptor = transport.openFd(source.path, write = false)
                         ?: throw IOException("入力動画を開けません")
                     inputFd = descriptor
                     extractor.setDataSource(descriptor.fileDescriptor)

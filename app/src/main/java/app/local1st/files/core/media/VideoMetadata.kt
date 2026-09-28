@@ -4,11 +4,9 @@ import android.media.MediaDataSource
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.di.Graph
 import java.io.File
 import java.security.MessageDigest
@@ -149,17 +147,11 @@ object VideoMetadataReader {
 
     private fun readBlocking(entry: XEntry): VideoMetadata? {
         val extractor = MediaExtractor()
-        var descriptor: ParcelFileDescriptor? = null
         var remoteSource: SmbMetadataDataSource? = null
         try {
             when {
                 entry.localPath != null -> extractor.setDataSource(entry.localPath)
                 entry.scheme == XId.SCHEME_FILE -> extractor.setDataSource(entry.path)
-                entry.scheme == XId.SCHEME_ROOT -> {
-                    val transport = PrivilegedAccess.fdTransport() ?: return null
-                    descriptor = transport.openFd(entry.path, write = false) ?: return null
-                    extractor.setDataSource(descriptor.fileDescriptor)
-                }
                 entry.scheme == XId.SCHEME_SMB -> {
                     if (entry.size <= 0L) return null
                     remoteSource = SmbMetadataDataSource(entry)
@@ -208,7 +200,6 @@ object VideoMetadataReader {
         } finally {
             runCatching { extractor.release() }
             runCatching { remoteSource?.close() }
-            runCatching { descriptor?.close() }
         }
     }
 

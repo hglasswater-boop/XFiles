@@ -3,8 +3,6 @@ package app.local1st.files.core.util
 import android.content.Context
 import android.os.Build
 import android.os.Environment
-import app.local1st.files.core.fs.priv.PrivilegedAccess
-import app.local1st.files.core.fs.priv.shQuote
 import app.local1st.files.vendor.arsclib.arsc.chunk.xml.AndroidManifestBlock
 import java.io.File
 import java.io.FileOutputStream
@@ -35,31 +33,16 @@ object XapkObbInstaller {
         private val backups: List<Pair<File, File>>,
     ) {
         fun cleanUp() {
-            writtenFiles.forEach { file ->
-                if (!file.delete() && PrivilegedAccess.usable()) {
-                    runCatching { PrivilegedAccess.active?.exec("rm -f -- ${shQuote(file.path)}") }
-                }
-            }
+            writtenFiles.forEach(File::delete)
             backups.forEach { (destination, backup) ->
-                val restored = runCatching {
+                runCatching {
                     Files.move(backup.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                }.isSuccess
-                if (!restored && XapkObbInstaller.rootWritable()) {
-                    runCatching {
-                        PrivilegedAccess.active?.exec(
-                            "mv -f -- ${shQuote(backup.path)} ${shQuote(destination.path)}",
-                        )
-                    }
                 }
             }
         }
 
         fun commit() {
-            backups.forEach { (_, backup) ->
-                if (!backup.delete() && XapkObbInstaller.rootWritable()) {
-                    runCatching { PrivilegedAccess.active?.exec("rm -f -- ${shQuote(backup.path)}") }
-                }
-            }
+            backups.forEach { (_, backup) -> backup.delete() }
         }
     }
 
@@ -127,7 +110,7 @@ object XapkObbInstaller {
         obbs: List<ObbEntry>,
         progress: InstallProgress = InstallProgress(),
     ): Placement {
-        if (obbs.isNotEmpty() && !canRequestPackageInstalls(context) && !rootWritable()) {
+        if (obbs.isNotEmpty() && !canRequestPackageInstalls(context)) {
             throw UnknownSourcesPermissionException(
                 "Enable ‘Install unknown apps’ for XFiles, then retry. The permission cache may also require an XFiles restart.",
             )
@@ -136,8 +119,7 @@ object XapkObbInstaller {
         val externalRoot = Environment.getExternalStorageDirectory().canonicalFile
         val written = mutableListOf<File>()
         val backups = mutableListOf<Pair<File, File>>()
-        // Expansion files run to gigabytes, so report one bar across the whole set. A retried
-        // file restarts from the offset it began at, keeping the count monotonic.
+        // Expansion files run to gigabytes, so report one bar across the whole set.
         val totalBytes = obbs.sumOf { it.source.size.coerceAtLeast(0) }
         var doneBytes = 0L
         try {
@@ -156,35 +138,23 @@ object XapkObbInstaller {
                 if (existingSize >= 0) {
                     backups += destination to backUp(destination)
                 }
-                var directFailure: Exception? = null
-                zip.getInputStream(obb.source).use { input ->
-                    try {
+                try {
+                    zip.getInputStream(obb.source).use { input ->
                         writeDirect(input, destination, progress, startedAtBytes, totalBytes)
-                        written += destination
-                        return@forEach
-                    } catch (e: Exception) {
-                        if (e is CancellationException) throw e
-                        directFailure = e
                     }
-                }
-                if (!rootWritable()) {
-                    val cause = directFailure?.message ?: directFailure?.javaClass?.simpleName ?: "write failed"
+                    written += destination
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    val cause = e.message ?: e.javaClass.simpleName ?: "write failed"
                     throw ObbPlacementException(
                         if (canRequestPackageInstalls(context)) {
                             "Couldn't write ${destination.name}: $cause. The ‘Install unknown apps’ grant may be too recent; restart XFiles and retry."
                         } else {
                             "Couldn't write ${destination.name}: $cause. Enable ‘Install unknown apps’ for XFiles, restart XFiles if needed, then retry."
                         },
-                        directFailure,
+                        e,
                     )
                 }
-                val wrote = zip.getInputStream(obb.source).use { input ->
-                    writeWithRoot(input, destination, progress, startedAtBytes, totalBytes)
-                }
-                if (!wrote) {
-                    throw ObbPlacementException("Root failed to place ${destination.name}", directFailure)
-                }
-                written += destination
             }
             return Placement(written, backups)
         } catch (e: Exception) {
@@ -219,66 +189,17 @@ object XapkObbInstaller {
     private fun backUp(destination: File): File {
         val parent = destination.parentFile ?: throw ObbPlacementException("Invalid OBB destination")
         val backup = File(parent, ".${destination.name}.xfiles-backup-${UUID.randomUUID()}")
-        val directFailure = runCatching {
+        return try {
             Files.move(destination.toPath(), backup.toPath())
-        }.exceptionOrNull()
-        if (directFailure == null) return backup
-        if (!rootWritable()) {
-            throw ObbPlacementException("Couldn't back up ${destination.name}", directFailure)
-        }
-        val transport = PrivilegedAccess.active
-            ?: throw ObbPlacementException("Couldn't back up ${destination.name}", directFailure)
-        try {
-            transport.exec(
-                "mv -f -- ${shQuote(destination.path)} ${shQuote(backup.path)}",
-            )
-            return backup
+            backup
         } catch (e: Exception) {
             throw ObbPlacementException("Couldn't back up ${destination.name}", e)
         }
     }
 
-    private fun destinationSize(file: File): Long {
-        if (file.isFile) return file.length()
-        if (!rootWritable()) return -1
-        val transport = PrivilegedAccess.active ?: return -1
-        return transport.exec("stat -c %s -- ${shQuote(file.path)} 2>/dev/null || echo -1")
-            .trim().lineSequence().lastOrNull()?.toLongOrNull() ?: -1
-    }
+    private fun destinationSize(file: File): Long = if (file.isFile) file.length() else -1
 
     private fun destinationExists(file: File): Boolean = destinationSize(file) >= 0
-
-    private fun writeWithRoot(
-        input: java.io.InputStream,
-        destination: File,
-        progress: InstallProgress,
-        doneBytes: Long,
-        totalBytes: Long,
-    ): Boolean {
-        val parent = destination.parentFile ?: throw IOException("Invalid OBB destination")
-        val temp = File(parent, ".${destination.name}.xfiles-${UUID.randomUUID()}.part")
-        val transport = PrivilegedAccess.active ?: throw IOException("Root access is unavailable")
-        val quotedParent = shQuote(parent.path)
-        val quotedTemp = shQuote(temp.path)
-        val quotedDestination = shQuote(destination.path)
-        transport.exec("mkdir -p -- $quotedParent && chmod 0755 $quotedParent")
-        try {
-            transport.openWrite(temp.path).use { output ->
-                copyWithProgress(input, output, progress, doneBytes, totalBytes)
-            }
-            val result = transport.exec(
-                "chmod 0644 $quotedTemp && mv -f -- $quotedTemp $quotedDestination && " +
-                    "chmod 0644 $quotedDestination && echo wrote",
-            )
-            return result.trim() == "wrote"
-        } catch (e: Exception) {
-            runCatching { transport.exec("rm -f -- $quotedTemp") }
-            throw e
-        }
-    }
-
-    private fun rootWritable(): Boolean =
-        PrivilegedAccess.enabled && !PrivilegedAccess.readOnly && PrivilegedAccess.active != null
 
     private fun normalizeZipPath(path: String): String = path.replace('\\', '/').trimStart('/')
 

@@ -1,7 +1,6 @@
 package app.local1st.files.core.prefs
 
 import android.content.Context
-import app.local1st.files.core.fs.priv.TransportPref
 import app.local1st.files.core.util.ExternalOpenKind
 import app.local1st.files.core.util.ExternalOpenRegistry
 import app.local1st.files.di.Graph
@@ -35,9 +34,6 @@ object SettingsBackup {
             .put("themeMode", settings.themeMode.first().name)
             .put("dynamicColor", settings.dynamicColor.first())
             .put("textWrap", settings.textWrap.first())
-            .put("rootEnabled", settings.rootEnabled.first())
-            .put("rootReadOnly", settings.rootReadOnly.first())
-            .put("privilegedTransport", settings.privilegedTransport.first().storedValue)
 
         val favorites = JSONArray().apply {
             settings.favorites.first().forEach { favorite ->
@@ -62,13 +58,15 @@ object SettingsBackup {
 
         val folderSorts = JSONArray().apply {
             Graph.folderSorts.sorts.value.forEach { (id, spec) ->
-                put(
-                    JSONObject()
-                        .put("id", id)
-                        .put("by", spec.by.name)
-                        .put("descending", spec.descending)
-                        .put("dirsFirst", spec.dirsFirst),
-                )
+                if (!isRetiredEntryId(id)) {
+                    put(
+                        JSONObject()
+                            .put("id", id)
+                            .put("by", spec.by.name)
+                            .put("descending", spec.descending)
+                            .put("dirsFirst", spec.dirsFirst),
+                    )
+                }
             }
         }
 
@@ -128,18 +126,15 @@ object SettingsBackup {
         settings.setThemeMode(enumValueOrDefault(appSettings.optString("themeMode"), ThemeMode.SYSTEM))
         settings.setDynamicColor(appSettings.optBoolean("dynamicColor", true))
         settings.setTextWrap(appSettings.optBoolean("textWrap", false))
-        settings.setRootEnabled(appSettings.optBoolean("rootEnabled", DEFAULT_ROOT_ENABLED))
-        settings.setRootReadOnly(appSettings.optBoolean("rootReadOnly", true))
-        settings.setPrivilegedTransport(
-            TransportPref.fromStoredValue(appSettings.optString("privilegedTransport", "auto")),
-        )
 
+        // Older backups may still contain rootEnabled/rootReadOnly/privilegedTransport.
+        // They are intentionally ignored so the v1 format remains backwards compatible.
         val restoredFavorites = buildList {
             val array = root.optJSONArray("favorites") ?: JSONArray()
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
                 val id = item.optString("id")
-                if (!id.contains("://")) continue
+                if (!id.contains("://") || isRetiredEntryId(id)) continue
                 add(Favorite(id = id, isDir = item.optBoolean("dir", true)))
             }
         }
@@ -187,7 +182,7 @@ object SettingsBackup {
         for (index in 0 until sortArray.length()) {
             val item = sortArray.optJSONObject(index) ?: continue
             val id = item.optString("id")
-            if (!id.contains("://")) continue
+            if (!id.contains("://") || isRetiredEntryId(id)) continue
             val by = runCatching { SortBy.valueOf(item.optString("by")) }.getOrNull() ?: continue
             folderSortRepo.set(
                 id,

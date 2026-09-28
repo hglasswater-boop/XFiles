@@ -3,7 +3,6 @@ package app.local1st.files.ui.viewer
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.res.Configuration
-import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -83,7 +82,6 @@ import androidx.media3.cast.MediaRouteButton
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
@@ -95,18 +93,15 @@ import kotlinx.coroutines.isActive
 
 /**
  * media3 playback: PlayerView for video, an Expressive card UI for audio.
- * Local files use Media3's normal file source; root:// uses a binder-opened seekable fd;
- * smb:// uses SMBJ offset reads so large remote media can stream and seek without a local copy.
+ * Local files use Media3's normal file source; smb:// uses random-access reads so large remote
+ * media can stream and seek without a local copy.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
-    val privilegedFdAvailable = PrivilegedAccess.canOpenFd()
-    val playable = remember(entry.id, playlist, privilegedFdAvailable) {
-        playlist.ifEmpty { listOf(entry) }.filter {
-            mediaUri(it) != null || (it.scheme == XId.SCHEME_ROOT && privilegedFdAvailable)
-        }
+    val playable = remember(entry.id, playlist) {
+        playlist.ifEmpty { listOf(entry) }.filter { mediaUri(it) != null }
     }
     if (playable.isEmpty()) {
         Column(
@@ -134,11 +129,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     }
     val mediaItems = remember(playable) {
         playable.map { item ->
-            val uri = mediaUri(item)
-                ?: Uri.Builder().scheme(XId.SCHEME_ROOT).path(item.path).build()
             MediaItem.Builder()
                 .setMediaId(item.id)
-                .setUri(uri)
+                .setUri(checkNotNull(mediaUri(item)))
                 .setMimeType(castMimeType(item))
                 .setMediaMetadata(
                     MediaMetadata.Builder()
