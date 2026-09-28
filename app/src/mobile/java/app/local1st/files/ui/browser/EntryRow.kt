@@ -72,8 +72,6 @@ import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
 import app.local1st.files.core.prefs.FolderSizeSettings
 import app.local1st.files.core.prefs.VideoResumeStore
-import app.local1st.files.core.thumb.AppIcon
-import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
 import app.local1st.files.core.thumb.RemoteVideoThumb
 import app.local1st.files.core.thumb.VideoThumb
@@ -121,12 +119,7 @@ fun EntryRow(
         entry.kind == EntryKind.VOLUME_USB
     val storageRoot = isStorageRoot(entry)
     val liveStorageSpace = if (richContent && storageRoot) rememberStorageSpace(entry) else null
-    val selectable = !isVolume &&
-        entry.id != "${XId.SCHEME_SMB}://" &&
-        entry.kind != EntryKind.APPS_ROOT &&
-        entry.kind != EntryKind.ROOT &&
-        entry.kind != EntryKind.APP_COMPONENT_GROUP &&
-        entry.kind != EntryKind.APP_COMPONENT
+    val selectable = !isVolume && entry.id != "${XId.SCHEME_SMB}://"
 
     val background = when {
         selected -> MaterialTheme.colorScheme.secondaryContainer
@@ -219,13 +212,7 @@ fun EntryRow(
 
         // Icon or thumbnail (selection is the trailing control, to avoid mis-taps here).
         Box(Modifier.padding(end = 6.dp), contentAlignment = Alignment.Center) {
-            if (entry.kind == EntryKind.APP) {
-                AsyncImage(
-                    model = AppIcon(entry.path),
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp),
-                )
-            } else if (wantsThumbnail) {
+            if (wantsThumbnail) {
                 EntryThumbnail(
                     entry = entry,
                     display = display,
@@ -474,13 +461,7 @@ private fun StartupEntryRow(
                 contentDescription = null,
                 tint = if (entry.isContainer) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(
-                    when {
-                        entry.kind == EntryKind.APP -> 32.dp
-                        isVolume -> 28.dp
-                        else -> 24.dp
-                    },
-                ),
+                modifier = Modifier.size(if (isVolume) 28.dp else 24.dp),
             )
         }
         val nameMaxLines = when (display.filenameMode) {
@@ -614,15 +595,14 @@ private fun EntryThumbnail(
                     generation = thumbnailGeneration,
                 )
                 entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
-                isVideo -> VideoThumb(
-                    path = entry.localPath ?: entry.path,
+                isVideo && entry.localPath != null -> VideoThumb(
+                    path = entry.localPath,
                     mtime = entry.mtime,
                     size = entry.size,
-                    privileged = entry.localPath == null,
                     generation = thumbnailGeneration,
                 )
                 entry.localPath != null -> File(entry.localPath)
-                else -> PrivFile(entry.path, entry.mtime, entry.size)
+                else -> null
             },
             contentDescription = null,
             contentScale = ContentScale.Crop,
