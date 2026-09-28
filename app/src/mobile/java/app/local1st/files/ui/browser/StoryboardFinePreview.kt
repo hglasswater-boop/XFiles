@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,7 +52,6 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.di.Graph
 import coil3.compose.AsyncImage
@@ -438,7 +436,6 @@ private object FineStoryboardLoader {
     ): StoryboardResult = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
         val retriever = MediaMetadataRetriever()
-        var descriptor: ParcelFileDescriptor? = null
         var remoteSource: FineStoryboardSmbMediaDataSource? = null
         val releaseLock = Any()
         var released = false
@@ -463,13 +460,7 @@ private object FineStoryboardLoader {
                     retriever.setDataSource(remoteSource)
                 }
                 entry.localPath != null -> retriever.setDataSource(entry.localPath)
-                else -> {
-                    val transport = PrivilegedAccess.fdTransport()
-                        ?: return@withContext StoryboardResult(durationHintMs, emptyList())
-                    descriptor = transport.openFd(entry.path, write = false)
-                        ?: return@withContext StoryboardResult(durationHintMs, emptyList())
-                    retriever.setDataSource(descriptor.fileDescriptor)
-                }
+                else -> return@withContext StoryboardResult(durationHintMs, emptyList())
             }
 
             val durationMs = retriever
@@ -518,7 +509,6 @@ private object FineStoryboardLoader {
         } finally {
             watchdogTask.cancel(false)
             releaseRetriever()
-            runCatching { descriptor?.close() }
             runCatching { remoteSource?.close() }
         }
     }
