@@ -5,8 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.os.Build
-import android.os.ParcelFileDescriptor
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import coil3.ImageLoader
 import coil3.asImage
 import coil3.decode.DataSource
@@ -37,7 +35,6 @@ data class VideoThumb(
     val path: String,
     val mtime: Long,
     val size: Long,
-    val privileged: Boolean = false,
     val generation: Int = 0,
 )
 
@@ -123,20 +120,13 @@ class VideoThumbFetcher(
 
     private fun extractFrame(data: VideoThumb): Bitmap? {
         val retriever = MediaMetadataRetriever()
-        var descriptor: ParcelFileDescriptor? = null
         val releaseLock = Any()
         fun release() {
             synchronized(releaseLock) { runCatching { retriever.release() } }
         }
         val watchdog = watchdogExecutor.schedule({ release() }, EXTRACT_TIMEOUT_S, TimeUnit.SECONDS)
         return try {
-            if (data.privileged) {
-                val transport = PrivilegedAccess.fdTransport() ?: return null
-                descriptor = transport.openFd(data.path, write = false) ?: return null
-                retriever.setDataSource(descriptor.fileDescriptor)
-            } else {
-                retriever.setDataSource(data.path)
-            }
+            retriever.setDataSource(data.path)
 
             var bestBlack: Bitmap? = null
             var bestBlackScore = -1.0
@@ -204,7 +194,6 @@ class VideoThumbFetcher(
         } finally {
             watchdog.cancel(false)
             release()
-            runCatching { descriptor?.close() }
         }
     }
 
