@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,7 +58,6 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.VideoStoryboardSettings
 import app.local1st.files.core.thumb.RemoteVideoThumbFetcher
@@ -238,15 +236,16 @@ internal fun VideoStoryboardDialog(
                                     if (entry.scheme == XId.SCHEME_SMB) {
                                         RemoteVideoThumbFetcher.invalidateCache(context, entry)
                                     } else {
-                                        VideoThumbFetcher.invalidateCache(
-                                            context,
-                                            VideoThumb(
-                                                path = entry.localPath ?: entry.path,
-                                                mtime = entry.mtime,
-                                                size = entry.size,
-                                                privileged = entry.localPath == null,
-                                            ),
-                                        )
+                                        entry.localPath?.let { localPath ->
+                                            VideoThumbFetcher.invalidateCache(
+                                                context,
+                                                VideoThumb(
+                                                    path = localPath,
+                                                    mtime = entry.mtime,
+                                                    size = entry.size,
+                                                ),
+                                            )
+                                        } ?: false
                                     }
                                 }
                                 if (thumbnailInvalidated) onThumbnailRegenerated()
@@ -529,7 +528,6 @@ internal object StoryboardLoader {
     ): StoryboardResult = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
         val retriever = MediaMetadataRetriever()
-        var descriptor: ParcelFileDescriptor? = null
         var remoteSource: StoryboardSmbMediaDataSource? = null
         val releaseLock = Any()
         var released = false
@@ -554,13 +552,7 @@ internal object StoryboardLoader {
                     retriever.setDataSource(remoteSource)
                 }
                 entry.localPath != null -> retriever.setDataSource(entry.localPath)
-                else -> {
-                    val transport = PrivilegedAccess.fdTransport()
-                        ?: return@withContext StoryboardResult(null, emptyList())
-                    descriptor = transport.openFd(entry.path, write = false)
-                        ?: return@withContext StoryboardResult(null, emptyList())
-                    retriever.setDataSource(descriptor.fileDescriptor)
-                }
+                else -> return@withContext StoryboardResult(null, emptyList())
             }
 
             val durationMs = retriever
@@ -638,7 +630,6 @@ internal object StoryboardLoader {
         } finally {
             watchdogTask.cancel(false)
             releaseRetriever()
-            runCatching { descriptor?.close() }
             runCatching { remoteSource?.close() }
         }
     }
