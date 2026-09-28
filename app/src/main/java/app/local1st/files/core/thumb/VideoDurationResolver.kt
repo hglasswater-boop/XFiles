@@ -2,11 +2,9 @@ package app.local1st.files.core.thumb
 
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
-import android.os.ParcelFileDescriptor
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.di.Graph
 import java.util.LinkedHashMap
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +41,6 @@ object VideoDurationResolver {
 
     private fun readDuration(entry: XEntry): Long? {
         val retriever = MediaMetadataRetriever()
-        var descriptor: ParcelFileDescriptor? = null
         var smbSource: DurationSmbMediaDataSource? = null
         return try {
             when {
@@ -54,12 +51,6 @@ object VideoDurationResolver {
                     retriever.setDataSource(source)
                 }
                 entry.localPath != null -> retriever.setDataSource(entry.localPath)
-                entry.scheme == XId.SCHEME_ROOT -> {
-                    val transport = PrivilegedAccess.fdTransport() ?: return null
-                    val fd = transport.openFd(entry.path, write = false) ?: return null
-                    descriptor = fd
-                    retriever.setDataSource(fd.fileDescriptor)
-                }
                 else -> return null
             }
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
@@ -69,7 +60,6 @@ object VideoDurationResolver {
             null
         } finally {
             runCatching { retriever.release() }
-            runCatching { descriptor?.close() }
             runCatching { smbSource?.close() }
         }
     }
