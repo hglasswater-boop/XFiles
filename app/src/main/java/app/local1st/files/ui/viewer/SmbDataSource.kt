@@ -194,7 +194,7 @@ class SmbDataSource : BaseDataSource(false) {
     }
 }
 
-/** Base source used by DefaultDataSource for XFiles-specific URI schemes. */
+/** Base source used by DefaultDataSource for XFiles-specific remote URI schemes. */
 @UnstableApi
 class XFilesRemoteDataSource : DataSource {
     private val listeners = mutableListOf<TransferListener>()
@@ -208,7 +208,6 @@ class XFilesRemoteDataSource : DataSource {
     override fun open(dataSpec: DataSpec): Long {
         check(delegate == null) { "DataSource is already open" }
         val source = when (dataSpec.uri.scheme) {
-            XId.SCHEME_ROOT -> PrivilegedDataSource()
             XId.SCHEME_SMB -> SmbDataSource()
             else -> throw DataSourceException(
                 IOException("Unsupported XFiles media URI: ${dataSpec.uri}"),
