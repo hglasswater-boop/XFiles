@@ -68,7 +68,6 @@ import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.SearchHistorySettings
 import app.local1st.files.core.search.FilenameSearchQuery
 import app.local1st.files.core.search.SearchHit
-import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
 import app.local1st.files.core.thumb.RemoteVideoThumb
 import app.local1st.files.core.thumb.VideoThumb
@@ -371,7 +370,7 @@ private fun SearchHitRow(
     }
 }
 
-/** Uses the same local/privileged/SMB thumbnail models as the normal browser rows. */
+/** Uses the same local/SMB thumbnail models as the normal browser rows. */
 @Composable
 private fun SearchThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
@@ -406,14 +405,13 @@ private fun SearchThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
             model = when {
                 entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(entry)
                 entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
-                isVideo -> VideoThumb(
-                    path = entry.localPath ?: entry.path,
+                isVideo && entry.localPath != null -> VideoThumb(
+                    path = entry.localPath,
                     mtime = entry.mtime,
                     size = entry.size,
-                    privileged = entry.localPath == null,
                 )
                 entry.localPath != null -> File(entry.localPath)
-                else -> PrivFile(entry.path, entry.mtime, entry.size)
+                else -> null
             },
             contentDescription = null,
             contentScale = ContentScale.Crop,
