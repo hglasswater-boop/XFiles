@@ -91,7 +91,6 @@ android {
     }
 
     buildFeatures {
-        aidl = true
         buildConfig = true
         compose = true
     }
@@ -160,9 +159,6 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     add("mobileImplementation", libs.media3.cast)
-
-    implementation(libs.shizuku.api)
-    implementation(libs.shizuku.provider)
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
