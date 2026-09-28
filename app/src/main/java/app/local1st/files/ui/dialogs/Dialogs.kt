@@ -28,11 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.layoutId
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
@@ -49,8 +47,6 @@ import app.local1st.files.core.media.formatVideoFrameRate
 import app.local1st.files.core.prefs.ContextMenuOrderSettings
 import app.local1st.files.core.prefs.FolderSortSpec
 import app.local1st.files.core.prefs.SortBy
-import app.local1st.files.core.util.AppComponents
-import app.local1st.files.core.util.ComponentType
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
 import app.local1st.files.core.util.Format
@@ -58,8 +54,6 @@ import app.local1st.files.core.util.IntentUtils
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.main.MainViewModel
 import app.local1st.files.ui.main.isFileOperationDestination
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,7 +117,6 @@ fun MainDialogs(vm: MainViewModel) {
         is DialogRequest.NewFolder -> {
             val destinationPath = when (req.parent.scheme) {
                 XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.parent.id)
-                XId.SCHEME_ROOT -> "root:${req.parent.path}"
                 else -> req.parent.path
             }
             NameDialog(
@@ -175,7 +168,6 @@ fun MainDialogs(vm: MainViewModel) {
                         Column {
                             val displayLocation = when (req.entry.scheme) {
                                 XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
-                                XId.SCHEME_ROOT -> "root:${req.entry.path}"
                                 else -> req.entry.path
                             }
                             Text(stringResource(R.string.location, displayLocation))
@@ -437,7 +429,6 @@ private fun EntryMenuContent(
     val entry = req.entry
     val context = Graph.appContext
     val contextMenuOrder by ContextMenuOrderSettings.order(context).collectAsState()
-    val clipboard = LocalClipboardManager.current
     val otherPaneDestination = vm.otherPaneDestination()
     val canUseOtherPane = isFileOperationDestination(otherPaneDestination)
     val unavailableDestinationReason = stringResource(
@@ -498,80 +489,6 @@ private fun EntryMenuContent(
             }
             MenuItem("削除") {
                 vm.dialog.value = DialogRequest.ConfirmDeleteSmbConnection(smbConnection.id)
-            }
-        } else if (entry?.kind == EntryKind.APP_COMPONENT) {
-            val parsed = AppComponents.parseId(entry.id)
-            parsed?.let {
-                Text(
-                    it.className,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall
-                        .copy(fontFamily = FontFamily.Monospace),
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 8.dp),
-                )
-            }
-            if (parsed?.type == ComponentType.ACTIVITY) {
-                MenuItem(stringResource(R.string.launch)) {
-                    vm.launchComponent(entry)
-                    dismiss()
-                }
-                MenuItem(stringResource(R.string.create_shortcut)) {
-                    vm.createComponentShortcut(entry)
-                    dismiss()
-                }
-            }
-            val toggleEnabled by produceState<Boolean?>(null, entry.id) {
-                value = withContext(Dispatchers.IO) {
-                    parsed?.takeIf { AppComponents.canToggle(context, it.packageName) }
-                        ?.let { AppComponents.isEnabled(context, it) }
-                }
-            }
-            toggleEnabled?.let { enabled ->
-                MenuItem(stringResource(if (enabled) R.string.disable else R.string.enable)) {
-                    vm.setComponentEnabled(entry, !enabled)
-                    dismiss()
-                }
-            }
-            MenuItem(stringResource(R.string.copy_class_name)) {
-                clipboard.setText(AnnotatedString(parsed?.className ?: entry.name))
-                dismiss()
-            }
-            parsed?.let { parsedComponent ->
-                MenuItem(stringResource(R.string.app_details)) {
-                    vm.showAppDetails(parsedComponent.packageName)
-                    dismiss()
-                }
-            }
-        } else if (entry?.kind == EntryKind.APP) {
-            MenuItem(stringResource(R.string.launch)) {
-                IntentUtils.launchApp(context, entry.path)
-                dismiss()
-            }
-            MenuItem(stringResource(R.string.open_as_zip)) {
-                vm.openAppAsZip(entry)
-                dismiss()
-            }
-            MenuItem(stringResource(R.string.details)) {
-                vm.showAppDetails(entry.path)
-                dismiss()
-            }
-            MenuItem(stringResource(R.string.system_info)) {
-                IntentUtils.appInfo(context, entry.path)
-                dismiss()
-            }
-            entry.localPath?.let {
-                MenuItem(
-                    label = stringResource(R.string.copy_to_other_pane),
-                    enabled = canUseOtherPane,
-                    disabledReason = unavailableDestinationReason,
-                ) {
-                    vm.copySelection(move = false, sources = listOf(entry))
-                    dismiss()
-                }
-            }
-            MenuItem(stringResource(R.string.uninstall)) {
-                IntentUtils.uninstall(context, entry.path)
-                dismiss()
             }
         } else if (entry != null) {
             MenuItem(stringResource(R.string.details)) {
