@@ -4,256 +4,204 @@
 
 # XFiles
 
-**一款离线、开源的 Android 文件管理器，沿用 X-plore 的操作方式** —— 双栏树形浏览、
-压缩包当文件夹逛、应用管理、APK/AAB/XAPK 安装、root 与 Shizuku 访问 ——
-跑在最新的 Android 技术栈上，界面采用 Material 3 Expressive。
+**面向本地存储、NAS 媒体与 Google TV 的开源 Android 文件管理器。**
 
-[![Release](https://img.shields.io/github/v/release/Local1stDotApp/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/Local1stDotApp/XFiles/releases)
+> **手机双栏，电视遥控优先。SMB2/3 流式播放、视频故事板、安装包支持，无广告、无遥测。**
+
+[![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
-[![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-3DDC84?logo=android&logoColor=white)](#构建与运行)
+[![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-3DDC84?logo=android&logoColor=white)](#构建)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?logo=kotlin&logoColor=white)](#技术栈)
-[![No network](https://img.shields.io/badge/network-none-success)](#权限与隐私)
+[![Network](https://img.shields.io/badge/network-SMB2%2F3-informational)](#隐私)
 
-[English](README.md) · 简体中文
+[English](README.md) · [日本語](README.ja.md) · **简体中文**
 
-<img src="docs/assets/demo.gif" width="300" alt="一台 OnePlus 7 Pro 上的一条完整演示：复制文件、查看已安装应用的组件和 APK 拆分包，再浏览 /data 下只有 root 才能访问的目录">
-
-<sub>真机录制（OnePlus 7 Pro，Android 16），已加速。一条连起来：<b>文件复制</b> → <b>应用管理</b>（应用的组件与 APK 拆分包）→ <b>Root</b>（真实文件系统，<code>/data</code> 一览无余）。</sub>
+<img src="docs/assets/dual-pane.png" width="360" alt="XFiles 双栏文件浏览器">
 
 </div>
 
 ---
 
-## 缘起
+## 这个 fork 的重点
 
-- 过去半年 **X-plore 在 [Waydroid](https://waydro.id) 上用不了了**，得找个替代品。
-- **现在是 LLM 时代** —— 工具不趁手，那就自己写一个。
-- **能动 root 的软件，就该开源、彻底离线、什么都不收集。**
-  XFiles 没有 `INTERNET` 权限，也没有任何统计埋点。
+XFiles 保留了上游项目类似 X-plore 的树形操作方式，并进一步针对 **NAS 与大量视频文件** 做了扩展。保存的 SMB 共享会直接出现在普通文件树中，远程视频可以先用故事板查看内容，再直接从 NAS 流式播放。手机端还可以把同一媒体交给 Chromecast，而不需要先完整下载到本机。
+
+手机端与 **Google TV** 端采用独立的产品形态：手机端是双栏触控浏览器，电视端是单栏、遥控器优先的界面。归档浏览、安装包、加密设置备份、容量信息、媒体工具和常用文件操作都保留在同一套 XFiles 中。
+
+## 主要功能
+
+### NAS 优先的 SMB2 / SMB3
+
+- 已保存的 SMB 服务器直接显示在普通文件树中。
+- 默认优先使用内置 **Rust SMB 引擎**，并保留 SMBJ 兼容回退。
+- 可直接在 SMB 上浏览、复制、移动、重命名、生成缩略图与故事板、播放视频。
+- 同一共享内移动时，条件允许会使用服务器端 rename。
+- 针对大型 NAS 视频优化随机读取、预取、滚动缓存和播放优先级。
+- 管线化写入和 Android 后台传输机制用于维持长时间 SMB 复制。
+- SMB 密码通过 Android Keystore 保护。
+
+### 打开视频前先看内容
+
+点击视频缩略图可打开 **故事板时间线**。XFiles 会逐步提取并缓存视频各处的帧，并优先处理当前可见区域。
+
+- 故事板帧数可设置为 **6 到 120**，步长为 2。
+- 最小采样间隔可设置为 **1 到 10 秒**。
+- 点击帧可从对应时间开始播放或跳转。
+- 长按可打开更细的预览时间线。
+- 本地播放器和 Chromecast 控制界面共用同一套故事板。
+- 播放器提供双列纵向故事板。
+- 可针对单个视频重新生成海报缩略图和故事板缓存。
+
+### 面向浏览场景的视频播放器
+
+- 视频画面和控制区之间可持续显示故事板。
+- 在播放器准备前恢复上次播放位置。
+- 左右双击 **-10 / +10 秒**。
+- 右侧上下滑动调节媒体音量。
+- 显示帧计数并支持逐帧步进。
+- 画中画提供 **-5 / +5 秒**操作。
+- 对异常音频时间戳做有条件的速率修正，不改变正常媒体流。
+
+### 手机端 Chromecast
+
+手机版可以通过临时 HTTP Range relay 投送本地、SMB 和 provider-backed 媒体。
+
+- 播放 / 暂停、跳转、上一项 / 下一项和播放列表控制。
+- Receiver 只保留当前项目，XFiles 本地仍维护原文件夹的逻辑播放列表。
+- 合并快速连续 seek，并提供即时控制反馈。
+- 复用 SMB 句柄并预热，降低 seek 和切换视频的延迟。
+- Cast 控制界面也支持故事板。
+- 返回文件列表后仍可通过迷你播放器继续控制。
+- 通知支持上一项 / 下一项、±10 秒和播放 / 暂停。
+
+Chromecast 只包含在 **手机版**。Google TV 版用于电视本机浏览和播放，不包含 Cast 控制栈。
+
+### Google TV 专用版本
+
+- 独立包名与 Leanback 启动入口。
+- 真正的 **单栏**浏览器，减少 D-pad 焦点歧义。
+- 左右键显示操作栏。
+- 明确控制上下行导航和焦点恢复。
+- 遥控器优先的播放器操作。
+- TV 专用自更新流程。
+
+### 文件操作与容量信息
+
+- 手机端双栏树形浏览，归档文件可像文件夹一样打开。
+- 多选、复制、移动、删除、重命名、新建文件夹、创建 ZIP、解压。
+- 复制 / 移动开始前明确确认目标位置。
+- **上移一层**：把直接子文件夹里的内容移到父目录，只删除已经为空的文件夹；支持本地与 SMB 根目录。
+- 冲突处理支持 Skip / Overwrite / Keep both。
+- 长任务支持后台继续、进度、吞吐量显示和取消。
+- 本地存储和 SMB 共享显示容量 / 使用率。
+- 文件夹容量可选择关闭、仅本地、或本地 + SMB。
+- 支持按文件夹保存排序方式，并可调整显示密度、缩略图大小和上下文菜单顺序。
+
+### 与其他应用协作
+
+- 可作为 Android `ACTION_SEND` / `ACTION_SEND_MULTIPLE` 分享目标。
+- 多个视频分享时保留 `video/*` 等有意义的聚合 MIME 类型。
+- `PICK_FILES` 模式可把本地或 SMB 文件以临时只读 URI 返回给其他应用，而不泄露 SMB 凭据。
+- 可寻址 SMB 输出桥支持需要随机写入、truncate 和提交语义的媒体工具。
+- 文件详情中的名称、路径、大小、时间、MIME 和视频元数据可以长按选择并复制。
+
+### 安装包与媒体工具
+
+- 支持安装 `.apk`、`.apks`、`.apkm`、`.xapk` 和原始 `.aab`。
+- 使用 Android `PackageInstaller`；AAB 在设备上通过内置 bundletool 相关组件转换。
+- XAPK 扩展文件在 Android 存储权限允许的范围内通过正常安装路径处理。
+- **重建 MP4 容器**：不重新编码，直接把支持的音视频 sample remux 到新的 MP4；支持本地与 SMB 输入。
+- 长时间 remux 复用后台任务、进度通知和取消机制。
+
+### 设置备份与更新
+
+- 设置导入 / 导出使用 **AES-256-GCM** 和 PBKDF2-HMAC-SHA256 进行密码加密。
+- 备份包含浏览器设置、收藏、目录排序、文件关联和已保存的 SMB 连接及受保护凭据。
+- 手机版与 TV 版都可检查适合自身包名的签名更新。
+- 手机设置中将 **最新普通版** 与可并存的 **诊断版** 分开安装，诊断包不会覆盖普通安装。
+- 设置页显示自动检查、当前版本 / 构建号、最近检查时间和状态。
+
+## 手机版与 TV 版
+
+| | 手机版 | Google TV |
+|---|---|---|
+| 包名 | `app.local1st.files` | `app.local1st.files.tv` |
+| 浏览器 | 双栏树形 | 单栏、遥控器优先 |
+| 主要输入 | 触控 / 手势 | D-pad / 遥控器 |
+| Chromecast 控制 | 支持 | 不包含 |
+| 故事板 | 浏览器 / 播放器 / Cast | TV UI 支持的播放器 / 浏览功能 |
+| 自更新 | 支持 | 支持 |
 
 ## 下载
 
-到 [**Releases**](https://github.com/Local1stDotApp/XFiles/releases) 拿 APK：
+从 [**GitHub Releases**](https://github.com/hglasswater-boop/XFiles/releases) 获取签名 APK。
 
-- **`vX.Y`** —— 稳定版，每次手动提升 `versionName` 时发布。
-- **`nightly`** —— 一个滚动更新的预发布，`main` 每次推送都会刷新它。
+当前稳定版本线为 `v1.4.1-smb`：
 
-需要 **Android 8.0（API 26）** 及以上。首次启动请授予"所有文件访问权限"
-（App 会直接跳转到系统设置页）。也可以[自己编译](#构建与运行)。
+- `XFiles-1.4.1-smb.apk`：普通手机版。
+- `XFiles-TV-1.4.1-smb.apk`：Google TV 版。
+- Release CI 同时生成手机端 AAB 作为 CI artifact。
 
-## 功能
+已有稳定标签后，`main` 的后续推送会更新滚动 `nightly` 预发布。Debug CI 还会发布应用内普通更新通道使用的 `debug-latest`；`diagnose/*` 分支可发布独立包名的 `diagnostic-latest`。
 
-### 双栏树形浏览
+需要 **Android 8.0 / API 26 或更高版本**。
 
-X-plore 的招牌：两栏互不干扰 —— 宽屏左右并排，手机上是可滑动切换的分页。
-文件夹**原地展开**成树，带缩进引导线，每一栏各自有一个悬浮的面包屑胶囊。
-手机顶部还会一直显示隐藏栏的目标目录，点一下就能切换过去。
+## 基础功能
 
-压缩包在树里跟普通文件夹没两样 —— 面包屑会直接钻进 `project.zip` 里去。
+- 类似 X-plore 的可展开树形导航。
+- 支持双指缩放的图片查看器。
+- 文本查看 / 编辑与分页 Hex 查看器。
+- 音频播放器和 Media3 视频播放器。
+- 文件名递归搜索，支持 `*` / `?` 通配符、`.mp4` 扩展名形式以及归档内搜索。
+- ZIP / JAR / APK、7z、TAR 系列和 RAR 归档浏览。
+- 高性能并行 ZIP 创建 / 解压。
+- APK / APKS / APKM / XAPK / AAB 安装器。
+- Material 3 Expressive、动态配色和 edge-to-edge UI。
+- 多语言界面。
 
-### 树里直接出缩略图
+## 隐私
 
-图片和视频首帧就地渲染。视频帧只按缩略图尺寸抽取一次并落盘缓存，重启后立即可见；
-加载过程中会先显示图标占位，视频还会叠一个播放角标。
+XFiles **没有账号、广告或遥测**。网络权限仅用于用户主动使用的网络功能，主要包括 SMB / NAS、手机端 Chromecast 和更新检查。
 
-### 文件操作
-
-通过右侧边缘的勾选圈多选。**另一栏就是复制、移动、压缩和解压的目的地**：
-先在另一栏打开目标目录，再回来源栏直接执行。需要临时选择其他位置时，仍可使用
-长按菜单里的 `Copy to…` / `Move to…`。此外还有删除、重命名、新建文件夹。
-Android 8–10 上，对 SD 卡等第二存储卷的写入通过一次性的 SAF 授权自动完成。
-
-这些都跑在后台引擎上，带进度（Expressive 的波浪进度条）、可取消，
-冲突时可选 跳过 / 覆盖 / 两个都留。
-
-### 高性能 zip
-
-打包时用所有 CPU 核心并行压缩每个条目（commons-compress 的
-`ParallelScatterZipCreator`，已压缩过的媒体文件直接 STORE）。
-解压时每个 worker 各持一个 `ZipFile` 句柄，从共享队列里取活。
-已防 Zip-Slip；临时空间不够时自动退回单线程流式处理。
-
-### 前台服务
-
-耗时的复制/移动/压缩/解压在 App 退到后台后继续跑，常驻通知里带取消按钮，
-并持有 wake lock。空闲时服务自行停止。
-
-### 压缩包当文件夹
-
-zip/jar/apk、7z、tar(.gz/.bz2/.xz)、rar 都能只读浏览；想解压就复制出来。
-能装的东西在树里点一下就能装 —— 见下文。
-
-### 应用管理
-
-已安装和系统应用分成两大类，带真实图标、版本号/包名标签和详细信息。
-支持安装、启动、卸载，或者把 APK 复制出来当文件分享。
-
-展开一个应用，属于它的东西就都在这儿了：一个 **Components** 节点，
-按 activity / provider / receiver / service 分好类；外加 `base.apk` 和每个
-`split_config.*` APK —— 每个都能继续展开，毕竟 APK 本来就是个 zip。
-
-再往下点开某一类，每个组件都会显示类名和它在 manifest 里的真实状态 ——
-`exported` / `not exported`、`enabled` / `disabled`。
-可以启动 activity、创建快捷方式，系统允许的话还能启用/禁用组件。
-
-### 软件包安装器
-
-APK 点一下就能装 —— 长得像 APK 的也一样：拆分包（`.apks` / `.apkm` / `.xapk`，
-XAPK 附带的 **OBB** 扩展文件会放到游戏期望的位置），甚至原始的 **`.aab`**。
-内置的 [bundletool](https://github.com/google/bundletool) 直接在手机上把 bundle
-转换成匹配本机的拆分 APK，并用内置证书签名 —— 不需要电脑，也不需要 Play 商店。
-安装跑在前台服务里，装到一半退出 App 也不会断。
-
-### Root 与 Shizuku
-
-默认打开。存储根列表里会有一个 **Root**（`/`）入口 —— 设置里关掉 **Root access** 即可藏掉。
-旁边还有个独立的 **Read-only** 开关（同样默认打开），会挡掉所有需要特权的写操作，
-让你能进去看，但没法把系统搞坏。
-
-背后有两种可互换的通道，设置里可以自选（也可以留在自动）：
-
-- **`su`** —— 有 root 的设备上的完整超级用户身份。`/data` 展开后是 `adb`、`anr`、
-  `app`、`app-private`、`dalvik-cache` —— 这些目录普通应用连列出来都做不到 ——
-  在 `/data`、`/system` 等目录下 list/read/write/mkdir/rename/delete。
-- **[Shizuku](https://shizuku.rikka.app/)** —— 不需要 root：XFiles 绑定一个以
-  shell（ADB）权限运行的 Shizuku 用户服务，拿到的是真实的文件描述符。
-  设置页会一步步引导安装和授权。
-
-只要有通道可用，普通文件访问被拒的地方它就会悄悄顶上 —— 最典型的是
-**`Android/data`** 和 **`Android/obb`**，打开跟普通文件夹没两样。
-缩略图、查看器、甚至视频播放在特权路径上都照常工作。
-打开 **Root** 时，有 `su` 就走超级用户。没有的话，Shizuku 仍然可以列出 `/`，
-并进入 adb shell 能看见的地方（`/system`、`/proc`、`/storage`、`Android/data`）。
-`/data` 和 `/data/data` 仍然要有超级用户才能进。
-
-设置页里还有其余的偏好项 —— 主题、动态取色、显示隐藏文件、文件夹优先、排序字段和升降序。
-
-### 查看器
-
-图片查看器（分页 + 双指缩放）、可编辑保存的文本查看器、按需分页的十六进制查看器、
-音频播放器，以及一个自研的视频播放器（Media3/ExoPlayer），支持**逐帧精确定位**。
-
-点一下时间读数，它就变成帧计数器 —— 当前帧、总帧数和真实帧率 —— 然后可以 ±1 帧步进；
-在画面上滑动可按时间或按帧拖动并实时预览；那张紧凑的控制卡片可以拖走；也能全屏沉浸播放。
-
-### 搜索
-
-流式实时递归搜索，支持 `*` / `?` 通配符。会钻进压缩包里找，点结果可在树中定位。
-
-### 从其他应用打开
-
-默认关闭，XFiles 不会抢任何默认打开方式。设置里有三个自愿开启的开关，分别把
-XFiles 注册进系统的**压缩包**、**图片**、**视频**打开方式列表 —— 开了之后，
-在别的应用里"用 XFiles 打开"，压缩包直接进树形浏览，图片、视频直接进对应查看器。
-
-### Material 3 Expressive
-
-`MaterialExpressiveTheme` + expressive 动效、动态取色（Android 12+）、
-浅色/深色/跟随系统、悬浮工具栏、`LoadingIndicator` / `LinearWavyProgressIndicator`。
-真正的边到边：没有顶部 app bar —— 内容从状态栏底下滚过去，上面盖一层渐变蒙版，
-只留悬浮的面包屑和设置按钮。
-
-### 18 种语言
-
-界面跟随系统语言：英语之外还有简体中文、繁体中文、阿拉伯语、荷兰语、法语、德语、
-印地语、印尼语、意大利语、日语、韩语、波兰语、葡萄牙语（巴西）、俄语、西班牙语、
-土耳其语和越南语。
-
-## 权限与隐私
-
-没有网络权限，没有埋点，没有账号，没有广告。App 声明的每一个权限及其用途：
-
-| 权限 | 用途 |
-|---|---|
-| `MANAGE_EXTERNAL_STORAGE` | 浏览和修改整个共享存储 —— X-plore 这类管理器的立身之本 |
-| `READ_EXTERNAL_STORAGE`（≤ API 32） | 老版本 Android 上的读取路径 |
-| `WRITE_EXTERNAL_STORAGE`（≤ API 29） | 老版本 Android 上的写入路径 |
-| `QUERY_ALL_PACKAGES` | 应用管理要列出已安装的应用 |
-| `REQUEST_DELETE_PACKAGES` | 在应用管理里卸载 |
-| `REQUEST_INSTALL_PACKAGES` | 软件包安装器：APK、拆分包（`.apks`/`.apkm`/`.xapk`）、AAB |
-| `POST_NOTIFICATIONS` | 长任务的进度通知 |
-| `FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC` | 退到后台后让复制/移动或安装继续跑 |
-| `WAKE_LOCK` | 任务进行中别休眠 |
-| **`INTERNET`** | **没有申请。** App 根本没法访问网络 |
-
-最后一行是操作系统层面的强制约束，不是口头承诺 —— 你可以自己去
-[`AndroidManifest.xml`](app/src/main/AndroidManifest.xml) 里看，
-或者对 APK 跑一下 `aapt dump permissions` 验证。
+保存的 SMB 密码由 Android Keystore 加密保护；导出的设置备份在写入前也会加密。实际权限声明可查看 [`app/src/main/AndroidManifest.xml`](app/src/main/AndroidManifest.xml) 和各版本专用 Manifest。
 
 ## 技术栈
 
-| 层 | 选型 |
+| 层 | 技术 |
 |---|---|
-| 语言 / UI | Kotlin、Jetpack Compose（BOM 2026.06.01）、material3 **1.5.0-alpha23**（Expressive API） |
-| 构建 | AGP 9.2.1（内置 Kotlin，不用 KGP）、Gradle 9.4.1、compileSdk 37 / target 37 / min 26 |
-| 架构 | MVVM + StateFlow，手写 DI 组合根（`di/Graph`）；app 模块 + 一个 shaded bundletool vendor 模块 |
-| 持久化 | DataStore Preferences |
-| 媒体 / 图片 | Coil 3（GIF，自定义 fetcher：应用图标、落盘缓存的视频缩略图）、Media3 ExoPlayer |
-| 压缩包 | java.util.zip、commons-compress（+xz）、junrar |
-| 特权访问 | Shizuku 13.1.5（用户服务、真实文件描述符）· `su` shell |
-| 软件包安装 | PackageInstaller 会话 · 内置 bundletool 1.18.3 · ARSCLib（进程内 aapt2）· 极简自签名器 |
+| 语言 / UI | Kotlin、Jetpack Compose、Material 3 Expressive |
+| Android | minSdk 26、compile/target SDK 37 |
+| 架构 | MVVM + StateFlow、手写 DI composition root |
+| SMB | 默认 Rust SMB2/3 引擎，SMBJ 兼容回退 |
+| 媒体 | Media3 ExoPlayer、Coil 3、手机端 Media3 Cast |
+| 持久化 | DataStore Preferences、Android Keystore |
+| 归档 | java.util.zip、commons-compress、xz、junrar |
+| 安装包 | PackageInstaller、内置 bundletool、ARSCLib |
+| 设置备份 | AES-256-GCM、PBKDF2-HMAC-SHA256 |
 
-注：material3 锁在 `1.5.0-alpha23`，因为 1.4.0 正式版里 Expressive 那批 API 还是 `internal`。
+Rust Android JNI 在普通 APK 组装前会验证 arm64-v8a、armeabi-v7a 与 x86_64。
 
-## 项目结构
+## 构建
 
-```
-app/src/main/java/app/local1st/files/
-├── core/
-│   ├── fs/        XEntry 模型、XId id 方案、XFileSystem + FsRegistry、
-│   │   │          Local/Archive/Apps/Root 文件系统、存储根、旧版 SAF 写入
-│   │   └── priv/  特权通道 —— su shell 与 Shizuku 用户服务（真实文件描述符）
-│   ├── ops/       OperationEngine（复制/移动/删除/压缩 + 冲突处理）、OpsService
-│   ├── search/    递归 SearchEngine
-│   ├── prefs/     DataStore 设置
-│   ├── thumb/     Coil fetcher：应用图标、落盘缓存的视频缩略图
-│   └── util/      格式化、mime/类别映射、intent；软件包安装 ——
-│                  PackageInstaller 会话、AAB→APK（bundletool）、XAPK/OBB、
-│                  进程内 aapt2（ARSCLib）、自签名
-├── di/            Graph（组合根）+ GraphInit 装配
-└── ui/
-    ├── browser/   PaneController（树状态机）、PaneView、EntryRow
-    ├── components/ 共享 Compose 组件（tooltip、预测性返回）
-    ├── main/      MainViewModel、MainScreen（双栏 + 悬浮工具栏）、PermissionGate
-    ├── dialogs/   重命名/新建文件夹/删除/压缩/详情、操作进度 + 冲突
-    ├── viewer/    图片 / 文本 / 十六进制查看器、音频播放器、逐帧视频播放器
-    ├── search/    搜索浮层
-    ├── settings/  设置页
-    ├── appinfo/   应用详情浮层
-    └── theme/     MaterialExpressiveTheme 配置
-
-vendor/bundletool-shaded/   把 bundletool 1.18.3 及其锁定依赖 shade 成一个 jar 的 Gradle 模块
-```
-
-条目 id 是类 URI 的字符串：`file:///abs/path`、
-`zip:///abs/archive.zip!/inner/path`、`apps://package.name`、`root:///abs/path`。
-
-## 构建与运行
+需要 JDK 17+ 与 Android SDK platform 37。
 
 ```bash
-./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleMobileDebug :app:assembleTvDebug
 ```
 
-需要 JDK 17+ 和装了 platform 37 的 Android SDK。
-首次启动请授予"所有文件访问权限"（App 会直接跳到系统设置页）。
+输出：
 
-## 发布
+```text
+app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
+app/build/outputs/apk/tv/debug/app-tv-debug.apk
+```
 
-一个**自建 runner** 上的 GitHub Actions 工作流
-（[`.github/workflows/release.yml`](.github/workflows/release.yml)）在每次推送到 `main` 时构建签名 APK：
+Release CI 构建签名的手机 / TV APK 与手机 AAB。Debug CI 会运行两个版本的单元测试、构建签名 Debug APK、验证包名和 Rust JNI，并在 API 35 Android Emulator 上执行启动与生命周期 smoke test。
 
-- 构建号（`versionCode`）每次运行自增（`github.run_number`）。
-- `versionName` 写在 `version.properties` 里。只要它没变，每次推送就只刷新那个滚动的
-  **`nightly`** 预发布；提升 `versionName` 才会切出新的稳定版 `vX.Y`。
-- 签名密钥和口令来自仓库 secrets：`KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、
-  `KEY_ALIAS`、`KEY_PASSWORD`。runner 上需要装 Android SDK。
+## 项目来源
+
+本仓库是基于 [Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles) 的个人 fork。感谢上游作者与贡献者提供基础实现。本 fork 在 NAS / 媒体、Chromecast、Google TV、故事板、更新和外部集成等方面有意与上游产生差异。
 
 ## 许可证
 
-[GPL-3.0-only](LICENSE)。一个能被交到 root 手里的文件管理器，
-理应用一个能让后续所有副本都保持开放的许可证 —— 你要是发布改过的 XFiles，请连源码一起发。
-
----
-
-*这是一个受 X-plore File Manager 启发的学习/仿写项目，不含原作的任何代码或素材。*
+[GPL-3.0-only](LICENSE)。发布修改版时，请按许可证要求同时提供对应源代码。
