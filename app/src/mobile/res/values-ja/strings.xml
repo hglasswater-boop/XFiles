@@ -1,23 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="mobile_update_available_title">XFiles の更新があります</string>
+    <string name="mobile_diagnostic_available_title">XFiles の診断版があります</string>
     <string name="mobile_update_available_message">GitHub に %1$s、ビルド %2$d があります。</string>
     <string name="mobile_update_install_permission_hint">初回更新時だけ、Android の設定で「XFiles からの不明なアプリのインストール」を許可してください。</string>
-    <string name="mobile_update_install">ダウンロードして更新</string>
+    <string name="mobile_update_install">ダウンロードしてインストール</string>
     <string name="mobile_update_downloading">ダウンロード中…</string>
-    <string name="mobile_update_preparing_install">更新を準備中…</string>
+    <string name="mobile_update_preparing_install">インストールを準備中…</string>
     <string name="mobile_update_later">あとで</string>
-    <string name="mobile_update_error">更新に失敗しました: %1$s</string>
+    <string name="mobile_update_error">インストールに失敗しました: %1$s</string>
 
     <string name="update_settings_title">アップデート</string>
     <string name="update_current_version">現在のバージョン: %1$s (%2$d)</string>
-    <string name="update_auto_check">アップデートを自動確認</string>
-    <string name="update_auto_check_summary">XFiles を起動するたびに GitHub の最新版を確認します。</string>
+    <string name="update_auto_check">通常版の更新を自動確認</string>
+    <string name="update_auto_check_summary">XFiles を起動するたびに GitHub の通常版最新版を確認します。</string>
     <string name="update_last_checked">最終確認: %1$s</string>
     <string name="update_never_checked">最終確認: まだ確認していません</string>
     <string name="update_check_now">今すぐ確認</string>
     <string name="update_checking">確認中…</string>
     <string name="update_up_to_date">最新バージョンです。</string>
+    <string name="update_normal_up_to_date">通常版は最新版です。</string>
+    <string name="update_diagnostic_up_to_date">新しい診断パッケージはありません。</string>
+    <string name="update_install_latest_normal">通常版の最新を入れる</string>
+    <string name="update_install_diagnostic">診断パッケージを入れる</string>
+    <string name="update_diagnostic_summary">診断版は別アプリとして入るため、通常版を上書きしません。</string>
     <string name="update_check_failed">更新確認に失敗しました: %1$s</string>
 
     <string name="cast_now_playing">キャスト中</string>

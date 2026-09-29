@@ -28,8 +28,6 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
-          # Branch builds consume the latest cache from main without spending time uploading it.
-          # Main refreshes the Gradle dependency/build cache for subsequent runs.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Build Rust SMB JNI libraries
@@ -38,6 +36,19 @@ jobs:
       - name: Compute Android build number
         id: build_number
         run: echo "value=$(sh .github/scripts/android-build-number.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Select debug package identity
+        id: package_mode
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "diagnostic=false" >> "$GITHUB_OUTPUT"
+            echo "mobile_package=app.local1st.files" >> "$GITHUB_OUTPUT"
+            echo "tv_package=app.local1st.files.tv" >> "$GITHUB_OUTPUT"
+          else
+            echo "diagnostic=true" >> "$GITHUB_OUTPUT"
+            echo "mobile_package=app.local1st.files.diagnostic" >> "$GITHUB_OUTPUT"
+            echo "tv_package=app.local1st.files.tv.diagnostic" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Require stable signing secrets
         env:
@@ -57,23 +68,43 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
-      # Build once, already signed. The previous workflow assembled both flavors once to warm
-      # app/build and then assembled the exact same tasks again with signing enabled.
       - name: Assemble stable-signed debug APKs
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleMobileDebug :app:assembleTvDebug -PbuildNumber=${{ steps.build_number.outputs.value }}
+        run: |
+          ./gradlew \
+            :app:assembleMobileDebug \
+            :app:assembleTvDebug \
+            -PbuildNumber=${{ steps.build_number.outputs.value }} \
+            -PxfilesDiagnosticBuild=${{ steps.package_mode.outputs.diagnostic }}
+
+      - name: Verify APK package identities
+        run: |
+          set -eu
+          AAPT=$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          test -x "$AAPT"
+          MOBILE_APK=app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
+          TV_APK=app/build/outputs/apk/tv/debug/app-tv-debug.apk
+          MOBILE_PACKAGE=$($AAPT dump badging "$MOBILE_APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          TV_PACKAGE=$($AAPT dump badging "$TV_APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          test "$MOBILE_PACKAGE" = "${{ steps.package_mode.outputs.mobile_package }}"
+          test "$TV_PACKAGE" = "${{ steps.package_mode.outputs.tv_package }}"
 
       - name: Name debug APKs
         id: apk_name
         run: |
           set -eu
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
-          MOBILE_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-          TV_NAME="XFiles-TV-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          if [ "${{ steps.package_mode.outputs.diagnostic }}" = "true" ]; then
+            MOBILE_NAME="XFiles-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+            TV_NAME="XFiles-TV-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          else
+            MOBILE_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+            TV_NAME="XFiles-TV-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
+          fi
           cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
           cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
           echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
@@ -105,6 +136,21 @@ jobs:
             --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ steps.build_number.outputs.value }}" \
             --prerelease \
             --notes "Signed mobile and Google TV debug APKs built from main at $GITHUB_SHA."
+
+      - name: Publish diagnostic-latest release
+        if: startsWith(github.ref, 'refs/heads/diagnose/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release delete diagnostic-latest --cleanup-tag -y 2>/dev/null || true
+          gh release create diagnostic-latest \
+            "${{ steps.apk_name.outputs.mobile_name }}" \
+            "${{ steps.apk_name.outputs.tv_name }}" \
+            --target "$GITHUB_SHA" \
+            --title "XFiles diagnostic build ${{ steps.build_number.outputs.value }}" \
+            --prerelease \
+            --notes "Side-by-side diagnostic APKs built from $GITHUB_REF_NAME at $GITHUB_SHA. They do not replace the normal XFiles package."
 
       - name: Record debug run metadata
         if: github.ref == 'refs/heads/main'

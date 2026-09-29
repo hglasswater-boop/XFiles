@@ -1,12 +1,11 @@
-XFiles is an open-source Android file manager built for people who want X-plore-style dual-pane tree browsing, powerful local file operations, and first-class NAS access in one app.
-
-Two independent panes keep source and destination visible. Folders expand in place as a tree, archives open like folders, and saved SMB2/SMB3 shares appear alongside local storage instead of living in a separate network screen.
+XFiles is an open-source Android file manager built for X-plore-style dual-pane tree browsing, first-class NAS access, video-heavy workflows and a separate Google TV experience.
 
 SMB / NAS
 • Browse saved SMB2/SMB3 servers directly in the normal file tree
 • Copy and move between local storage and SMB shares, or between SMB locations
+• Show storage usage and optional recursive folder sizes for local and SMB locations
 • Show image and video thumbnails from remote folders
-• Prefer embedded video cover art when available
+• Build storyboard timelines for remote videos and refresh per-video thumbnail caches
 • Stream videos directly from SMB through the built-in Media3 player
 • Seek through large remote videos without downloading the whole file first
 • Protect saved SMB passwords with Android Keystore
@@ -15,39 +14,35 @@ DUAL-PANE TREE BROWSER
 • Two independent panes, side by side on wide screens and swipeable on phones
 • Folders expand in place with tree guide lines
 • Copy and move operations confirm the destination before starting
-• Per-folder sorting and configurable browser density
-• Folder and file counts shown separately with icons
+• Per-folder sorting, configurable browser density and context-menu order
+• Long operations continue with progress, throughput and cancellation
 
-FILE OPERATIONS
-• Multi-select, copy, move, rename, delete and new folder
-• ZIP creation and archive extraction
-• Skip / overwrite / keep-both conflict handling
-• Long operations continue in a foreground service with progress and cancellation
+VIDEO & CAST
+• Media3 video player with resume, frame stepping, PiP and visual storyboards
+• Two-column vertical storyboard plus long-press fine preview
+• Mobile-only Chromecast controller for local and SMB media
+• Previous/next, seeking, notification controls and robust handoff state
+• Google TV edition uses a separate single-pane remote-first UI and intentionally omits the Cast stack
 
-ARCHIVES AS FOLDERS
-• Browse zip, jar, apk, 7z, tar (.gz/.bz2/.xz) and rar without extracting first
-• Parallel ZIP creation for better performance on large jobs
-
-BUILT-IN VIEWERS
-• Image, text and hex viewers
-• Audio player
-• Media3 video player with frame stepping
-• Double-tap left/right for -10 / +10 second seeking
-• Right-side vertical swipe for media volume
-
-APP MANAGER & INSTALLER
-• Browse installed and system apps, components and split APKs
+PACKAGE & MEDIA TOOLS
 • Install APK, APKS, APKM, XAPK and AAB packages
-• Launch, uninstall or copy APK files out of installed apps
+• Convert AAB packages on-device with the bundled bundletool stack
+• Rebuild supported videos into a new MP4 container without re-encoding using remux
+• Select and copy file-detail text and metadata with Android's standard text selection
 
-ROOT & SHIZUKU
-• Optional su access on rooted devices
-• Shizuku support for adb-shell level access without root
-• Browse locations such as Android/data where platform restrictions permit
-• Read-only privileged mode is enabled by default for safer inspection
+SEARCH & ARCHIVES
+• Recursive filename search with wildcard and extension queries
+• Browse zip, jar, apk, 7z, tar (.gz/.bz2/.xz) and rar without extracting first
+• Parallel ZIP creation and extraction
+
+SETTINGS & UPDATES
+• Password-encrypted settings backup using AES-256-GCM
+• Back up browser preferences, favorites, file associations and SMB connections
+• Signed in-app update checks for mobile and TV
+• Mobile settings separate the latest normal build from a side-by-side diagnostic package
 
 PRIVACY
-XFiles has no analytics, no advertising, no account system and no telemetry. Network access is used for SMB servers explicitly configured by the user. SMB credentials stay on the device and saved passwords are protected with Android Keystore. Portable settings backups, including optional SMB credentials, are password-encrypted before export.
+XFiles has no analytics, no advertising, no account system and no telemetry. Network access is used for features explicitly invoked by the user, primarily SMB/NAS, mobile Chromecast and update checks. SMB credentials stay on the device and saved passwords are protected with Android Keystore. Exported settings backups are encrypted before being written.
 
 OPEN SOURCE
 This repository is a personal fork of Local1stDotApp/XFiles and is licensed under GPL-3.0-only. Thanks to the upstream authors and contributors for creating and publishing the foundation this fork builds on.

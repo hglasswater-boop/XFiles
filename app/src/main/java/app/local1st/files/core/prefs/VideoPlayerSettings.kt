@@ -42,19 +42,15 @@ object VideoPlayerSettings {
     }
 
     const val DEFAULT_SEEK_WHILE_DRAGGING = true
-    const val DEFAULT_CONTROLS_TRANSPARENCY_PERCENT = 15
     const val DEFAULT_ORIENTATION_LOCKED = false
     val DEFAULT_BUFFER_PRESET = BufferPreset.THICK
 
     private const val PREFS_NAME = "video_player"
     private const val KEY_SEEK_WHILE_DRAGGING = "seek_while_dragging"
-    private const val KEY_CONTROLS_TRANSPARENCY_PERCENT = "controls_transparency_percent"
     private const val KEY_ORIENTATION_LOCKED = "orientation_locked"
     private const val KEY_BUFFER_PRESET = "buffer_preset"
 
     private val _seekWhileDragging = MutableStateFlow(DEFAULT_SEEK_WHILE_DRAGGING)
-    private val _controlsTransparencyPercent =
-        MutableStateFlow(DEFAULT_CONTROLS_TRANSPARENCY_PERCENT)
     private val _orientationLocked = MutableStateFlow(DEFAULT_ORIENTATION_LOCKED)
     private val _bufferPreset = MutableStateFlow(DEFAULT_BUFFER_PRESET)
     private var initialized = false
@@ -62,11 +58,6 @@ object VideoPlayerSettings {
     fun seekWhileDragging(context: Context): StateFlow<Boolean> {
         ensureInitialized(context)
         return _seekWhileDragging.asStateFlow()
-    }
-
-    fun controlsTransparencyPercent(context: Context): StateFlow<Int> {
-        ensureInitialized(context)
-        return _controlsTransparencyPercent.asStateFlow()
     }
 
     fun orientationLocked(context: Context): StateFlow<Boolean> {
@@ -77,17 +68,6 @@ object VideoPlayerSettings {
     fun bufferPreset(context: Context): StateFlow<BufferPreset> {
         ensureInitialized(context)
         return _bufferPreset.asStateFlow()
-    }
-
-    fun setControlsTransparencyPercent(context: Context, percent: Int) {
-        ensureInitialized(context)
-        val clamped = percent.coerceIn(0, 60)
-        context.applicationContext
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(KEY_CONTROLS_TRANSPARENCY_PERCENT, clamped)
-            .apply()
-        _controlsTransparencyPercent.value = clamped
     }
 
     fun currentSeekWhileDragging(context: Context): Boolean {
@@ -142,9 +122,6 @@ object VideoPlayerSettings {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _seekWhileDragging.value =
             prefs.getBoolean(KEY_SEEK_WHILE_DRAGGING, DEFAULT_SEEK_WHILE_DRAGGING)
-        _controlsTransparencyPercent.value = prefs
-            .getInt(KEY_CONTROLS_TRANSPARENCY_PERCENT, DEFAULT_CONTROLS_TRANSPARENCY_PERCENT)
-            .coerceIn(0, 60)
         _orientationLocked.value =
             prefs.getBoolean(KEY_ORIENTATION_LOCKED, DEFAULT_ORIENTATION_LOCKED)
         _bufferPreset.value = BufferPreset.fromId(

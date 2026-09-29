@@ -29,8 +29,14 @@ import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
 
-/** Video poster-frame model for SMB entries. */
-data class RemoteVideoThumb(val entry: XEntry)
+/**
+ * Video poster-frame model for SMB entries. [generation] is a transient UI cache-buster after an
+ * explicit per-video regeneration; persistent cache identity still follows the entry metadata.
+ */
+data class RemoteVideoThumb(
+    val entry: XEntry,
+    val generation: Int = 0,
+)
 
 class RemoteVideoThumbFetcher(
     private val context: Context,
@@ -235,7 +241,7 @@ class RemoteVideoThumbFetcher(
 
     class Key : Keyer<RemoteVideoThumb> {
         override fun key(data: RemoteVideoThumb, options: Options): String = with(data.entry) {
-            "remote-video-thumb-v12:$id:$mtime:$size"
+            "remote-video-thumb-v12:$id:$mtime:$size:g${data.generation}"
         }
     }
 
@@ -243,6 +249,12 @@ class RemoteVideoThumbFetcher(
         private const val THUMB_SIZE = 512
 
         private val semaphore = Semaphore(4)
+
+        /** Deletes only this SMB video's generated poster cache. */
+        fun invalidateCache(context: Context, entry: XEntry): Boolean {
+            val file = cacheFile(context.applicationContext, entry)
+            return !file.exists() || file.delete()
+        }
 
         private fun cacheFile(context: Context, entry: XEntry): File {
             val digest = MessageDigest.getInstance("SHA-256")

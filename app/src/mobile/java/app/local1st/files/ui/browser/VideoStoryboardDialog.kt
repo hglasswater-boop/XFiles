@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,18 +26,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -55,12 +58,15 @@ import app.local1st.files.R
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
-import app.local1st.files.core.fs.priv.PrivilegedAccess
 import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.VideoStoryboardSettings
+import app.local1st.files.core.thumb.RemoteVideoThumbFetcher
+import app.local1st.files.core.thumb.VideoThumb
+import app.local1st.files.core.thumb.VideoThumbFetcher
 import app.local1st.files.core.thumb.isNearlyBlackVideoThumbnail
 import app.local1st.files.di.Graph
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import java.io.File
 import java.security.MessageDigest
 import java.util.LinkedHashMap
@@ -69,6 +75,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -76,6 +83,7 @@ import kotlinx.coroutines.withContext
 // Slightly sharper than the original 320x180 preview while staying light enough for SMB batches.
 private const val STORYBOARD_WIDTH = 384
 private const val STORYBOARD_HEIGHT = 216
+private const val STORYBOARD_MEMORY_CACHE_VERSION_EXTRA = "xfiles-storyboard-file-version"
 
 internal data class StoryboardFrame(
     val index: Int,
@@ -123,11 +131,13 @@ internal fun VideoStoryboardDialog(
     entry: XEntry,
     onDismiss: () -> Unit,
     onPlayFrom: (Long) -> Unit,
+    onThumbnailRegenerated: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
     val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
     val extractionPriority = remember(
         entry.id,
         entry.mtime,
@@ -139,6 +149,12 @@ internal fun VideoStoryboardDialog(
     }
     var fineFrameIndex by remember(entry.id, entry.mtime, entry.size) {
         mutableStateOf<Int?>(null)
+    }
+    var reloadGeneration by remember(entry.id, entry.mtime, entry.size) {
+        mutableIntStateOf(0)
+    }
+    var regenerating by remember(entry.id, entry.mtime, entry.size) {
+        mutableStateOf(false)
     }
 
     LaunchedEffect(gridState, extractionPriority) {
@@ -157,7 +173,9 @@ internal fun VideoStoryboardDialog(
         sampleCount,
         minSpacingSeconds,
         extractionPriority,
+        reloadGeneration,
     ) {
+        value = StoryboardUiState.Loading
         var emittedProgress = false
         val result = runCatching {
             StoryboardLoader.load(
@@ -177,6 +195,11 @@ internal fun VideoStoryboardDialog(
                 if (emittedProgress) value else StoryboardUiState.Failed
             },
         )
+    }
+    val canRegenerate = !regenerating && when (val current = state) {
+        StoryboardUiState.Loading -> false
+        StoryboardUiState.Failed -> true
+        is StoryboardUiState.Ready -> current.complete
     }
 
     Dialog(
@@ -202,6 +225,49 @@ internal fun VideoStoryboardDialog(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    TextButton(
+                        enabled = canRegenerate,
+                        onClick = {
+                            scope.launch {
+                                regenerating = true
+                                fineFrameIndex = null
+                                StoryboardLoader.invalidate(context, entry)
+                                val thumbnailInvalidated = withContext(Dispatchers.IO) {
+                                    if (entry.scheme == XId.SCHEME_SMB) {
+                                        RemoteVideoThumbFetcher.invalidateCache(context, entry)
+                                    } else {
+                                        entry.localPath?.let { localPath ->
+                                            VideoThumbFetcher.invalidateCache(
+                                                context,
+                                                VideoThumb(
+                                                    path = localPath,
+                                                    mtime = entry.mtime,
+                                                    size = entry.size,
+                                                ),
+                                            )
+                                        } ?: false
+                                    }
+                                }
+                                if (thumbnailInvalidated) onThumbnailRegenerated()
+                                reloadGeneration += 1
+                                regenerating = false
+                            }
+                        },
+                    ) {
+                        if (regenerating) {
+                            LoadingIndicator(Modifier.size(18.dp))
+                        } else {
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.refresh),
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
                     IconButton(onClick = onDismiss) {
                         Icon(
                             Icons.Outlined.Close,
@@ -339,6 +405,7 @@ private fun StoryboardFrameCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val image = frame.file?.takeIf { it.isFile && it.length() > 0L }
     Column(
         Modifier
@@ -351,7 +418,13 @@ private fun StoryboardFrameCard(
     ) {
         if (image != null) {
             AsyncImage(
-                model = image,
+                model = ImageRequest.Builder(context)
+                    .data(image)
+                    .memoryCacheKeyExtra(
+                        STORYBOARD_MEMORY_CACHE_VERSION_EXTRA,
+                        "${image.lastModified()}:${image.length()}",
+                    )
+                    .build(),
                 contentDescription = formatVideoDuration(frame.timeMs),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -391,7 +464,7 @@ private fun StoryboardFrameCard(
 
 internal object StoryboardLoader {
     private const val MAX_CACHE_BYTES = 128L * 1024 * 1024
-    private const val CACHE_VERSION = 6
+    private const val CACHE_VERSION = 7
     private const val EXTRACT_TIMEOUT_SECONDS = 120L
     private const val JPEG_QUALITY = 82
     private const val FAST_VISIBLE_FRAME_COUNT = 4
@@ -414,6 +487,13 @@ internal object StoryboardLoader {
         }
         if (cached != null) return@withPermit cached
         generate(context, entry, cacheDir, count, minSpacingMs, priority, onProgress)
+    }
+
+    suspend fun invalidate(context: Context, entry: XEntry): Boolean = semaphore.withPermit {
+        withContext(Dispatchers.IO) {
+            val directory = cacheDir(context, entry)
+            !directory.exists() || directory.deleteRecursively()
+        }
     }
 
     private fun readCached(
@@ -448,7 +528,6 @@ internal object StoryboardLoader {
     ): StoryboardResult = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
         val retriever = MediaMetadataRetriever()
-        var descriptor: ParcelFileDescriptor? = null
         var remoteSource: StoryboardSmbMediaDataSource? = null
         val releaseLock = Any()
         var released = false
@@ -473,13 +552,7 @@ internal object StoryboardLoader {
                     retriever.setDataSource(remoteSource)
                 }
                 entry.localPath != null -> retriever.setDataSource(entry.localPath)
-                else -> {
-                    val transport = PrivilegedAccess.fdTransport()
-                        ?: return@withContext StoryboardResult(null, emptyList())
-                    descriptor = transport.openFd(entry.path, write = false)
-                        ?: return@withContext StoryboardResult(null, emptyList())
-                    retriever.setDataSource(descriptor.fileDescriptor)
-                }
+                else -> return@withContext StoryboardResult(null, emptyList())
             }
 
             val durationMs = retriever
@@ -511,6 +584,8 @@ internal object StoryboardLoader {
                 if (frames[index].file == null) remaining += index
             }
             var preferClosestFrames = false
+            var previousSyncFingerprint: Long? = null
+            var previousSyncTimeMs: Long? = null
 
             while (remaining.isNotEmpty()) {
                 val index = priority
@@ -525,12 +600,17 @@ internal object StoryboardLoader {
                     retriever = retriever,
                     timeMs = timeMs,
                     preferClosest = preferClosestFrames,
+                    previousSyncFingerprint = previousSyncFingerprint,
+                    previousSyncTimeMs = previousSyncTimeMs,
                 )
-                if (extracted.syncWhiteoutRecovered) {
-                    // Once this file proves that its sync frames can decode as blank white while
-                    // the exact frame is valid, skip unreliable sync probes for the remaining
-                    // storyboard. This both fixes the white tiles and avoids paying for two decodes
-                    // per frame on affected videos.
+                extracted.syncFingerprint?.let { fingerprint ->
+                    previousSyncFingerprint = fingerprint
+                    previousSyncTimeMs = timeMs
+                }
+                if (extracted.syncWhiteoutRecovered || extracted.duplicateSyncRecovered) {
+                    // Once sync seeking proves unreliable for this file, use exact-position frames
+                    // for the rest of the storyboard instead of repeatedly trusting the same bad
+                    // sync sample. This also avoids paying for duplicate verification on each frame.
                     preferClosestFrames = true
                 }
                 val bitmap = extracted.bitmap
@@ -550,7 +630,6 @@ internal object StoryboardLoader {
         } finally {
             watchdogTask.cancel(false)
             releaseRetriever()
-            runCatching { descriptor?.close() }
             runCatching { remoteSource?.close() }
         }
     }
@@ -640,18 +719,24 @@ internal object StoryboardLoader {
     private data class FrameExtraction(
         val bitmap: Bitmap?,
         val syncWhiteoutRecovered: Boolean,
+        val duplicateSyncRecovered: Boolean,
+        val syncFingerprint: Long?,
     )
 
     private fun extractFrame(
         retriever: MediaMetadataRetriever,
         timeMs: Long,
         preferClosest: Boolean,
+        previousSyncFingerprint: Long?,
+        previousSyncTimeMs: Long?,
     ): FrameExtraction {
         val timeUs = timeMs * 1_000L
         if (preferClosest) {
             return FrameExtraction(
                 bitmap = extractClosestFrame(retriever, timeUs),
                 syncWhiteoutRecovered = false,
+                duplicateSyncRecovered = false,
+                syncFingerprint = null,
             )
         }
 
@@ -669,17 +754,70 @@ internal object StoryboardLoader {
             }
         }.getOrNull()
         val syncIsWhiteout = sync?.let(::isNearlyWhiteStoryboardFrame) == true
-        if (sync != null && !syncIsWhiteout && !isNearlyBlackVideoThumbnail(sync)) {
-            return FrameExtraction(sync, syncWhiteoutRecovered = false)
+        val syncIsBlack = sync?.let(::isNearlyBlackVideoThumbnail) == true
+        val syncFingerprint = sync
+            ?.takeUnless { syncIsWhiteout || syncIsBlack }
+            ?.let(::storyboardFrameFingerprint)
+
+        if (sync != null && syncFingerprint != null) {
+            val duplicateNeedsVerification = shouldVerifyDuplicateStoryboardSync(
+                previousFingerprint = previousSyncFingerprint,
+                currentFingerprint = syncFingerprint,
+                previousTimeMs = previousSyncTimeMs,
+                currentTimeMs = timeMs,
+            )
+            if (!duplicateNeedsVerification) {
+                return FrameExtraction(
+                    bitmap = sync,
+                    syncWhiteoutRecovered = false,
+                    duplicateSyncRecovered = false,
+                    syncFingerprint = syncFingerprint,
+                )
+            }
+
+            // A broken/sparse sync index can return the exact same keyframe for widely separated
+            // timestamps. Verify only suspicious duplicates with an exact-position decode so the
+            // normal fast path, especially SMB, does not gain extra reads.
+            val closest = extractClosestFrame(retriever, timeUs)
+            val closestFingerprint = closest?.let(::storyboardFrameFingerprint)
+            if (
+                closest != null &&
+                shouldPreferClosestStoryboardFrames(syncFingerprint, closestFingerprint)
+            ) {
+                sync.recycle()
+                return FrameExtraction(
+                    bitmap = closest,
+                    syncWhiteoutRecovered = false,
+                    duplicateSyncRecovered = true,
+                    syncFingerprint = syncFingerprint,
+                )
+            }
+            if (closest != null && closest !== sync) closest.recycle()
+            return FrameExtraction(
+                bitmap = sync,
+                syncWhiteoutRecovered = false,
+                duplicateSyncRecovered = false,
+                syncFingerprint = syncFingerprint,
+            )
         }
 
         val closest = extractClosestFrame(retriever, timeUs)
         if (closest != null) {
             if (closest !== sync) sync?.recycle()
             val recoveredWhiteout = syncIsWhiteout && !isNearlyWhiteStoryboardFrame(closest)
-            return FrameExtraction(closest, syncWhiteoutRecovered = recoveredWhiteout)
+            return FrameExtraction(
+                bitmap = closest,
+                syncWhiteoutRecovered = recoveredWhiteout,
+                duplicateSyncRecovered = false,
+                syncFingerprint = syncFingerprint,
+            )
         }
-        return FrameExtraction(sync, syncWhiteoutRecovered = false)
+        return FrameExtraction(
+            bitmap = sync,
+            syncWhiteoutRecovered = false,
+            duplicateSyncRecovered = false,
+            syncFingerprint = syncFingerprint,
+        )
     }
 
     private fun extractClosestFrame(
@@ -698,6 +836,26 @@ internal object StoryboardLoader {
                 ?.let(::scaleDown)
         }
     }.getOrNull()
+
+    private fun storyboardFrameFingerprint(bitmap: Bitmap): Long {
+        if (bitmap.width <= 0 || bitmap.height <= 0) return 0L
+        val columns = 8
+        val rows = 8
+        var hash = 0xcbf29ce484222325UL.toLong()
+        for (row in 0 until rows) {
+            val y = (((row + 0.5) * bitmap.height) / rows)
+                .toInt()
+                .coerceIn(0, bitmap.height - 1)
+            for (column in 0 until columns) {
+                val x = (((column + 0.5) * bitmap.width) / columns)
+                    .toInt()
+                    .coerceIn(0, bitmap.width - 1)
+                val rgb = bitmap.getPixel(x, y) and 0x00ffffff
+                hash = (hash xor rgb.toLong()) * 0x100000001b3L
+            }
+        }
+        return hash
+    }
 
     /**
      * Some codecs/devices return a clipped white bitmap for sync-frame requests even though the

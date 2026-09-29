@@ -8,8 +8,6 @@ import app.local1st.files.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.local1st.files.core.fs.EntryKind
-import app.local1st.files.core.fs.priv.PrivilegedAccess
-import app.local1st.files.core.fs.priv.SuTransport
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.ops.BackgroundJob
@@ -18,8 +16,6 @@ import app.local1st.files.core.ops.FileOp
 import app.local1st.files.core.ops.OpsService
 import app.local1st.files.core.util.AabConverter
 import app.local1st.files.core.util.ApkInstaller
-import app.local1st.files.core.util.AppComponents
-import app.local1st.files.core.util.ComponentType
 import app.local1st.files.core.prefs.Favorite
 import app.local1st.files.core.prefs.SessionState
 import app.local1st.files.core.util.FileCategory
@@ -160,36 +156,6 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             BackgroundJobs.messages.collect { snackbar.tryEmit(it) }
         }
-        // Root browsing is a Settings switch: mirror it into the fs gate (set before reloading,
-        // so paneRoots sees the new value) and rebuild pane roots when it flips. Skip the initial
-        // emission — restoreSession applies it and builds the roots itself.
-        viewModelScope.launch {
-            Graph.settings.rootEnabled.drop(1).collect { enabled ->
-                PrivilegedAccess.enabled = enabled
-                // A later Magisk grant must be visible the next time Root is opened.
-                if (enabled) SuTransport.reset()
-                // Invalidate before reloading: cached root:// listings must not stay
-                // browsable after disabling (nor keep gate errors after re-enabling),
-                // and pinned root:// favorites survive the roots rebuild.
-                livePanes.forEach {
-                    it.invalidateScheme(XId.SCHEME_ROOT)
-                    it.reloadRoots()
-                }
-            }
-        }
-        viewModelScope.launch {
-            Graph.settings.privilegedTransport.drop(1).collect { preference ->
-                PrivilegedAccess.preference = preference
-                SuTransport.reset()
-                // A transport change can alter both root:// capabilities and the apps://
-                // Android/data fallback, so neither scheme may retain the old transport's data.
-                livePanes.forEach {
-                    it.invalidateScheme(XId.SCHEME_ROOT)
-                    it.invalidateScheme(XId.SCHEME_APPS)
-                    it.reloadRoots()
-                }
-            }
-        }
         // Rebuild roots when favorites change so pinned shortcuts (dis)appear immediately.
         viewModelScope.launch {
             Graph.favorites.filterNotNull().distinctUntilChanged().drop(1).collect {
@@ -272,10 +238,7 @@ class MainViewModel : ViewModel() {
                 }
             }
 
-            // Restore inputs must be settled first: the root gate (a saved root:// position
-            // stats through it) and the favorites cache (saved ids may live under a pinned root).
-            PrivilegedAccess.enabled = Graph.settings.rootEnabled.first()
-            PrivilegedAccess.preference = Graph.settings.privilegedTransport.first()
+            // Favorites must be settled before pane roots are built because saved ids may be pinned.
             Graph.favorites.first { it != null }
             restorePaneCriticalPaths { i, pane, paneRoots, listings ->
                 val saved = session.panes.getOrNull(i)
@@ -425,13 +388,8 @@ class MainViewModel : ViewModel() {
 
     fun openEntry(pane: PaneController, entry: XEntry) {
         if (entry.isContainer) {
-            // Apps and archives (incl. APKs) expand in place; long-press opens their menu.
+            // Directories and browsable archives (including APKs) expand in place.
             pane.toggleExpand(entry)
-            return
-        }
-        if (entry.kind == EntryKind.APP_COMPONENT) {
-            // A component leaf isn't a byte stream: its menu carries Launch / shortcut / copy.
-            dialog.value = DialogRequest.EntryMenu(entry)
             return
         }
         when (FileTypes.categoryOf(entry.name, entry.mime)) {
@@ -495,60 +453,6 @@ class MainViewModel : ViewModel() {
                 onFailure = { error ->
                     snackbar.tryEmit(error.message ?: text(R.string.generic_error))
                 },
-            )
-        }
-    }
-
-    /** Expand an app and its base APK so the APK's zip contents show inline. */
-    fun openAppAsZip(app: XEntry) {
-        activeCtrl.revealAppApk(app)
-    }
-
-    /** Open the rich in-app details screen for an installed app. */
-    fun showAppDetails(packageName: String) {
-        navigation.navigate(AppScreen.AppInfo(packageName))
-    }
-
-    /** Launch a single activity component (from the component row's menu). */
-    fun launchComponent(entry: XEntry) {
-        val c = AppComponents.parseId(entry.id) ?: return
-        if (c.type != ComponentType.ACTIVITY) return
-        if (!IntentUtils.launchActivity(Graph.appContext, c.packageName, c.className)) {
-            snackbar.tryEmit(text(R.string.cannot_launch_component, entry.name))
-        }
-    }
-
-    /** Ask the launcher to pin a home-screen shortcut that opens this activity directly. */
-    fun createComponentShortcut(entry: XEntry) {
-        val c = AppComponents.parseId(entry.id) ?: return
-        if (c.type != ComponentType.ACTIVITY) return
-        viewModelScope.launch(Dispatchers.IO) {
-            val ok = IntentUtils.createActivityShortcut(
-                Graph.appContext, c.packageName, c.className, entry.name,
-            )
-            snackbar.tryEmit(
-                if (ok) text(R.string.shortcut_requested, entry.name)
-                else text(R.string.shortcut_not_supported),
-            )
-        }
-    }
-
-    /**
-     * Enables or disables one component of an app: our own package via [android.content.pm.PackageManager],
-     * any other package via root `pm enable`/`pm disable`. Refreshes the tree so the badge updates.
-     */
-    fun setComponentEnabled(entry: XEntry, enabled: Boolean) {
-        val c = AppComponents.parseId(entry.id) ?: return
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { AppComponents.setEnabled(Graph.appContext, c, enabled) }
-            }
-            result.fold(
-                onSuccess = {
-                    snackbar.tryEmit(text(if (enabled) R.string.component_enabled else R.string.component_disabled, entry.name))
-                    XId.parent(entry.id)?.let { parent -> livePanes.forEach { it.refresh(parent) } }
-                },
-                onFailure = { snackbar.tryEmit(it.message ?: text(R.string.cannot_change, entry.name)) },
             )
         }
     }
@@ -720,46 +624,46 @@ class MainViewModel : ViewModel() {
     // ---- file operations ----
 
     /** Copy/move starts destination-selection mode without leaving the browser. */
-fun copySelection(move: Boolean, sources: List<XEntry> = activeCtrl.selectionEntries()) {
-    chooseTransferDestination(move = move, sources = sources)
-}
-
-fun chooseTransferDestination(
-    move: Boolean,
-    sources: List<XEntry> = activeCtrl.selectionEntries(),
-) {
-    if (sources.isEmpty()) return
-    val sourcePane = activePane.value
-    pendingTransfer.value = PendingTransfer(
-        sources = sources,
-        move = move,
-        startDirId = inactiveCtrl.state.value.focusedDirId,
-        sourcePane = sourcePane,
-    )
-}
-
-fun cancelTransferDestination() {
-    val transfer = pendingTransfer.value ?: return
-    pendingTransfer.value = null
-    activePane.value = transfer.sourcePane
-}
-
-fun confirmTransferCurrentDestination() {
-    val dest = activeCtrl.focusedDirEntry()
-    if (dest == null) {
-        validDestinationOrNotify(null)
-        return
+    fun copySelection(move: Boolean, sources: List<XEntry> = activeCtrl.selectionEntries()) {
+        chooseTransferDestination(move = move, sources = sources)
     }
-    confirmTransfer(dest)
-}
 
-fun confirmTransfer(destDir: XEntry) {
-    val transfer = pendingTransfer.value ?: return
-    val validDest = validDestinationOrNotify(destDir) ?: return
-    Graph.opEngine.submit(FileOp.Copy(transfer.sources, validDest, transfer.move))
-    pendingTransfer.value = null
-    panes[transfer.sourcePane].clearSelection()
-}
+    fun chooseTransferDestination(
+        move: Boolean,
+        sources: List<XEntry> = activeCtrl.selectionEntries(),
+    ) {
+        if (sources.isEmpty()) return
+        val sourcePane = activePane.value
+        pendingTransfer.value = PendingTransfer(
+            sources = sources,
+            move = move,
+            startDirId = inactiveCtrl.state.value.focusedDirId,
+            sourcePane = sourcePane,
+        )
+    }
+
+    fun cancelTransferDestination() {
+        val transfer = pendingTransfer.value ?: return
+        pendingTransfer.value = null
+        activePane.value = transfer.sourcePane
+    }
+
+    fun confirmTransferCurrentDestination() {
+        val dest = activeCtrl.focusedDirEntry()
+        if (dest == null) {
+            validDestinationOrNotify(null)
+            return
+        }
+        confirmTransfer(dest)
+    }
+
+    fun confirmTransfer(destDir: XEntry) {
+        val transfer = pendingTransfer.value ?: return
+        val validDest = validDestinationOrNotify(destDir) ?: return
+        Graph.opEngine.submit(FileOp.Copy(transfer.sources, validDest, transfer.move))
+        pendingTransfer.value = null
+        panes[transfer.sourcePane].clearSelection()
+    }
 
     fun requestDelete(entries: List<XEntry> = activeCtrl.selectionEntries()) {
         if (entries.isEmpty()) return
@@ -940,9 +844,7 @@ fun confirmTransfer(destDir: XEntry) {
 
 internal fun isFileOperationDestination(dest: XEntry?): Boolean =
     dest != null && dest.isDir && dest.canWrite &&
-        (dest.scheme == XId.SCHEME_FILE ||
-            dest.scheme == XId.SCHEME_ROOT ||
-            dest.scheme == XId.SCHEME_SMB)
+        (dest.scheme == XId.SCHEME_FILE || dest.scheme == XId.SCHEME_SMB)
 
 /** A copy or move waiting for explicit confirmation in the browser. */
 data class PendingTransfer(

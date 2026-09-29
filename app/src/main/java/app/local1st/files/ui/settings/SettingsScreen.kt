@@ -1,10 +1,8 @@
 package app.local1st.files.ui.settings
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -41,7 +39,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,23 +54,14 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.BuildConfig
 import app.local1st.files.EditionUpdateSettingsSection
 import app.local1st.files.R
-import app.local1st.files.core.fs.priv.PrivilegedAccess
-import app.local1st.files.core.fs.priv.ShizukuGate
-import app.local1st.files.core.fs.priv.ShizukuState
-import app.local1st.files.core.fs.priv.TransportId
-import app.local1st.files.core.fs.priv.TransportPref
 import app.local1st.files.core.prefs.ContextMenuOrderSettings
-import app.local1st.files.core.prefs.DEFAULT_ROOT_ENABLED
 import app.local1st.files.core.prefs.SortBy
 import app.local1st.files.core.prefs.ThemeMode
 import app.local1st.files.core.util.ExternalOpenKind
 import app.local1st.files.core.util.ExternalOpenRegistry
 import app.local1st.files.di.Graph
 import app.local1st.files.ui.components.TooltipIconButton
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import rikka.shizuku.ShizukuProvider
 
 /** Full-screen settings destination. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -92,31 +80,6 @@ fun SettingsScreen(onBack: () -> Unit) {
     val collapseSiblingFolders by settings.collapseSiblingFolders.collectAsState(initial = true)
     val sortBy by settings.sortBy.collectAsState(initial = SortBy.NAME)
     val sortDescending by settings.sortDescending.collectAsState(initial = false)
-    val rootEnabled by settings.rootEnabled.collectAsState(initial = DEFAULT_ROOT_ENABLED)
-    val rootReadOnly by settings.rootReadOnly.collectAsState(initial = true)
-    val transportPref by settings.privilegedTransport.collectAsState(initial = null)
-    val shizukuState by ShizukuGate.state.collectAsState()
-    val permissionPermanentlyDenied by
-        ShizukuGate.permissionPermanentlyDeniedState.collectAsState()
-    var showShizukuHelp by rememberSaveable { mutableStateOf(false) }
-
-    val activeTransport by produceState<TransportId?>(
-        null,
-        rootEnabled,
-        transportPref,
-        shizukuState,
-    ) {
-        value = withContext(Dispatchers.IO) {
-            // Do not probe the AUTO default while a saved forced choice is still loading: on a
-            // rooted device that could briefly exercise su despite an explicit Shizuku choice.
-            // The passive caption must never launch `su` either — with root on by default,
-            // merely opening Settings would otherwise pop the superuser prompt. Forcing SU is
-            // the user explicitly asking for su, where probing (and its grant prompt) is the point.
-            transportPref?.takeIf { rootEnabled }?.let {
-                PrivilegedAccess.activeFor(it, probeSu = it == TransportPref.SU)?.id
-            }
-        }
-    }
     var archivesRegistered by remember {
         mutableStateOf(ExternalOpenRegistry.isEnabled(context, ExternalOpenKind.ARCHIVE))
     }
@@ -240,75 +203,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                         videosRegistered = it
                     },
                 )
-
-                SectionHeader(stringResource(R.string.root))
-                SwitchRow(
-                    title = stringResource(R.string.root_access),
-                    subtitle = stringResource(R.string.root_access_summary),
-                    checked = rootEnabled,
-                    onCheckedChange = { scope.launch { settings.setRootEnabled(it) } },
-                )
-                if (rootEnabled) {
-                    SwitchRow(
-                        title = stringResource(R.string.read_only),
-                        subtitle = stringResource(R.string.read_only_summary),
-                        checked = rootReadOnly,
-                        onCheckedChange = { scope.launch { settings.setRootReadOnly(it) } },
-                    )
-                }
-                RadioOptionsRow(
-                    title = stringResource(R.string.transport),
-                    options = listOf(
-                        TransportPref.AUTO to stringResource(R.string.transport_auto),
-                        TransportPref.SU to stringResource(R.string.transport_su),
-                        TransportPref.SHIZUKU to stringResource(R.string.shizuku),
-                        TransportPref.OFF to stringResource(R.string.transport_off),
-                    ),
-                    selected = transportPref ?: TransportPref.AUTO,
-                    onSelect = { scope.launch { settings.setPrivilegedTransport(it) } },
-                )
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(
-                            stringResource(
-                                R.string.transport_status,
-                                stringResource(activeTransportLabelRes(activeTransport)),
-                                stringResource(shizukuStateLabelRes(shizukuState)),
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        if (shizukuState == ShizukuState.PermissionRequired) {
-                            Spacer(Modifier.height(8.dp))
-                            if (permissionPermanentlyDenied) {
-                                Text(
-                                    stringResource(R.string.shizuku_grant_in_app),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedButton(onClick = { openShizuku(context) }) {
-                                    Text(stringResource(R.string.open_shizuku))
-                                }
-                            } else {
-                                OutlinedButton(onClick = { ShizukuGate.requestPermission() }) {
-                                    Text(stringResource(R.string.shizuku_grant_permission))
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { showShizukuHelp = !showShizukuHelp }) {
-                    Text(
-                        stringResource(
-                            if (showShizukuHelp) R.string.shizuku_help_hide
-                            else R.string.shizuku_help_show,
-                        ),
-                    )
-                }
-                if (showShizukuHelp) {
-                    ShizukuHelpCard(onOpenShizuku = { openShizuku(context) })
-                }
 
                 SectionHeader(stringResource(R.string.update_settings_title))
                 EditionUpdateSettingsSection()
@@ -441,71 +335,6 @@ private fun contextMenuOrderLabel(id: String): String = when (id) {
     ContextMenuOrderSettings.RENAME -> stringResource(R.string.rename)
     ContextMenuOrderSettings.DELETE -> stringResource(R.string.delete)
     else -> id
-}
-
-@StringRes
-private fun activeTransportLabelRes(transport: TransportId?): Int = when (transport) {
-    TransportId.SU -> R.string.transport_su
-    TransportId.SHIZUKU -> R.string.shizuku
-    null -> R.string.transport_none
-}
-
-@StringRes
-private fun shizukuStateLabelRes(state: ShizukuState): Int = when (state) {
-    ShizukuState.NotInstalled -> R.string.shizuku_not_installed
-    ShizukuState.NotRunning -> R.string.shizuku_not_running
-    ShizukuState.PermissionRequired -> R.string.shizuku_permission_required
-    ShizukuState.Ready -> R.string.shizuku_ready
-}
-
-@Composable
-private fun ShizukuHelpCard(onOpenShizuku: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text(stringResource(R.string.shizuku_help_title), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.shizuku_help_start),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.shizuku_help_restart),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.shizuku_help_oem),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.shizuku_help_scope),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = onOpenShizuku) {
-                Text(stringResource(R.string.open_shizuku))
-            }
-        }
-    }
-}
-
-private fun openShizuku(context: Context) {
-    val launched = runCatching {
-        // Resolving the owner of Shizuku's global permission supports forks and avoids a
-        // package-visibility query for a hardcoded package name.
-        val packageName = context.packageManager
-            .getPermissionInfo(ShizukuProvider.PERMISSION, 0)
-            .packageName
-        val intent = context.packageManager.getLaunchIntentForPackage(packageName)
-            ?: return@runCatching false
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        true
-    }.getOrDefault(false)
-    if (!launched) {
-        Toast.makeText(context, R.string.shizuku_app_not_available, Toast.LENGTH_SHORT).show()
-    }
 }
 
 @Composable

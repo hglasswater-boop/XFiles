@@ -66,8 +66,8 @@ import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.SearchHistorySettings
+import app.local1st.files.core.search.FilenameSearchQuery
 import app.local1st.files.core.search.SearchHit
-import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
 import app.local1st.files.core.thumb.RemoteVideoThumb
 import app.local1st.files.core.thumb.VideoThumb
@@ -90,7 +90,6 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flowOn
 
 private const val DEBOUNCE_MS = 400L
-private const val MIN_QUERY_LENGTH = 2
 private const val MAX_HISTORY_ITEMS = 20
 private const val HISTORY_VISIBLE_ITEMS = 6
 private const val HISTORY_ITEM_HEIGHT_DP = 44
@@ -134,7 +133,7 @@ fun SearchScreen(
             .collectLatest { q ->
                 results.clear()
                 error = null
-                if (q.length < MIN_QUERY_LENGTH) {
+                if (!FilenameSearchQuery.isSearchable(q)) {
                     phase = SearchPhase.IDLE
                     return@collectLatest
                 }
@@ -287,7 +286,10 @@ fun SearchScreen(
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     when (phase) {
                         SearchPhase.IDLE -> Text(
-                            stringResource(R.string.search_minimum_length, MIN_QUERY_LENGTH),
+                            stringResource(
+                                R.string.search_minimum_length,
+                                FilenameSearchQuery.MIN_LITERAL_LENGTH,
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -368,7 +370,7 @@ private fun SearchHitRow(
     }
 }
 
-/** Uses the same local/privileged/SMB thumbnail models as the normal browser rows. */
+/** Uses the same local/SMB thumbnail models as the normal browser rows. */
 @Composable
 private fun SearchThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
@@ -403,14 +405,13 @@ private fun SearchThumbnail(entry: XEntry, display: BrowserDisplayConfig) {
             model = when {
                 entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(entry)
                 entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
-                isVideo -> VideoThumb(
-                    path = entry.localPath ?: entry.path,
+                isVideo && entry.localPath != null -> VideoThumb(
+                    path = entry.localPath,
                     mtime = entry.mtime,
                     size = entry.size,
-                    privileged = entry.localPath == null,
                 )
                 entry.localPath != null -> File(entry.localPath)
-                else -> PrivFile(entry.path, entry.mtime, entry.size)
+                else -> null
             },
             contentDescription = null,
             contentScale = ContentScale.Crop,

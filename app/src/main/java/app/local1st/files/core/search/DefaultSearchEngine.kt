@@ -15,17 +15,16 @@ import kotlinx.coroutines.flow.flowOn
 /**
  * Filename search via iterative depth-first traversal below a root container.
  *
- * Bounds: completes after [MAX_HITS] matches or [MAX_VISITED] examined entries.
+ * Search completes after [MAX_HITS] matches or after the reachable tree is exhausted.
  * Inaccessible directories are skipped; archives larger than [MAX_ARCHIVE_BYTES]
- * are not descended into.
+ * are not descended into. Cancellation stops long-running walks promptly.
  */
 class DefaultSearchEngine(private val registry: FsRegistry) : SearchEngine {
 
     override fun search(root: XEntry, query: String): Flow<SearchHit> = flow {
-        val matcher = buildMatcher(query)
+        val matcher = FilenameSearchQuery.matcher(query)
         val deque = ArrayDeque<XEntry>()
         val visitedContainers = HashSet<String>()
-        var visited = 0
         var hits = 0
 
         if (root.isContainer && !isDeniedPath(root)) {
@@ -46,8 +45,6 @@ class DefaultSearchEngine(private val registry: FsRegistry) : SearchEngine {
             // Collected first, then pushed in reverse so DFS visits children in listing order.
             val descend = ArrayList<XEntry>()
             for (child in children) {
-                if (++visited > MAX_VISITED) return@flow
-
                 if (matcher(child.name)) {
                     emit(SearchHit(entry = child, parentId = dir.id))
                     if (++hits >= MAX_HITS) return@flow
@@ -76,29 +73,9 @@ class DefaultSearchEngine(private val registry: FsRegistry) : SearchEngine {
         return DENIED_PREFIXES.any { path == it || path.startsWith("$it/") }
     }
 
-    /** Substring match, or whole-name wildcard match when the query contains '*' / '?'. */
-    private fun buildMatcher(query: String): (String) -> Boolean {
-        if ('*' !in query && '?' !in query) {
-            return { name -> name.contains(query, ignoreCase = true) }
-        }
-        val pattern = StringBuilder(query.length + 8)
-        for (c in query) {
-            when (c) {
-                '*' -> pattern.append(".*")
-                '?' -> pattern.append('.')
-                in REGEX_METACHARS -> pattern.append('\\').append(c)
-                else -> pattern.append(c)
-            }
-        }
-        val regex = Regex(pattern.toString(), RegexOption.IGNORE_CASE)
-        return { name -> regex.matches(name) }
-    }
-
     private companion object {
         const val MAX_HITS = 500
-        const val MAX_VISITED = 50_000
         const val MAX_ARCHIVE_BYTES = 100L * 1024 * 1024
         val DENIED_PREFIXES = listOf("/proc", "/sys", "/dev")
-        const val REGEX_METACHARS = "\\^$.|+()[]{}"
     }
 }

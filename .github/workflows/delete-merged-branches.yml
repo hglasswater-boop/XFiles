@@ -1,6 +1,9 @@
-name: Cleanup merged branches (manual)
+name: Cleanup merged branches
 
 on:
+  pull_request:
+    types: [closed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       prefix:
@@ -12,7 +15,36 @@ permissions:
   contents: write
 
 jobs:
+  delete-merged-pr-branch:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Delete merged PR branch
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$HEAD_REF" >/dev/null 2>&1; then
+            echo "Deleting merged PR branch: $HEAD_REF"
+            git push origin --delete "$HEAD_REF"
+          else
+            echo "Branch already deleted: $HEAD_REF"
+          fi
+
   cleanup:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -69,9 +70,8 @@ import app.local1st.files.core.media.formatVideoDuration
 import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
+import app.local1st.files.core.prefs.FolderSizeSettings
 import app.local1st.files.core.prefs.VideoResumeStore
-import app.local1st.files.core.thumb.AppIcon
-import app.local1st.files.core.thumb.PrivFile
 import app.local1st.files.core.thumb.RemoteFile
 import app.local1st.files.core.thumb.RemoteVideoThumb
 import app.local1st.files.core.thumb.VideoThumb
@@ -117,12 +117,9 @@ fun EntryRow(
     val isVolume = entry.kind == EntryKind.VOLUME_INTERNAL ||
         entry.kind == EntryKind.VOLUME_SD ||
         entry.kind == EntryKind.VOLUME_USB
-    val selectable = !isVolume &&
-        entry.id != "${XId.SCHEME_SMB}://" &&
-        entry.kind != EntryKind.APPS_ROOT &&
-        entry.kind != EntryKind.ROOT &&
-        entry.kind != EntryKind.APP_COMPONENT_GROUP &&
-        entry.kind != EntryKind.APP_COMPONENT
+    val storageRoot = isStorageRoot(entry)
+    val liveStorageSpace = if (richContent && storageRoot) rememberStorageSpace(entry) else null
+    val selectable = !isVolume && entry.id != "${XId.SCHEME_SMB}://"
 
     val background = when {
         selected -> MaterialTheme.colorScheme.secondaryContainer
@@ -215,13 +212,7 @@ fun EntryRow(
 
         // Icon or thumbnail (selection is the trailing control, to avoid mis-taps here).
         Box(Modifier.padding(end = 6.dp), contentAlignment = Alignment.Center) {
-            if (entry.kind == EntryKind.APP) {
-                AsyncImage(
-                    model = AppIcon(entry.path),
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp),
-                )
-            } else if (wantsThumbnail) {
+            if (wantsThumbnail) {
                 EntryThumbnail(
                     entry = entry,
                     display = display,
@@ -277,24 +268,29 @@ fun EntryRow(
                     else -> MaterialTheme.colorScheme.onSurface
                 },
             )
-            if (entry.isDir && node.error == null && entry.badge == null) {
+            if (entry.isDir && node.error == null && entry.badge == null && !storageRoot) {
                 FolderDetailsRow(node = node, loadFolderCount = true)
             } else {
-                val details = node.error ?: entryDetails(node)
+                val details = node.error ?: if (storageRoot) {
+                    storageDetails(entry, liveStorageSpace)
+                } else {
+                    entryDetails(node)
+                }
                 if (details.isNotEmpty()) {
                     Text(
                         details,
                         style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
+                        maxLines = if (storageRoot && node.error == null) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
                         color = if (node.error != null) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            if (isVolume && entry.progress >= 0f) {
+            val usageProgress = liveStorageSpace?.usedFraction ?: entry.progress
+            if (storageRoot && usageProgress >= 0f) {
                 LinearProgressIndicator(
-                    progress = { entry.progress },
+                    progress = { usageProgress },
                     strokeCap = StrokeCap.Round,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -465,13 +461,7 @@ private fun StartupEntryRow(
                 contentDescription = null,
                 tint = if (entry.isContainer) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(
-                    when {
-                        entry.kind == EntryKind.APP -> 32.dp
-                        isVolume -> 28.dp
-                        else -> 24.dp
-                    },
-                ),
+                modifier = Modifier.size(if (isVolume) 28.dp else 24.dp),
             )
         }
         val nameMaxLines = when (display.filenameMode) {
@@ -553,6 +543,7 @@ private fun EntryThumbnail(
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
     var showStoryboard by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
+    var thumbnailGeneration by remember(entry.id, entry.mtime, entry.size) { mutableIntStateOf(0) }
     val previewDescription = if (isVideo) {
         "${entry.name} · ${stringResource(R.string.details)}"
     } else {
@@ -599,16 +590,19 @@ private fun EntryThumbnail(
         }
         AsyncImage(
             model = when {
-                entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(entry)
+                entry.scheme == XId.SCHEME_SMB && isVideo -> RemoteVideoThumb(
+                    entry = entry,
+                    generation = thumbnailGeneration,
+                )
                 entry.scheme == XId.SCHEME_SMB -> RemoteFile(entry)
-                isVideo -> VideoThumb(
-                    path = entry.localPath ?: entry.path,
+                isVideo && entry.localPath != null -> VideoThumb(
+                    path = entry.localPath,
                     mtime = entry.mtime,
                     size = entry.size,
-                    privileged = entry.localPath == null,
+                    generation = thumbnailGeneration,
                 )
                 entry.localPath != null -> File(entry.localPath)
-                else -> PrivFile(entry.path, entry.mtime, entry.size)
+                else -> null
             },
             contentDescription = null,
             contentScale = ContentScale.Crop,
@@ -661,6 +655,10 @@ private fun EntryThumbnail(
             entry = entry,
             onDismiss = { showStoryboard = false },
             onPlayFrom = onOpenAt,
+            onThumbnailRegenerated = {
+                loaded = false
+                thumbnailGeneration += 1
+            },
         )
     }
 }
@@ -668,7 +666,13 @@ private fun EntryThumbnail(
 @Composable
 private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
     val entry = node.entry
+    val folderSizeMode by FolderSizeSettings.state(Graph.appContext).collectAsState()
     val directCounts = if (loadFolderCount) rememberFolderFileCount(entry) else null
+    val folderSize = rememberFolderSize(
+        entry = entry,
+        enabled = loadFolderCount && folderSizeMode.allows(entry),
+        startLoad = !node.expanded,
+    )
     val fallbackCount = if (directCounts == null && entry.childCountHint >= 0) {
         pluralStringResource(
             R.plurals.item_count_plural,
@@ -680,34 +684,49 @@ private fun FolderDetailsRow(node: TreeNode, loadFolderCount: Boolean) {
     }
     val timestamp = entry.creationTime.takeIf { it > 0L } ?: entry.mtime
     val created = if (timestamp > 0L) Format.dateTime(timestamp) else ""
-    if (directCounts == null && fallbackCount.isEmpty() && created.isEmpty()) return
+    if (directCounts == null && fallbackCount.isEmpty() && folderSize == null && created.isEmpty()) return
+    val hasSummary = directCounts != null || fallbackCount.isNotEmpty() || created.isNotEmpty()
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        when {
-            directCounts != null -> FolderCountSummary(
-                counts = directCounts,
-                modifier = Modifier.weight(1f),
-            )
-            fallbackCount.isNotEmpty() -> Text(
-                fallbackCount,
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (hasSummary) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                when {
+                    directCounts != null -> FolderCountSummary(
+                        counts = directCounts,
+                        modifier = Modifier.weight(1f),
+                    )
+                    fallbackCount.isNotEmpty() -> Text(
+                        fallbackCount,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    else -> Spacer(Modifier.weight(1f))
+                }
+                if (created.isNotEmpty()) {
+                    Text(
+                        created,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+        }
+        if (folderSize != null) {
+            Text(
+                Format.bytes(folderSize),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            else -> Spacer(Modifier.weight(1f))
-        }
-        if (created.isNotEmpty()) {
-            Text(
-                created,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp),
+                modifier = Modifier.padding(top = if (hasSummary) 1.dp else 0.dp),
             )
         }
     }

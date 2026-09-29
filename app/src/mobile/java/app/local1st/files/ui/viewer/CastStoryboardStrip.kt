@@ -1,5 +1,6 @@
 package app.local1st.files.ui.viewer
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -73,9 +74,12 @@ import app.local1st.files.ui.browser.StoryboardLoader
 import app.local1st.files.ui.browser.StoryboardResult
 import app.local1st.files.ui.browser.storyboardFineStepMs
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import kotlin.math.abs
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+
+private const val STORYBOARD_MEMORY_CACHE_VERSION_EXTRA = "xfiles-storyboard-file-version"
 
 private sealed interface CastStoryboardUiState {
     data object Loading : CastStoryboardUiState
@@ -103,6 +107,9 @@ internal fun CastStoryboardStrip(
     showJumpToCurrent: Boolean = true,
     onFinePreviewVisibilityChanged: (Boolean) -> Unit = {},
     finePreviewDismissSignal: Int = 0,
+    sharedResult: StoryboardResult? = null,
+    sharedComplete: Boolean = true,
+    sharedExtractionPriority: StoryboardExtractionPriority? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -113,7 +120,7 @@ internal fun CastStoryboardStrip(
     var verticalStoryboardVisible by remember(entry.id, entry.mtime, entry.size, vertical) {
         mutableStateOf(false)
     }
-    val extractionPriority = remember(
+    val ownExtractionPriority = remember(
         entry.id,
         entry.mtime,
         entry.size,
@@ -123,6 +130,7 @@ internal fun CastStoryboardStrip(
     ) {
         StoryboardExtractionPriority()
     }
+    val extractionPriority = sharedExtractionPriority ?: ownExtractionPriority
 
     LaunchedEffect(vertical, listState, gridState, extractionPriority, sampleCount) {
         snapshotFlow {
@@ -137,35 +145,41 @@ internal fun CastStoryboardStrip(
             .collect(extractionPriority::updateVisible)
     }
 
-    val state by produceState<CastStoryboardUiState>(
-        initialValue = CastStoryboardUiState.Loading,
-        entry.id,
-        entry.mtime,
-        entry.size,
-        sampleCount,
-        minSpacingSeconds,
-        extractionPriority,
-    ) {
-        var emittedProgress = false
-        val result = runCatching {
-            StoryboardLoader.load(
-                context = context,
-                entry = entry,
-                count = sampleCount,
-                minSpacingMs = minSpacingSeconds * 1_000L,
-                priority = extractionPriority,
-            ) { partial ->
-                emittedProgress = true
-                value = CastStoryboardUiState.Ready(partial, complete = false)
+    val state = if (sharedResult != null) {
+        CastStoryboardUiState.Ready(sharedResult, complete = sharedComplete)
+    } else {
+        val loadedState by produceState<CastStoryboardUiState>(
+            initialValue = CastStoryboardUiState.Loading,
+            entry.id,
+            entry.mtime,
+            entry.size,
+            sampleCount,
+            minSpacingSeconds,
+            extractionPriority,
+        ) {
+            var emittedProgress = false
+            val result = runCatching {
+                StoryboardLoader.load(
+                    context = context,
+                    entry = entry,
+                    count = sampleCount,
+                    minSpacingMs = minSpacingSeconds * 1_000L,
+                    priority = extractionPriority,
+                ) { partial ->
+                    emittedProgress = true
+                    value = CastStoryboardUiState.Ready(partial, complete = false)
+                }
             }
+            value = result.fold(
+                onSuccess = { CastStoryboardUiState.Ready(it, complete = true) },
+                onFailure = {
+                    if (emittedProgress) value else CastStoryboardUiState.Failed
+                },
+            )
         }
-        value = result.fold(
-            onSuccess = { CastStoryboardUiState.Ready(it, complete = true) },
-            onFailure = {
-                if (emittedProgress) value else CastStoryboardUiState.Failed
-            },
-        )
+        loadedState
     }
+    val sharedReadyState = state as? CastStoryboardUiState.Ready
 
     when (val current = state) {
         CastStoryboardUiState.Loading -> {
@@ -197,6 +211,24 @@ internal fun CastStoryboardStrip(
                 minSpacingSeconds,
                 vertical,
             ) { mutableStateOf(false) }
+            var previousPlaybackPositionMs by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Long?>(null) }
+            var previousPlaybackObservedAtMs by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Long?>(null) }
+            var previousNearestIndex by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Int?>(null) }
             var fineFrameIndex by remember(
                 entry.id,
                 entry.mtime,
@@ -243,6 +275,58 @@ internal fun CastStoryboardStrip(
                 alignedToPlayback = true
             }
 
+            // Keep the current storyboard frame visible after an explicit seek without turning the
+            // storyboard into a second playback scrubber. Normal forward playback is ignored, and
+            // user scrolling always wins over automatic positioning.
+            LaunchedEffect(positionMs, nearestIndex, vertical, alignedToPlayback) {
+                val observedAtMs = SystemClock.elapsedRealtime()
+                val previousPositionMs = previousPlaybackPositionMs
+                val previousObservedAtMs = previousPlaybackObservedAtMs
+                val previousIndex = previousNearestIndex
+                previousPlaybackPositionMs = positionMs
+                previousPlaybackObservedAtMs = observedAtMs
+                previousNearestIndex = nearestIndex
+
+                if (
+                    !alignedToPlayback ||
+                    previousPositionMs == null ||
+                    previousObservedAtMs == null ||
+                    previousIndex == null
+                ) {
+                    return@LaunchedEffect
+                }
+                val shouldFollow = shouldAutoFollowStoryboard(
+                    previousPositionMs = previousPositionMs,
+                    positionMs = positionMs,
+                    elapsedRealtimeMs = observedAtMs - previousObservedAtMs,
+                    previousNearestIndex = previousIndex,
+                    nearestIndex = nearestIndex,
+                )
+                if (!shouldFollow) return@LaunchedEffect
+
+                val userOrProgrammaticScrollInProgress = if (vertical) {
+                    gridState.isScrollInProgress
+                } else {
+                    listState.isScrollInProgress
+                }
+                if (userOrProgrammaticScrollInProgress) return@LaunchedEffect
+
+                val alreadyVisible = if (vertical) {
+                    gridState.layoutInfo.visibleItemsInfo.any { it.index == nearestIndex }
+                } else {
+                    listState.layoutInfo.visibleItemsInfo.any { it.index == nearestIndex }
+                }
+                if (alreadyVisible) return@LaunchedEffect
+
+                scope.launch {
+                    if (vertical) {
+                        gridState.animateScrollToItem(nearestIndex)
+                    } else {
+                        listState.animateScrollToItem(nearestIndex)
+                    }
+                }
+            }
+
             Column(modifier = modifier.fillMaxSize()) {
                 if (vertical) {
                     LazyVerticalGrid(
@@ -274,7 +358,13 @@ internal fun CastStoryboardStrip(
                             ) {
                                 if (image != null) {
                                     AsyncImage(
-                                        model = image,
+                                        model = ImageRequest.Builder(context)
+                                            .data(image)
+                                            .memoryCacheKeyExtra(
+                                                STORYBOARD_MEMORY_CACHE_VERSION_EXTRA,
+                                                "${image.lastModified()}:${image.length()}",
+                                            )
+                                            .build(),
                                         contentDescription = formatVideoDuration(frame.timeMs),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
@@ -336,7 +426,13 @@ internal fun CastStoryboardStrip(
                             ) {
                                 if (image != null) {
                                     AsyncImage(
-                                        model = image,
+                                        model = ImageRequest.Builder(context)
+                                            .data(image)
+                                            .memoryCacheKeyExtra(
+                                                STORYBOARD_MEMORY_CACHE_VERSION_EXTRA,
+                                                "${image.lastModified()}:${image.length()}",
+                                            )
+                                            .build(),
                                         contentDescription = formatVideoDuration(frame.timeMs),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
@@ -471,7 +567,7 @@ internal fun CastStoryboardStrip(
         }
     }
 
-    if (verticalStoryboardVisible && !vertical) {
+    if (verticalStoryboardVisible && !vertical && sharedReadyState != null) {
         Dialog(
             onDismissRequest = { verticalStoryboardVisible = false },
             properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -492,16 +588,10 @@ internal fun CastStoryboardStrip(
                         .padding(8.dp),
                 ) {
                     Row(
+                        horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            text = stringResource(R.string.player_vertical_storyboard),
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(start = 8.dp),
-                        )
                         IconButton(onClick = { verticalStoryboardVisible = false }) {
                             Icon(
                                 Icons.Outlined.Close,
@@ -516,6 +606,9 @@ internal fun CastStoryboardStrip(
                         onSeek = onSeek,
                         vertical = true,
                         showJumpToCurrent = true,
+                        sharedResult = sharedReadyState.result,
+                        sharedComplete = sharedReadyState.complete,
+                        sharedExtractionPriority = extractionPriority,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)

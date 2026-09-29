@@ -3,6 +3,20 @@ package app.local1st.files.core.fs
 import java.io.InputStream
 import java.io.OutputStream
 
+/** Capacity information for the backing storage containing an entry. */
+data class StorageSpace(
+    val totalBytes: Long,
+    val freeBytes: Long,
+) {
+    val usedBytes: Long get() = (totalBytes - freeBytes).coerceAtLeast(0L)
+    val usedFraction: Float
+        get() = if (totalBytes > 0L) {
+            (usedBytes.toDouble() / totalBytes.toDouble()).coerceIn(0.0, 1.0).toFloat()
+        } else {
+            -1f
+        }
+}
+
 /**
  * A mounted filesystem implementation, keyed by id scheme.
  * All methods are blocking-IO and must be called on Dispatchers.IO
@@ -41,6 +55,20 @@ interface XFileSystem {
 
     /** Whether write ops (openOut/createFile/mkdir/delete/rename) can work for this entry. */
     fun canWrite(entry: XEntry): Boolean
+
+    /**
+     * Capacity of the backing volume/share containing [entry], when the filesystem can report it.
+     * Implementations should return null for synthetic roots that span more than one storage target.
+     */
+    @Throws(java.io.IOException::class)
+    fun storageSpace(entry: XEntry): StorageSpace? = null
+
+    /**
+     * Recursive byte size of [entry] when it is a real directory. Implementations own traversal so
+     * they can avoid following filesystem links and can reuse one remote connection for the walk.
+     */
+    @Throws(java.io.IOException::class)
+    fun directorySize(entry: XEntry): Long? = null
 }
 
 /** Reject names that could escape the requested parent directory. */

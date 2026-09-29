@@ -6,7 +6,7 @@
 
 **An Android file manager built for local storage, NAS media, power users, and the living room.**
 
-> **Dual-pane on mobile. Remote-first on Google TV. SMB2/3 streaming, visual video timelines, Root/Shizuku, no ads, no telemetry.**
+> **Dual-pane on mobile. Remote-first on Google TV. SMB2/3 streaming, visual video timelines, package installs, no ads, no telemetry.**
 
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
@@ -16,7 +16,7 @@
 
 **English** · [日本語](README.ja.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/assets/demo.gif" width="300" alt="XFiles demo">
+<img src="docs/assets/dual-pane.png" width="360" alt="XFiles dual-pane browser">
 
 </div>
 
@@ -26,7 +26,7 @@
 
 XFiles keeps the X-plore-style tree workflow from the upstream project, then pushes it much further for NAS and video-heavy use. A saved SMB share appears beside local storage, remote videos can be inspected visually before opening them, playback can stream directly from the NAS, and the mobile edition can hand that same media to Chromecast without first downloading the whole file.
 
-The fork is also split into purpose-built **mobile** and **Google TV** editions rather than forcing touch and remote-control UX into one compromise. Root/Shizuku access, archive browsing, package management, encrypted settings backup, and powerful file operations remain part of the same app.
+The fork is split into purpose-built **mobile** and **Google TV** editions rather than forcing touch and remote-control UX into one compromise. Archive browsing, package installation, encrypted settings backup, storage metrics, media utilities and powerful file operations remain part of the same app family.
 
 ## Highlights
 
@@ -37,6 +37,7 @@ The fork is also split into purpose-built **mobile** and **Google TV** editions 
 - Browse, copy, move, rename, thumbnail, storyboard and stream remote files without staging them locally first.
 - Same-share moves use server-side rename where possible.
 - Media random access, adaptive prefetch, rolling cache behavior and playback priority are tuned for large NAS videos.
+- Pipelined writes and Android background-transfer handling keep long SMB copies moving efficiently.
 - SMB credentials are protected with Android Keystore-backed encryption.
 
 ### See inside a video before opening it
@@ -48,6 +49,8 @@ Tap a video thumbnail to open a **storyboard timeline**. XFiles progressively ex
 - Tap a frame to start or seek playback at that exact part of the video.
 - Long-press for a finer timeline preview.
 - The same timeline is available in the local player and Chromecast controller.
+- A two-column vertical storyboard is available from the player.
+- Per-video refresh can regenerate stale poster/storyboard caches.
 - Long videos are sampled across their full duration instead of concentrating previews near the start.
 
 ### A video player designed for browsing, not just playback
@@ -56,8 +59,9 @@ Tap a video thumbnail to open a **storyboard timeline**. XFiles progressively ex
 - Resume position restored before player preparation.
 - Double-tap left/right for **-10 / +10 seconds**.
 - Vertical swipe on the right side for media volume.
-- Frame counter and frame-accurate stepping inherited from XFiles.
+- Frame counter and frame-accurate stepping.
 - Picture-in-Picture with **-5 / +5 second** actions.
+- Timestamp-rate correction handles malformed audio timing without changing normal streams.
 - Storyboard state and player controls stay out of each other's way across fullscreen and PiP transitions.
 
 ### Chromecast on mobile
@@ -65,6 +69,7 @@ Tap a video thumbnail to open a **storyboard timeline**. XFiles progressively ex
 The mobile edition can cast local, SMB and provider-backed media through a temporary HTTP Range relay.
 
 - Play/pause, seek, previous/next and playlist controls.
+- The receiver keeps a single current item while XFiles retains the logical local playlist for navigation and handoff.
 - Coalesced rapid seeks and optimistic feedback for a snappier controller.
 - SMB handle reuse and prewarming to reduce latency after seeks and item changes.
 - Storyboard navigation on the Cast screen.
@@ -93,7 +98,9 @@ XFiles TV is a separate package built specifically for a remote control:
 - Explicit destination confirmation before copy/move.
 - **Flatten one level**: move the contents of immediate child folders up and remove only folders left empty. Supported for local storage and SMB roots.
 - Conflict handling with Skip, Overwrite and Keep both.
-- Foreground-service execution for long operations.
+- Foreground/background execution for long operations with progress, throughput and cancellation.
+- Local and SMB storage usage bars.
+- Optional recursive folder-size calculation for local storage or local + SMB.
 - Per-folder sort overrides, dense browser display options and configurable context-menu order.
 
 ### Works with other apps
@@ -102,22 +109,23 @@ XFiles TV is a separate package built specifically for a remote control:
 - Preserves useful aggregate MIME types such as `video/*` for multi-video shares.
 - External `PICK_FILES` mode can return local or SMB selections as temporary read-granted URIs without exposing SMB credentials.
 - A transactional seekable SMB output bridge supports media tools that need random-access output, truncation and durable commit semantics.
+- File-detail text is selectable so names, paths and metadata can be copied with the standard Android selection UI.
 
-### Root, Shizuku and Android package tools
+### Package installation and media utilities
 
-- `su` access on rooted devices.
-- Shizuku transport for shell-level access without root.
-- Read-only safety mode for privileged paths.
-- Access to paths such as `Android/data` and `Android/obb` where the active transport permits it.
-- App manager with APK/split inspection and component information.
-- Installs `.apk`, `.apks`, `.apkm`, `.xapk` and raw `.aab` packages, including XAPK OBB placement.
+- Installs `.apk`, `.apks`, `.apkm`, `.xapk` and raw `.aab` packages.
+- Uses Android `PackageInstaller`; AAB conversion is handled on-device with the bundled bundletool stack.
+- XAPK expansion files are handled through the normal package-install path where Android storage access permits it.
+- **Rebuild MP4 container** remuxes supported video/audio samples into a new MP4 without re-encoding, including local and SMB sources.
+- Long remux operations use the existing background-job notification and cancellation flow.
 
 ### Portable settings and built-in updates
 
 - Password-encrypted settings export/import using **AES-256-GCM** and PBKDF2-HMAC-SHA256.
 - Backups include browser settings, favorites, per-folder sort rules, file associations and saved SMB connections, including protected credentials.
-- Both editions can check GitHub Releases for a newer edition-matching signed APK.
-- Settings exposes automatic update checks, **Check now**, current version/build, last successful check and status.
+- Both editions can check GitHub Releases for newer signed builds for their package.
+- Mobile settings provide separate actions for the latest normal main build and a side-by-side **diagnostic** package, so diagnostic testing cannot replace or trap the normal install.
+- Settings shows automatic update checks, current version/build, last successful check and status.
 
 ## Mobile vs TV
 
@@ -134,13 +142,13 @@ XFiles TV is a separate package built specifically for a remote control:
 
 Grab signed builds from [**GitHub Releases**](https://github.com/hglasswater-boop/XFiles/releases).
 
-For stable releases such as `v1.4.0-smb`:
+For the current stable line, `v1.4.1-smb`:
 
-- `XFiles-1.4.0-smb.apk` is the normal mobile edition.
-- `XFiles-TV-1.4.0-smb.apk` is the Google TV edition.
+- `XFiles-1.4.1-smb.apk` is the normal mobile edition.
+- `XFiles-TV-1.4.1-smb.apk` is the Google TV edition.
 - The release workflow also builds a mobile AAB as a CI artifact.
 
-A rolling `nightly` prerelease is refreshed by pushes to `main` after the current stable tag exists.
+A rolling `nightly` prerelease is refreshed by pushes to `main` after the current stable tag exists. Debug CI also publishes the signed `debug-latest` builds used by the in-app normal-update channel, while `diagnose/*` branches can publish a separate `diagnostic-latest` package.
 
 Requires **Android 8.0 / API 26 or newer**.
 
@@ -152,10 +160,10 @@ Beyond the fork-specific highlights above, XFiles includes:
 - Image viewer with pinch zoom.
 - Text viewer/editor and paged hex viewer.
 - Audio and Media3 video players.
-- Recursive wildcard search with archive traversal.
+- Recursive filename search with wildcard (`*` / `?`) and extension (`.mp4`) queries plus archive traversal.
 - ZIP/JAR/APK, 7z, TAR variants and RAR browsing.
 - High-performance parallel ZIP creation/extraction.
-- App manager and Android package installer.
+- Android package installer for APK/APKS/APKM/XAPK/AAB.
 - Material 3 Expressive UI, dynamic color and edge-to-edge layout.
 - Multi-language UI.
 
@@ -175,7 +183,6 @@ Saved SMB passwords are encrypted through Android Keystore. Exported settings ba
 | SMB | Native Rust SMB2/3 engine preferred, SMBJ compatibility fallback |
 | Media | Media3 ExoPlayer, Coil 3, mobile Media3 Cast integration |
 | Persistence | DataStore Preferences, Android Keystore-backed SMB secrets |
-| Privileged access | Shizuku + `su` |
 | Archives | java.util.zip, commons-compress, xz, junrar |
 | Package install | PackageInstaller, vendored bundletool, ARSCLib |
 | Settings backup | AES-256-GCM, PBKDF2-HMAC-SHA256 |
@@ -197,7 +204,7 @@ app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
 app/build/outputs/apk/tv/debug/app-tv-debug.apk
 ```
 
-Release CI builds signed mobile/TV APKs plus a mobile AAB. Debug CI runs both unit-test variants, builds both signed debug editions, verifies the Rust JNI layer, and runs an API 35 Android Emulator launch/lifecycle smoke test.
+Release CI builds signed mobile/TV APKs plus a mobile AAB. Debug CI runs both unit-test variants, builds both signed debug editions, verifies package identities and the Rust JNI layer, and runs an API 35 Android Emulator launch/lifecycle smoke test.
 
 ## Project lineage
 

@@ -12,6 +12,8 @@ val appBaseVersionName = Properties().apply {
 val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull()
 val appBuildNumber = ciBuildNumber ?: 1
 val appVersionName = ciBuildNumber?.let { "$appBaseVersionName-b$it" } ?: appBaseVersionName
+val diagnosticBuild =
+    (project.findProperty("xfilesDiagnosticBuild") as String?)?.toBooleanStrictOrNull() ?: false
 val ciKeystore: String? = System.getenv("XFILES_KEYSTORE")
 val smbRandomAccessBackend =
     ((project.findProperty("xfilesSmbBackend") as String?) ?: "auto").lowercase()
@@ -62,6 +64,10 @@ android {
 
     buildTypes {
         debug {
+            if (diagnosticBuild) {
+                applicationIdSuffix = ".diagnostic"
+                versionNameSuffix = "-diagnostic"
+            }
             if (ciKeystore != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -85,7 +91,6 @@ android {
     }
 
     buildFeatures {
-        aidl = true
         buildConfig = true
         compose = true
     }
@@ -155,9 +160,6 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     add("mobileImplementation", libs.media3.cast)
-
-    implementation(libs.shizuku.api)
-    implementation(libs.shizuku.provider)
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")

@@ -31,7 +31,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
 import app.local1st.files.di.Graph
-import app.local1st.files.ui.appinfo.AppInfoScreen
 import app.local1st.files.ui.dialogs.DestinationPickerScreen
 import app.local1st.files.ui.dialogs.MainDialogs
 import app.local1st.files.ui.dialogs.OpsHost
@@ -90,11 +89,6 @@ fun AppHost(vm: MainViewModel) {
                         )
 
                         AppScreen.Settings -> SettingsScreen(
-                            onBack = { vm.navigateBack(screenEntry.id) },
-                        )
-
-                        is AppScreen.AppInfo -> AppInfoScreen(
-                            packageName = screen.packageName,
                             onBack = { vm.navigateBack(screenEntry.id) },
                         )
 

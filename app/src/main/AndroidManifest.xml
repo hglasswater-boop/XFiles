@@ -13,11 +13,7 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
-    <!-- App manager -->
-    <uses-permission
-        android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
-    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- APK/XAPK installation and self-update. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- SMB and Chromecast relay networking. -->
@@ -152,14 +148,6 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback"
             android:stopWithTask="false" />
-
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:multiprocess="false"
-            android:enabled="true"
-            android:exported="true"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

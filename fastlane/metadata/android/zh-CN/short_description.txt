@@ -1,1 +1,1 @@
-离线双栏文件管理器 —— 压缩包、应用、root。没有网络权限。
+双栏文件管理器，支持 SMB/NAS、Chromecast 与 Google TV，无广告和遥测。

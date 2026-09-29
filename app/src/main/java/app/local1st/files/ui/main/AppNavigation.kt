@@ -10,7 +10,6 @@ sealed interface AppScreen {
     data object Browser : AppScreen
     data class Search(val root: XEntry) : AppScreen
     data object Settings : AppScreen
-    data class AppInfo(val packageName: String) : AppScreen
     data class Viewer(val request: ViewerRequest) : AppScreen
     data class DestinationPicker(val transfer: PendingTransfer) : AppScreen
 }

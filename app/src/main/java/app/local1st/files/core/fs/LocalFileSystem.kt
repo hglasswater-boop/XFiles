@@ -1,7 +1,7 @@
 package app.local1st.files.core.fs
 
 import android.os.Build
-import app.local1st.files.core.fs.priv.PrivilegedAccess
+import android.os.StatFs
 import app.local1st.files.core.util.FileTypes
 import java.io.File
 import java.io.FileInputStream
@@ -10,7 +10,10 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.FileAlreadyExistsException
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
@@ -21,40 +24,17 @@ import java.nio.file.attribute.BasicFileAttributes
  */
 class LocalFileSystem(
     private val legacySaf: LegacySafAccess? = null,
-    private val privilegedFallback: XFileSystem? = null,
 ) : XFileSystem {
 
     override val scheme: String = XId.SCHEME_FILE
 
     override fun list(dir: XEntry): List<XEntry> {
         val file = File(dir.path)
-        val children = file.listFiles() ?: return privilegedListing(file, dir)
-        return children.map { toEntry(it, readAttrs(it)) }
-    }
-
-    /**
-     * Scoped storage hides Android/data and Android/obb from File I/O on API 30+, and
-     * MANAGE_EXTERNAL_STORAGE does not cover them — the FUSE layer keys that access off the
-     * ext_data_rw/ext_obb_rw supplementary GIDs, which only the shell uid holds. A privileged
-     * transport runs there, so retry the listing through it.
-     *
-     * The children come back with root:// ids on purpose: every later operation on them
-     * (open, copy, thumbnail) then routes to the same transport instead of failing again.
-     */
-    private fun privilegedListing(file: File, dir: XEntry): List<XEntry> {
-        val directError = IOException(
+        val children = file.listFiles() ?: throw IOException(
             if (file.exists()) "Cannot read ${dir.name}"
             else "Folder not found: ${dir.name}",
         )
-        val fallback = privilegedFallback ?: throw directError
-        if (!PrivilegedAccess.usable()) throw directError
-        return try {
-            fallback.list(dir.copy(id = XId.root(file.absolutePath)))
-        } catch (e: IOException) {
-            // Keep the message the user's action actually produced, but carry the privileged
-            // failure as the cause so a dead transport is still diagnosable.
-            throw IOException(directError.message, e)
-        }
+        return children.map { toEntry(it, readAttrs(it)) }
     }
 
     override fun stat(id: String): XEntry? {
@@ -185,6 +165,33 @@ class LocalFileSystem(
 
     override fun canWrite(entry: XEntry): Boolean = File(entry.path).canWrite()
 
+    override fun storageSpace(entry: XEntry): StorageSpace? {
+        val path = entry.localPath ?: entry.path
+        return try {
+            val stat = StatFs(path)
+            StorageSpace(totalBytes = stat.totalBytes, freeBytes = stat.availableBytes)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+    }
+
+    override fun directorySize(entry: XEntry): Long? {
+        if (!entry.isDir) return null
+        val root = File(entry.localPath ?: entry.path).toPath()
+        if (!Files.exists(root)) return null
+        var total = 0L
+        Files.walkFileTree(
+            root,
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isRegularFile) total = saturatedAdd(total, attrs.size())
+                    return FileVisitResult.CONTINUE
+                }
+            },
+        )
+        return total
+    }
+
     /**
      * Saves an edited local file with the existing atomic File path when that works.
      * Only its failed API 26-29 secondary-volume case falls through to SAF.
@@ -314,6 +321,9 @@ class LocalFileSystem(
             throw IOException(directError.message, e)
         }
     }
+
+    private fun saturatedAdd(current: Long, value: Long): Long =
+        if (value > 0L && current > Long.MAX_VALUE - value) Long.MAX_VALUE else current + value
 }
 
 /** CREATE_NEW is the invariant behind the UI's promise that creating never overwrites. */
