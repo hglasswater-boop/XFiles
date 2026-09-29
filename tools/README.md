@@ -58,7 +58,6 @@ Only combine captures of features that still exist in the current app.
 | `combine-demo.sh` | Concatenate clips into one sped-up tour GIF |
 | `demos/lib.sh` | Shared adb + uiautomator helpers |
 | `demos/tree_state.py` | Parse a uiautomator dump for tree state |
-| `demos/_reset.sh` | Thorough reset helper for future tree-oriented demos |
 | `demos/_reset-shallow.sh` | Fast collapse-and-scroll-top prep |
 | `demos/copy.sh` | Driver for direct copy into the other pane's visible destination |
 
