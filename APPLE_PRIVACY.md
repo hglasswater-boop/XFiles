@@ -1,6 +1,6 @@
 # Privacy Policy — XFiles Pro (Apple)
 
-**Last updated: 2026-08-13**
+**Last updated: 2026-09-30**
 
 XFiles Pro (`app.local1st.files`) is a dual-pane file manager for iPhone and iPad.
 
@@ -32,7 +32,7 @@ Network access is used only for features you enable, for example:
 - Google Sign-In / Google Drive API when you choose Google Drive
 - Loading content from those destinations
 
-The Free Android product documented separately has no `INTERNET` permission; the Apple Pro build includes remotes and therefore uses the network for those features.
+The Android fork documented separately also uses network access for user-invoked features such as SMB/NAS, mobile Chromecast and update checks; see [`PRIVACY.md`](PRIVACY.md) for the Android policy.
 
 ## Third parties
 

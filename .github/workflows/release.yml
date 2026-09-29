@@ -170,7 +170,7 @@ jobs:
           name: ${{ steps.decide.outputs.name }}
           prerelease: ${{ steps.decide.outputs.prerelease }}
           body: |
-            **NAS-focused Android file manager: dual-pane mobile, Google TV edition, Rust SMB2/3, video storyboards, Root & Shizuku. No ads or telemetry.**
+            **NAS-focused Android file manager: dual-pane mobile, Google TV edition, Rust SMB2/3, video storyboards and package installs. No ads or telemetry.**
 
             XFiles ${{ steps.decide.outputs.version }} · build ${{ steps.decide.outputs.build }} (${{ github.sha }}).
             The mobile edition keeps the dual-pane touch workflow and includes Chromecast controls. The separate XFiles TV edition is single-pane and remote-first, and intentionally omits the Cast stack.
