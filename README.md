@@ -6,7 +6,7 @@
 
 **An Android file manager built for local storage, NAS media, power users, and the living room.**
 
-> **Dual-pane on mobile. Remote-first on Google TV. SMB2/3 streaming, visual video timelines, Root/Shizuku, no ads, no telemetry.**
+> **Dual-pane on mobile. Remote-first on Google TV. SMB2/3 streaming, visual video timelines, no ads, no telemetry.**
 
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
@@ -26,7 +26,7 @@
 
 XFiles keeps the X-plore-style tree workflow from the upstream project, then pushes it much further for NAS and video-heavy use. A saved SMB share appears beside local storage, remote videos can be inspected visually before opening them, playback can stream directly from the NAS, and the mobile edition can hand that same media to Chromecast without first downloading the whole file.
 
-The fork is also split into purpose-built **mobile** and **Google TV** editions rather than forcing touch and remote-control UX into one compromise. Root/Shizuku access, archive browsing, package management, encrypted settings backup, and powerful file operations remain part of the same app.
+The fork is also split into purpose-built **mobile** and **Google TV** editions rather than forcing touch and remote-control UX into one compromise. Archive browsing, an Android package installer, encrypted settings backup, and powerful file operations remain part of the same app.
 
 ## Highlights
 
@@ -103,13 +103,8 @@ XFiles TV is a separate package built specifically for a remote control:
 - External `PICK_FILES` mode can return local or SMB selections as temporary read-granted URIs without exposing SMB credentials.
 - A transactional seekable SMB output bridge supports media tools that need random-access output, truncation and durable commit semantics.
 
-### Root, Shizuku and Android package tools
+### Android package installer
 
-- `su` access on rooted devices.
-- Shizuku transport for shell-level access without root.
-- Read-only safety mode for privileged paths.
-- Access to paths such as `Android/data` and `Android/obb` where the active transport permits it.
-- App manager with APK/split inspection and component information.
 - Installs `.apk`, `.apks`, `.apkm`, `.xapk` and raw `.aab` packages, including XAPK OBB placement.
 
 ### Portable settings and built-in updates
@@ -155,7 +150,7 @@ Beyond the fork-specific highlights above, XFiles includes:
 - Recursive wildcard search with archive traversal.
 - ZIP/JAR/APK, 7z, TAR variants and RAR browsing.
 - High-performance parallel ZIP creation/extraction.
-- App manager and Android package installer.
+- Android package installer.
 - Material 3 Expressive UI, dynamic color and edge-to-edge layout.
 - Multi-language UI.
 
@@ -175,7 +170,6 @@ Saved SMB passwords are encrypted through Android Keystore. Exported settings ba
 | SMB | Native Rust SMB2/3 engine preferred, SMBJ compatibility fallback |
 | Media | Media3 ExoPlayer, Coil 3, mobile Media3 Cast integration |
 | Persistence | DataStore Preferences, Android Keystore-backed SMB secrets |
-| Privileged access | Shizuku + `su` |
 | Archives | java.util.zip, commons-compress, xz, junrar |
 | Package install | PackageInstaller, vendored bundletool, ARSCLib |
 | Settings backup | AES-256-GCM, PBKDF2-HMAC-SHA256 |

@@ -6,7 +6,7 @@
 
 **ローカルストレージ、NAS 動画、パワーユーザー、Google TV までを一つの系統で扱う Android ファイルマネージャー。**
 
-> **モバイルは2ペイン。TVはリモコン最適化。SMB2/3ストリーミング、動画ストーリーボード、Root/Shizuku対応。広告・テレメトリなし。**
+> **モバイルは2ペイン。TVはリモコン最適化。SMB2/3ストリーミング、動画ストーリーボード。広告・テレメトリなし。**
 
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
@@ -26,7 +26,7 @@
 
 XFiles の X-plore 系ツリーブラウザを土台に、**NAS と動画を日常的に大量に扱う用途**へ重点的に拡張しています。SMB 共有をローカルと同じツリーから開き、動画を開く前に中身をストーリーボードで確認し、そのまま NAS から再生できます。モバイル版では同じ動画を Chromecast へ渡すこともできます。
 
-さらに、タッチ操作とテレビのリモコン操作を無理に同居させず、**モバイル版と Google TV 版を別エディション**として最適化しています。Root / Shizuku、アーカイブ閲覧、アプリ管理、暗号化設定バックアップ、強力なファイル操作も同じアプリ系統にまとめています。
+さらに、タッチ操作とテレビのリモコン操作を無理に同居させず、**モバイル版と Google TV 版を別エディション**として最適化しています。アーカイブ閲覧、Android パッケージインストーラー、暗号化設定バックアップ、強力なファイル操作も同じアプリ系統にまとめています。
 
 ## 主な特徴
 
@@ -104,13 +104,8 @@ XFiles TV は別パッケージとして、リモコン操作向けに最適化�
 - 外部アプリ向け `PICK_FILES` モードで、ローカル / SMB ファイルを一時的な読み取り URI として返却。SMB 認証情報は XFiles 内に保持。
 - メディア処理アプリ向けに、ランダムアクセス、truncate、完了時コミットに対応したトランザクション型 SMB 出力ブリッジを用意。
 
-### Root / Shizuku とパッケージ管理
+### Android パッケージインストーラー
 
-- rooted 端末では `su`。
-- root なしでは Shizuku による shell 権限アクセス。
-- privileged path 用の読み取り専用安全モード。
-- 権限が許す範囲で `Android/data`、`Android/obb` などへアクセス。
-- インストール済みアプリ、split APK、コンポーネント情報を確認できるアプリマネージャー。
 - `.apk`、`.apks`、`.apkm`、`.xapk`、`.aab` のインストールに対応。XAPK の OBB 配置にも対応。
 
 ### 設定移行とセルフアップデート
@@ -156,7 +151,7 @@ XFiles TV は別パッケージとして、リモコン操作向けに最適化�
 - ワイルドカード対応の再帰検索とアーカイブ内検索。
 - ZIP / JAR / APK、7z、TAR 系、RAR のフォルダ風閲覧。
 - 並列 ZIP 作成 / 展開。
-- アプリマネージャーと Android パッケージインストーラー。
+- Android パッケージインストーラー。
 - Material 3 Expressive、Dynamic Color、edge-to-edge UI。
 - 多言語 UI。
 
@@ -176,7 +171,6 @@ XFiles には **アカウント、広告、テレメトリがありません**�
 | SMB | Rust SMB2/3 エンジンを優先、SMBJ 互換フォールバック |
 | メディア | Media3 ExoPlayer、Coil 3、モバイル版 Media3 Cast |
 | 設定保存 | DataStore Preferences、Android Keystore |
-| Privileged access | Shizuku、`su` |
 | アーカイブ | java.util.zip、commons-compress、xz、junrar |
 | パッケージ | PackageInstaller、vendored bundletool、ARSCLib |
 | 設定バックアップ | AES-256-GCM、PBKDF2-HMAC-SHA256 |
