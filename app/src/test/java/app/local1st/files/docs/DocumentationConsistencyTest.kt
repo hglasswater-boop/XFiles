@@ -20,20 +20,20 @@ class DocumentationConsistencyTest {
 
         val applicationId = requireMatch(
             buildScript,
-            Regex("""applicationId\s*=\s*\"([^\"]+)\"""),
+            Regex("applicationId\\s*=\\s*\"([^\"]+)\""),
             "applicationId",
         )
         val tvApplicationIdSuffix = requireMatch(
             buildScript,
             Regex(
-                """create\(\"tv\"\)\s*\{.*?applicationIdSuffix\s*=\s*\"([^\"]+)\""" ,
+                "create\\(\"tv\"\\)\\s*\\{.*?applicationIdSuffix\\s*=\\s*\"([^\"]+)\"",
                 RegexOption.DOT_MATCHES_ALL,
             ),
             "TV applicationIdSuffix",
         )
-        val minSdk = requireMatch(buildScript, Regex("""\bminSdk\s*=\s*(\d+)"""), "minSdk")
-        val compileSdk = requireMatch(buildScript, Regex("""\bcompileSdk\s*=\s*(\d+)"""), "compileSdk")
-        val targetSdk = requireMatch(buildScript, Regex("""\btargetSdk\s*=\s*(\d+)"""), "targetSdk")
+        val minSdk = requireMatch(buildScript, Regex("\\bminSdk\\s*=\\s*(\\d+)"), "minSdk")
+        val compileSdk = requireMatch(buildScript, Regex("\\bcompileSdk\\s*=\\s*(\\d+)"), "compileSdk")
+        val targetSdk = requireMatch(buildScript, Regex("\\btargetSdk\\s*=\\s*(\\d+)"), "targetSdk")
         val tvApplicationId = applicationId + tvApplicationIdSuffix
 
         val readmes = listOf("README.md", "README.ja.md", "README.zh-CN.md")
