@@ -74,4 +74,16 @@ class FineStoryboardPlaybackSyncTest {
         assertEquals(15_000L, fineStoryboardWindowEndMs(centerTimeMs = 10_000L, stepMs = 1_000L))
         assertEquals(Long.MAX_VALUE, fineStoryboardWindowEndMs(Long.MAX_VALUE - 10L, 1_000L))
     }
+
+    @Test
+    fun windowEndMatchesFinePreviewClampingNearVideoEnd() {
+        assertEquals(
+            19_999L,
+            fineStoryboardWindowEndMs(
+                centerTimeMs = 18_000L,
+                stepMs = 1_000L,
+                durationMs = 20_000L,
+            ),
+        )
+    }
 }
