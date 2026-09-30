@@ -6,15 +6,21 @@ internal const val FINE_STORYBOARD_SIDE_FRAME_COUNT = 5
 internal fun fineStoryboardWindowEndMs(
     centerTimeMs: Long,
     stepMs: Long,
+    durationMs: Long? = null,
 ): Long {
     val safeCenterMs = centerTimeMs.coerceAtLeast(0L)
     val safeStepMs = stepMs.coerceAtLeast(1L)
     val spanMs = safeStepMs * FINE_STORYBOARD_SIDE_FRAME_COUNT
-    return if (Long.MAX_VALUE - safeCenterMs < spanMs) {
+    val rawEndMs = if (Long.MAX_VALUE - safeCenterMs < spanMs) {
         Long.MAX_VALUE
     } else {
         safeCenterMs + spanMs
     }
+    val durationEndMs = durationMs
+        ?.takeIf { it > 0L }
+        ?.minus(1L)
+        ?.coerceAtLeast(0L)
+    return durationEndMs?.let(rawEndMs::coerceAtMost) ?: rawEndMs
 }
 
 /**
