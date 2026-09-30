@@ -261,11 +261,12 @@ internal fun CastStoryboardStrip(
                 if (finePreviewDismissSignal > 0) hideFinePreview()
             }
 
-            val fineWindowEndTimesMs = remember(frames) {
+            val fineWindowEndTimesMs = remember(frames, current.result.durationMs) {
                 frames.indices.map { index ->
                     fineStoryboardWindowEndMs(
                         centerTimeMs = frames[index].timeMs,
                         stepMs = storyboardFineStepMs(frames, index),
+                        durationMs = current.result.durationMs,
                     )
                 }
             }
