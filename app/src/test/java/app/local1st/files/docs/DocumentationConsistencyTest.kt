@@ -13,15 +13,22 @@ class DocumentationConsistencyTest {
         val repo = File(requireNotNull(System.getProperty("xfiles.repo")))
         val buildScript = File(repo, "app/build.gradle.kts").readText()
         val versionName = Properties().apply {
-            File(repo, "version.properties").inputStream().use(::load)
+            File(repo, "version.properties").inputStream().use { load(it) }
         }.getProperty("versionName").orEmpty().also {
             assertTrue("version.properties must define versionName", it.isNotBlank())
         }
 
-        val applicationId = requireMatch(buildScript, Regex("""applicationId\s*=\s*\"([^\"]+)\"""), "applicationId")
+        val applicationId = requireMatch(
+            buildScript,
+            Regex("""applicationId\s*=\s*\"([^\"]+)\"""),
+            "applicationId",
+        )
         val tvApplicationIdSuffix = requireMatch(
             buildScript,
-            Regex("""applicationIdSuffix\s*=\s*\"([^\"]+)\"""),
+            Regex(
+                """create\(\"tv\"\)\s*\{.*?applicationIdSuffix\s*=\s*\"([^\"]+)\""" ,
+                RegexOption.DOT_MATCHES_ALL,
+            ),
             "TV applicationIdSuffix",
         )
         val minSdk = requireMatch(buildScript, Regex("""\bminSdk\s*=\s*(\d+)"""), "minSdk")
