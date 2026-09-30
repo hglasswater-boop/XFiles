@@ -261,6 +261,26 @@ internal fun CastStoryboardStrip(
                 if (finePreviewDismissSignal > 0) hideFinePreview()
             }
 
+            val fineWindowEndTimesMs = remember(frames, current.result.durationMs) {
+                frames.indices.map { index ->
+                    fineStoryboardWindowEndMs(
+                        centerTimeMs = frames[index].timeMs,
+                        stepMs = storyboardFineStepMs(frames, index),
+                        durationMs = current.result.durationMs,
+                    )
+                }
+            }
+            LaunchedEffect(positionMs, fineFrameIndex, fineWindowEndTimesMs) {
+                val currentFineIndex = fineFrameIndex ?: return@LaunchedEffect
+                val targetIndex = fineStoryboardFollowTargetIndex(
+                    currentIndex = currentFineIndex,
+                    positionMs = positionMs,
+                    fineWindowEndTimesMs = fineWindowEndTimesMs,
+                ) ?: return@LaunchedEffect
+                lastFineFrameIndex = targetIndex
+                fineFrameIndex = targetIndex
+            }
+
             // The loader emits the full placeholder timeline before extracting frames. Align the
             // viewport immediately, so the extractor can fill the playback area first instead of
             // waiting for an unrelated thumbnail to finish.
