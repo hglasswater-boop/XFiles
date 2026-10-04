@@ -170,9 +170,13 @@ open class SmbFileSystem(
 
     override fun delete(entry: XEntry) {
         val target = target(entry.id)
+        val path = toSmbPath(target.path)
         withShare(target.connection) { share ->
-            if (entry.isDir) share.rmdir(toSmbPath(target.path), true)
-            else share.rm(toSmbPath(target.path))
+            if (entry.isDir) {
+                share.rmdir(path, true)
+            } else {
+                deleteSmbFileWithReadOnlyRecovery(SmbjFileDeleteOperations(share, path))
+            }
         }
     }
 
