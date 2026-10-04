@@ -234,15 +234,16 @@ fun EditionUpdateSettingsSection() {
     }
 
     fun requestInstall() {
+        val track = selectedTrack
         scope.launch {
             checking = true
             statusMessage = null
-            runCatching { TvSelfUpdater.check(selectedTrack) }
+            runCatching { TvSelfUpdater.check(track) }
                 .onSuccess { found ->
                     lastCheck = TvSelfUpdater.markChecked(context)
                     if (found == null) {
                         statusMessage = context.getString(
-                            if (selectedTrack == SelfUpdateTrack.NIGHTLY) {
+                            if (track == SelfUpdateTrack.NIGHTLY) {
                                 R.string.update_nightly_up_to_date
                             } else {
                                 R.string.update_up_to_date
@@ -281,11 +282,13 @@ fun EditionUpdateSettingsSection() {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = selectedTrack == SelfUpdateTrack.NORMAL,
+                    enabled = !checking,
                     onClick = { selectTrack(SelfUpdateTrack.NORMAL) },
                     label = { Text(stringResource(R.string.update_channel_normal)) },
                 )
                 FilterChip(
                     selected = selectedTrack == SelfUpdateTrack.NIGHTLY,
+                    enabled = !checking,
                     onClick = { selectTrack(SelfUpdateTrack.NIGHTLY) },
                     label = { Text(stringResource(R.string.update_channel_nightly)) },
                 )
