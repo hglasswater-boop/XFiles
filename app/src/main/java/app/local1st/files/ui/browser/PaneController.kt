@@ -777,6 +777,7 @@ class PaneController(
         buffer: RestoreBuffer,
     ): List<XEntry> {
         val kids = result.getOrDefault(emptyList())
+        if (result.isSuccess) publishFolderFileCount(entry, kids)
         buffer.children[entry.id] = kids
         buffer.routes[entry.id] = registry.resolveScheme(entry)
         result.exceptionOrNull()?.let { error ->
@@ -927,6 +928,7 @@ class PaneController(
             val error = result.exceptionOrNull()?.let {
                 it.message ?: Graph.appContext.getString(R.string.cannot_read_folder)
             }
+            if (result.isSuccess) publishFolderFileCount(entry, kids)
             tree.update { current ->
                 current.copy(
                     children = current.children + (entry.id to kids),
@@ -1075,6 +1077,7 @@ class PaneController(
         val error = result.exceptionOrNull()?.let {
             it.message ?: Graph.appContext.getString(R.string.cannot_read, entry.name)
         }
+        if (result.isSuccess) publishFolderFileCount(entry, kids)
         tree.update { current ->
             current.copy(
                 children = current.children + (entry.id to kids),
@@ -1132,7 +1135,11 @@ class PaneController(
     fun refresh(dirId: String) {
         finishStartupRestoreForInteraction()
         val entry = findEntry(dirId) ?: return
-        if (tree.value.children.containsKey(dirId)) load(entry)
+        if (tree.value.children.containsKey(dirId)) {
+            load(entry)
+        } else {
+            invalidateFolderFileCount(dirId)
+        }
     }
 
     fun refreshDirty(ids: Set<String>) {
