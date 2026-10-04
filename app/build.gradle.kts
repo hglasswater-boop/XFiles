@@ -168,6 +168,8 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // AndroidX Test's runtime graph requires 1.2.0; keep the debug target APK aligned.
+    debugImplementation("androidx.concurrent:concurrent-futures:1.2.0")
 }
 
 tasks.withType<Test>().configureEach {
