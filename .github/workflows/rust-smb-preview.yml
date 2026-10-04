@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - '.github/rust-smb-ref'
+      - '.github/scripts/build-rust-smb-android.sh'
       - '.github/workflows/rust-smb-preview.yml'
       - 'app/src/main/java/app/local1st/files/core/fs/RustSmbRandomAccessBackend.kt'
       - 'app/src/main/java/app/local1st/files/core/fs/SmbRandomAccessBackend.kt'
@@ -25,17 +27,19 @@ jobs:
     env:
       NDK_VERSION: 29.0.14206865
       CARGO_NDK_PLATFORM: 26
-      # Pin the engine so every preview can be reproduced exactly before the next deliberate bump.
-      RUST_SMB_REF: 5ce23fff2555965e1587d864bd2bbced543deb11
     steps:
       - name: Checkout XFiles
         uses: actions/checkout@v5
+
+      - name: Load Rust SMB engine revision
+        id: rust_smb_ref
+        run: echo "value=$(tr -d '\n' < .github/rust-smb-ref)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Rust SMB engine
         uses: actions/checkout@v5
         with:
           repository: hglasswater-boop/smb-io-rs
-          ref: ${{ env.RUST_SMB_REF }}
+          ref: ${{ steps.rust_smb_ref.outputs.value }}
           path: native/smb-io-rs
 
       - uses: actions/setup-java@v5
