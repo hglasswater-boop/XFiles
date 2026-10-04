@@ -266,16 +266,8 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         } else {
             val playerOrientation = LocalConfiguration.current.orientation
             val density = LocalDensity.current
-            val storyboardCollapsedHeight = if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
-                120.dp
-            } else {
-                126.dp
-            }
-            val storyboardExpandedHeight = if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
-                236.dp
-            } else {
-                252.dp
-            }
+            val storyboardCollapsedHeight = 126.dp
+            val storyboardExpandedHeight = 252.dp
             var finePreviewVisible by remember(currentEntry.id, playerOrientation) {
                 mutableStateOf(false)
             }
@@ -297,42 +289,29 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             var portraitControlsRestingClearancePx by remember(currentEntry.id) {
                 mutableFloatStateOf(Float.NaN)
             }
-            var landscapeControlsRestingClearancePx by remember(currentEntry.id) {
-                mutableFloatStateOf(Float.NaN)
-            }
-            val controlsRestingClearancePx =
-                if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
-                    landscapeControlsRestingClearancePx
-                } else {
-                    portraitControlsRestingClearancePx
-                }
-
             LaunchedEffect(
                 viewerBottomInRootPx,
                 controlsTopInRootPx,
                 playerOrientation,
                 inPictureInPicture,
-                controlsRestingClearancePx,
+                portraitControlsRestingClearancePx,
             ) {
                 if (
                     !inPictureInPicture &&
-                    controlsRestingClearancePx.isNaN() &&
+                    playerOrientation != Configuration.ORIENTATION_LANDSCAPE &&
+                    portraitControlsRestingClearancePx.isNaN() &&
                     viewerBottomInRootPx.isFinite() &&
                     controlsTopInRootPx.isFinite()
                 ) {
                     val measured = viewerBottomInRootPx - controlsTopInRootPx
                     if (measured > 0f) {
-                        if (playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
-                            landscapeControlsRestingClearancePx = measured
-                        } else {
-                            portraitControlsRestingClearancePx = measured
-                        }
+                        portraitControlsRestingClearancePx = measured
                     }
                 }
             }
 
-            val storyboardBottomClearance = if (controlsRestingClearancePx.isFinite()) {
-                with(density) { controlsRestingClearancePx.toDp() }
+            val storyboardBottomClearance = if (portraitControlsRestingClearancePx.isFinite()) {
+                with(density) { portraitControlsRestingClearancePx.toDp() }
             } else {
                 PLAYER_STORYBOARD_FALLBACK_BOTTOM_CLEARANCE_DP.dp
             }
