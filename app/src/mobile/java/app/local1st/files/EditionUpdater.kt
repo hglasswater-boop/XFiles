@@ -2,6 +2,7 @@ package app.local1st.files
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
@@ -57,10 +58,16 @@ private enum class MobileReleaseChannel(
 
 private data class MobileRelease(
     val channel: MobileReleaseChannel,
+    val track: SelfUpdateTrack?,
     val versionName: String,
     val buildNumber: Int,
     val assetName: String,
     val downloadUrl: String,
+)
+
+private data class InstalledNormalPackage(
+    val buildNumber: Int,
+    val track: SelfUpdateTrack?,
 )
 
 private object MobileSelfUpdater {
@@ -122,12 +129,18 @@ private object MobileSelfUpdater {
                 releaseBody = json.optString("body"),
                 assets = json.releaseAssets(),
             )
-            val installedBuild = installedBuildNumber(context, MobileReleaseChannel.NORMAL.packageName)
-            if (installedBuild != null && !resolved.isNewerThan(installedBuild)) {
+            val installed = installedNormalPackage(context)
+            if (!resolved.isInstallableOver(
+                    installedBuild = installed?.buildNumber,
+                    installedTrack = installed?.track,
+                    selectedTrack = track,
+                )
+            ) {
                 return@withContext null
             }
             MobileRelease(
                 channel = MobileReleaseChannel.NORMAL,
+                track = track,
                 versionName = resolved.versionName,
                 buildNumber = resolved.buildNumber,
                 assetName = resolved.assetName,
@@ -145,6 +158,7 @@ private object MobileSelfUpdater {
         }
         MobileRelease(
             channel = MobileReleaseChannel.DIAGNOSTIC,
+            track = null,
             versionName = resolved.versionName,
             buildNumber = resolved.buildNumber,
             assetName = resolved.assetName,
@@ -203,19 +217,62 @@ private object MobileSelfUpdater {
         }
 
     @Suppress("DEPRECATION")
+    private fun installedNormalPackage(context: Context): InstalledNormalPackage? =
+        try {
+            val packageInfo = context.packageManager.getPackageInfo(
+                MobileReleaseChannel.NORMAL.packageName,
+                0,
+            )
+            InstalledNormalPackage(
+                buildNumber = packageInfo.versionCode,
+                track = packageInfo.applicationInfo?.let(::trackForApplication),
+            )
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
+
+    private fun trackForApplication(applicationInfo: ApplicationInfo): SelfUpdateTrack =
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            SelfUpdateTrack.NORMAL
+        } else {
+            SelfUpdateTrack.NIGHTLY
+        }
+
+    @Suppress("DEPRECATION")
     private fun validateApk(context: Context, apk: File, release: MobileRelease) {
         val packageInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
             ?: error("Downloaded APK could not be read")
         if (packageInfo.packageName != release.channel.packageName) {
             error("Downloaded APK package does not match the selected channel")
         }
-        val downloadedBuild = packageInfo.versionCode.toLong()
-        if (downloadedBuild != release.buildNumber.toLong()) {
+        val downloadedBuild = packageInfo.versionCode
+        if (downloadedBuild != release.buildNumber) {
             error("Downloaded APK build number does not match the GitHub release")
         }
-        val installedBuild = installedBuildNumber(context, release.channel.packageName)
-        if (installedBuild != null && downloadedBuild <= installedBuild.toLong()) {
-            error("Downloaded APK is not newer than the installed build")
+
+        if (release.channel == MobileReleaseChannel.NORMAL) {
+            val selectedTrack = release.track ?: error("Normal release is missing its update track")
+            val downloadedTrack = packageInfo.applicationInfo?.let(::trackForApplication)
+                ?: error("Downloaded APK track could not be determined")
+            if (downloadedTrack != selectedTrack) {
+                error("Downloaded APK does not match the selected update track")
+            }
+            val installed = installedNormalPackage(context)
+            val installable = when {
+                installed == null -> true
+                downloadedBuild > installed.buildNumber -> true
+                downloadedBuild < installed.buildNumber -> false
+                installed.track == null -> false
+                else -> installed.track != selectedTrack
+            }
+            if (!installable) {
+                error("Downloaded APK is not an installable update for the selected track")
+            }
+        } else {
+            val installedBuild = installedBuildNumber(context, release.channel.packageName)
+            if (installedBuild != null && downloadedBuild <= installedBuild) {
+                error("Downloaded APK is not newer than the installed build")
+            }
         }
     }
 
