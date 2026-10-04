@@ -31,6 +31,18 @@ data class ResolvedUpdateRelease(
     val downloadUrl: String,
 ) {
     fun isNewerThan(installedBuild: Int): Boolean = buildNumber > installedBuild
+
+    fun isInstallableOver(
+        installedBuild: Int?,
+        installedTrack: SelfUpdateTrack?,
+        selectedTrack: SelfUpdateTrack,
+    ): Boolean {
+        if (installedBuild == null) return true
+        if (buildNumber > installedBuild) return true
+        return buildNumber == installedBuild &&
+            installedTrack != null &&
+            installedTrack != selectedTrack
+    }
 }
 
 object SelfUpdateReleaseContract {
