@@ -15,7 +15,11 @@ The Mobile diagnostic package remains a separate side-by-side package published 
 
 The selected normal-package channel is persisted separately for Mobile and TV. The default is **Normal**, preserving the existing update behavior for installs that have not selected a channel.
 
-Both manual update checks and the startup automatic check must use the same selected channel. Changing the channel changes only the source used by later checks; XFiles never attempts an Android `versionCode` downgrade to switch channels.
+Both manual update checks and the startup automatic check must use the same selected channel. Changing the channel changes only the source used by later checks. XFiles never attempts an Android `versionCode` downgrade to switch channels.
+
+Normal and Nightly builds produced from the same commit intentionally share the same commit-derived `versionCode`. Therefore an explicit channel switch may offer an equal-build replacement when the installed package belongs to the other channel. This makes `Normal -> Nightly` and `Nightly -> Normal` selectable immediately for the same commit without inventing a higher version code. An equal build from the already-installed channel is not an update.
+
+The installed channel is identified from the installed normal package: Normal is the debuggable main build and Nightly is the non-debuggable release build. Both use the same normal package id and signing identity.
 
 ## Release contracts
 
@@ -52,13 +56,21 @@ The updater parses `<version>` and `<build>` from that line. A nightly response 
 
 ## Availability and validation
 
-For either normal channel, an update is available only when the remote build number is strictly greater than the installed normal package `versionCode`. Equal and older builds are not offered.
+For the selected normal-package channel, a release is installable when either:
+
+1. its build number is strictly greater than the installed normal package `versionCode`; or
+2. its build number is equal and the installed normal package belongs to the other update channel.
+
+An older build is never offered. An equal build from the already-installed channel is not offered.
 
 Before invoking the Android package installer, the downloaded APK must still be validated:
 
 1. The APK package id matches the current normal Mobile or TV package.
 2. The APK `versionCode` equals the build number resolved from the GitHub release contract.
-3. The APK `versionCode` is strictly greater than the installed normal package build.
+3. The APK `versionCode` is not lower than the installed normal package build.
+4. An equal-build APK is accepted only when it replaces the other normal-package update channel.
+
+Diagnostic package validation remains strict: its build must be newer than the installed diagnostic package because it has no channel-switch case.
 
 This keeps channel selection separate from installation safety and prevents a stale or malformed GitHub release from being installed.
 
@@ -76,6 +88,7 @@ Regression coverage must prove:
 - Nightly resolves the `nightly` endpoint and parses the canonical release metadata line.
 - Nightly selects `XFiles-nightly.apk` for Mobile and `XFiles-TV-nightly.apk` for TV.
 - Missing or malformed nightly metadata is rejected.
-- Equal/older remote builds are not considered updates; a newer build is.
+- A newer remote build is installable and an older build is not.
+- An equal build is installable only when the selected channel differs from the installed channel.
 - Channel persistence defaults to Normal and round-trips Normal/Nightly values.
 - Mobile diagnostic release resolution remains independent from the selected normal-package channel.
