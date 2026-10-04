@@ -30,7 +30,7 @@ internal data class FolderFileCountUpdate(
     val counts: FolderDirectCounts?,
 )
 
-/** Small observable LRU-like cache state kept separate from Compose so refresh behavior is testable. */
+/** Small observable bounded cache state kept separate from Compose so refresh behavior is testable. */
 internal class FolderFileCountState(
     private val maxEntries: Int = 2048,
 ) {
@@ -42,7 +42,7 @@ internal class FolderFileCountState(
     fun peek(key: String): FolderDirectCounts? = counts[key]
 
     fun publish(key: String, directoryId: String, counts: FolderDirectCounts) {
-        if (this.counts.size >= maxEntries && key !in this.counts) this.counts.clear()
+        if (this.counts.size >= maxEntries && !this.counts.containsKey(key)) this.counts.clear()
         this.counts[key] = counts
         mutableUpdates.tryEmit(FolderFileCountUpdate(directoryId = directoryId, counts = counts))
     }
