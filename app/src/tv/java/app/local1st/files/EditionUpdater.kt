@@ -2,6 +2,7 @@ package app.local1st.files
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +49,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 private data class TvRelease(
+    val track: SelfUpdateTrack,
     val versionName: String,
     val buildNumber: Int,
     val assetName: String,
@@ -104,31 +106,40 @@ private object TvSelfUpdater {
         return now
     }
 
-    suspend fun check(track: SelfUpdateTrack): TvRelease? = withContext(Dispatchers.IO) {
-        val connection = openConnection(track.apiUrl, "application/vnd.github+json")
-        try {
-            val code = connection.responseCode
-            if (code == HttpURLConnection.HTTP_NOT_FOUND) return@withContext null
-            if (code !in 200..299) error("GitHub HTTP $code")
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(body)
-            val resolved = SelfUpdateReleaseContract.resolve(
-                track = track,
-                edition = SelfUpdateEdition.TV,
-                releaseBody = json.optString("body"),
-                assets = json.releaseAssets(),
-            )
-            if (!resolved.isNewerThan(BuildConfig.VERSION_CODE)) return@withContext null
-            TvRelease(
-                versionName = resolved.versionName,
-                buildNumber = resolved.buildNumber,
-                assetName = resolved.assetName,
-                downloadUrl = resolved.downloadUrl,
-            )
-        } finally {
-            connection.disconnect()
+    suspend fun check(context: Context, track: SelfUpdateTrack): TvRelease? =
+        withContext(Dispatchers.IO) {
+            val connection = openConnection(track.apiUrl, "application/vnd.github+json")
+            try {
+                val code = connection.responseCode
+                if (code == HttpURLConnection.HTTP_NOT_FOUND) return@withContext null
+                if (code !in 200..299) error("GitHub HTTP $code")
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(body)
+                val resolved = SelfUpdateReleaseContract.resolve(
+                    track = track,
+                    edition = SelfUpdateEdition.TV,
+                    releaseBody = json.optString("body"),
+                    assets = json.releaseAssets(),
+                )
+                if (!resolved.isInstallableOver(
+                        installedBuild = BuildConfig.VERSION_CODE,
+                        installedTrack = trackForApplication(context.applicationInfo),
+                        selectedTrack = track,
+                    )
+                ) {
+                    return@withContext null
+                }
+                TvRelease(
+                    track = track,
+                    versionName = resolved.versionName,
+                    buildNumber = resolved.buildNumber,
+                    assetName = resolved.assetName,
+                    downloadUrl = resolved.downloadUrl,
+                )
+            } finally {
+                connection.disconnect()
+            }
         }
-    }
 
     suspend fun downloadAndValidate(context: Context, release: TvRelease): File =
         withContext(Dispatchers.IO) {
@@ -172,6 +183,13 @@ private object TvSelfUpdater {
         SelfUpdateInstaller.install(context, apk)
     }
 
+    private fun trackForApplication(applicationInfo: ApplicationInfo): SelfUpdateTrack =
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            SelfUpdateTrack.NORMAL
+        } else {
+            SelfUpdateTrack.NIGHTLY
+        }
+
     @Suppress("DEPRECATION")
     private fun validateApk(context: Context, apk: File, release: TvRelease) {
         val packageInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
@@ -179,12 +197,23 @@ private object TvSelfUpdater {
         if (packageInfo.packageName != context.packageName) {
             error("Downloaded APK is not XFiles TV")
         }
-        val downloadedBuild = packageInfo.versionCode.toLong()
-        if (downloadedBuild <= BuildConfig.VERSION_CODE.toLong()) {
-            error("Downloaded APK is not newer than the installed build")
-        }
-        if (downloadedBuild != release.buildNumber.toLong()) {
+        val downloadedBuild = packageInfo.versionCode
+        if (downloadedBuild != release.buildNumber) {
             error("Downloaded APK build number does not match the GitHub release")
+        }
+        val downloadedTrack = packageInfo.applicationInfo?.let(::trackForApplication)
+            ?: error("Downloaded APK track could not be determined")
+        if (downloadedTrack != release.track) {
+            error("Downloaded APK does not match the selected update track")
+        }
+        val installedTrack = trackForApplication(context.applicationInfo)
+        val installable = when {
+            downloadedBuild > BuildConfig.VERSION_CODE -> true
+            downloadedBuild < BuildConfig.VERSION_CODE -> false
+            else -> installedTrack != release.track
+        }
+        if (!installable) {
+            error("Downloaded APK is not an installable update for the selected track")
         }
     }
 
@@ -238,7 +267,7 @@ fun EditionUpdateSettingsSection() {
         scope.launch {
             checking = true
             statusMessage = null
-            runCatching { TvSelfUpdater.check(track) }
+            runCatching { TvSelfUpdater.check(context, track) }
                 .onSuccess { found ->
                     lastCheck = TvSelfUpdater.markChecked(context)
                     if (found == null) {
@@ -464,7 +493,7 @@ fun EditionStartupUpdateCheck() {
     LaunchedEffect(Unit) {
         if (!TvSelfUpdater.autoCheckDue(context)) return@LaunchedEffect
         val track = TvSelfUpdater.selectedTrack(context)
-        runCatching { TvSelfUpdater.check(track) }
+        runCatching { TvSelfUpdater.check(context, track) }
             .onSuccess {
                 TvSelfUpdater.markChecked(context)
                 release = it
