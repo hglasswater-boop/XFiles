@@ -64,15 +64,11 @@ private data class MobileRelease(
 )
 
 private object MobileSelfUpdater {
-    private const val DIAGNOSTIC_RELEASE_API =
-        "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/diagnostic-latest"
     private const val PREFS = "mobile_self_update"
     private const val LAST_AUTO_CHECK = "last_auto_check"
     private const val AUTO_CHECK_ENABLED = "auto_check_enabled"
     private const val SELECTED_TRACK = "selected_track"
     private const val AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
-    private val diagnosticAssetPattern =
-        Regex("^XFiles-Diagnostic-(.+)-b(\\d+)-debug\\.apk$")
 
     fun isAutoCheckEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -140,27 +136,20 @@ private object MobileSelfUpdater {
         }
 
     suspend fun checkDiagnostic(context: Context): MobileRelease? = withContext(Dispatchers.IO) {
-        val json = fetchRelease(DIAGNOSTIC_RELEASE_API) ?: return@withContext null
-        val assets = json.getJSONArray("assets")
-        var newest: MobileRelease? = null
-        for (index in 0 until assets.length()) {
-            val asset = assets.getJSONObject(index)
-            val name = asset.optString("name")
-            val match = diagnosticAssetPattern.matchEntire(name) ?: continue
-            val build = match.groupValues[2].toIntOrNull() ?: continue
-            val candidate = MobileRelease(
-                channel = MobileReleaseChannel.DIAGNOSTIC,
-                versionName = match.groupValues[1],
-                buildNumber = build,
-                assetName = name,
-                downloadUrl = asset.getString("browser_download_url"),
-            )
-            if (newest == null || candidate.buildNumber > newest.buildNumber) {
-                newest = candidate
-            }
-        }
+        val json = fetchRelease(SelfUpdateReleaseContract.DIAGNOSTIC_LATEST_API)
+            ?: return@withContext null
+        val resolved = SelfUpdateReleaseContract.resolveDiagnosticMobile(json.releaseAssets())
         val installedBuild = installedBuildNumber(context, MobileReleaseChannel.DIAGNOSTIC.packageName)
-        newest?.takeIf { installedBuild == null || it.buildNumber > installedBuild }
+        if (installedBuild != null && !resolved.isNewerThan(installedBuild)) {
+            return@withContext null
+        }
+        MobileRelease(
+            channel = MobileReleaseChannel.DIAGNOSTIC,
+            versionName = resolved.versionName,
+            buildNumber = resolved.buildNumber,
+            assetName = resolved.assetName,
+            downloadUrl = resolved.downloadUrl,
+        )
     }
 
     suspend fun downloadAndValidate(context: Context, release: MobileRelease): File =
@@ -290,15 +279,16 @@ fun EditionUpdateSettingsSection() {
     }
 
     fun requestNormalInstall() {
+        val track = selectedTrack
         scope.launch {
             checkingNormal = true
             statusMessage = null
-            runCatching { MobileSelfUpdater.checkNormal(context, selectedTrack) }
+            runCatching { MobileSelfUpdater.checkNormal(context, track) }
                 .onSuccess { found ->
                     lastCheck = MobileSelfUpdater.markChecked(context)
                     if (found == null) {
                         statusMessage = context.getString(
-                            if (selectedTrack == SelfUpdateTrack.NIGHTLY) {
+                            if (track == SelfUpdateTrack.NIGHTLY) {
                                 R.string.update_nightly_up_to_date
                             } else {
                                 R.string.update_normal_up_to_date
@@ -340,6 +330,7 @@ fun EditionUpdateSettingsSection() {
         }
     }
 
+    val checking = checkingNormal || checkingDiagnostic
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
@@ -359,11 +350,13 @@ fun EditionUpdateSettingsSection() {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = selectedTrack == SelfUpdateTrack.NORMAL,
+                    enabled = !checking,
                     onClick = { selectTrack(SelfUpdateTrack.NORMAL) },
                     label = { Text(stringResource(R.string.update_channel_normal)) },
                 )
                 FilterChip(
                     selected = selectedTrack == SelfUpdateTrack.NIGHTLY,
+                    enabled = !checking,
                     onClick = { selectTrack(SelfUpdateTrack.NIGHTLY) },
                     label = { Text(stringResource(R.string.update_channel_nightly)) },
                 )
@@ -433,7 +426,7 @@ fun EditionUpdateSettingsSection() {
             ) {
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
-                    enabled = !checkingNormal && !checkingDiagnostic,
+                    enabled = !checking,
                     onClick = ::requestNormalInstall,
                 ) {
                     Text(
@@ -449,7 +442,7 @@ fun EditionUpdateSettingsSection() {
                 }
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
-                    enabled = !checkingNormal && !checkingDiagnostic,
+                    enabled = !checking,
                     onClick = ::requestDiagnosticInstall,
                 ) {
                     Text(
