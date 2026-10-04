@@ -1,0 +1,24 @@
+name: Rust SMB Pin Contract
+
+on:
+  push:
+    paths:
+      - '.github/rust-smb-ref'
+      - '.github/scripts/build-rust-smb-android.sh'
+      - '.github/scripts/check-rust-smb-pin.sh'
+      - '.github/workflows/rust-smb-preview.yml'
+      - '.github/workflows/rust-smb-pin-contract.yml'
+      - 'docs/RUST_SMB_INTEGRATION_STATUS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Verify shared Rust SMB pin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check Rust SMB pin contract
+        run: bash .github/scripts/check-rust-smb-pin.sh
