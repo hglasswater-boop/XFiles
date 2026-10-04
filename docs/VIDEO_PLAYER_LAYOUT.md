@@ -48,6 +48,12 @@ storyboard slots, using constrained container sizes without requiring media deco
   slot's remembered state and recalculates the layout.
 - Tapping the video area while the fine preview is open dismisses that preview.
 
+The Compose test rule uses `ui-test-junit4` and the debug-only `ui-test-manifest` activity.
+The debug app and instrumentation APK must resolve `androidx.concurrent:concurrent-futures`
+to the same 1.2.0 version required by AndroidX Test 1.7.0, because Android Gradle Plugin
+constrains shared test dependencies to the app's resolved versions. Keep this alignment
+in the debug configuration alongside the test activity dependency.
+
 The existing mobile/TV unit tests, release lint and Android emulator instrumentation tests
 remain required. Physical-device validation must also check local and SMB playback,
 pause/seek controls, fine-preview open/close, cutouts/navigation modes, and PiP transitions.
