@@ -131,7 +131,7 @@ class SelfUpdateReleaseContractTest {
     }
 
     @Test
-    fun updateAvailabilityUsesStrictBuildOrdering() {
+    fun newerBuildIsInstallableAndOlderBuildIsNot() {
         val release = ResolvedUpdateRelease(
             versionName = "1.4.1-smb",
             buildNumber = 200,
@@ -139,9 +139,77 @@ class SelfUpdateReleaseContractTest {
             downloadUrl = "download",
         )
 
-        assertTrue(release.isNewerThan(199))
-        assertFalse(release.isNewerThan(200))
-        assertFalse(release.isNewerThan(201))
+        assertTrue(
+            release.isInstallableOver(
+                installedBuild = 199,
+                installedTrack = SelfUpdateTrack.NORMAL,
+                selectedTrack = SelfUpdateTrack.NIGHTLY,
+            ),
+        )
+        assertFalse(
+            release.isInstallableOver(
+                installedBuild = 201,
+                installedTrack = SelfUpdateTrack.NORMAL,
+                selectedTrack = SelfUpdateTrack.NIGHTLY,
+            ),
+        )
+    }
+
+    @Test
+    fun equalBuildIsInstallableOnlyForAnExplicitTrackSwitch() {
+        val release = ResolvedUpdateRelease(
+            versionName = "1.4.1-smb",
+            buildNumber = 200,
+            assetName = "XFiles-nightly.apk",
+            downloadUrl = "download",
+        )
+
+        assertTrue(
+            release.isInstallableOver(
+                installedBuild = 200,
+                installedTrack = SelfUpdateTrack.NORMAL,
+                selectedTrack = SelfUpdateTrack.NIGHTLY,
+            ),
+        )
+        assertTrue(
+            release.isInstallableOver(
+                installedBuild = 200,
+                installedTrack = SelfUpdateTrack.NIGHTLY,
+                selectedTrack = SelfUpdateTrack.NORMAL,
+            ),
+        )
+        assertFalse(
+            release.isInstallableOver(
+                installedBuild = 200,
+                installedTrack = SelfUpdateTrack.NIGHTLY,
+                selectedTrack = SelfUpdateTrack.NIGHTLY,
+            ),
+        )
+        assertFalse(
+            release.isInstallableOver(
+                installedBuild = 200,
+                installedTrack = null,
+                selectedTrack = SelfUpdateTrack.NIGHTLY,
+            ),
+        )
+    }
+
+    @Test
+    fun noInstalledPackageAcceptsTheSelectedRelease() {
+        val release = ResolvedUpdateRelease(
+            versionName = "1.4.1-smb",
+            buildNumber = 200,
+            assetName = "XFiles-nightly.apk",
+            downloadUrl = "download",
+        )
+
+        assertTrue(
+            release.isInstallableOver(
+                installedBuild = null,
+                installedTrack = null,
+                selectedTrack = SelfUpdateTrack.NIGHTLY,
+            ),
+        )
     }
 
     @Test
