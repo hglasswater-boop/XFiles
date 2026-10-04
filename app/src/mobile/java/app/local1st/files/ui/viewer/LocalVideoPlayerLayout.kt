@@ -1,0 +1,70 @@
+package app.local1st.files.ui.viewer
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+
+private const val PLAYER_STORYBOARD_EDGE_GAP_DP = 6
+
+/**
+ * Owns the video/storyboard geometry while leaving playback and storyboard state with the caller.
+ * Keep [videoContent] at one call site so a container resize does not replace the player subtree.
+ */
+@Composable
+internal fun LocalVideoPlayerLayout(
+    inPictureInPicture: Boolean,
+    storyboardHeight: Dp,
+    storyboardBottomClearance: Dp,
+    finePreviewVisible: Boolean,
+    onDismissFinePreview: () -> Unit,
+    modifier: Modifier = Modifier,
+    videoContent: @Composable (videoBottomInset: Dp) -> Unit,
+    storyboardContent: @Composable (vertical: Boolean) -> Unit,
+) {
+    val storyboardBottom = storyboardBottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
+    val videoBottomInset = if (inPictureInPicture) 0.dp else storyboardBottom + storyboardHeight
+
+    Box(modifier = modifier) {
+        videoContent(videoBottomInset)
+
+        if (!inPictureInPicture) {
+            if (finePreviewVisible) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = storyboardBottom + storyboardHeight)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onDismissFinePreview,
+                        ),
+                )
+            }
+
+            Surface(
+                color = Color.Black.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 4.dp, end = 4.dp, bottom = storyboardBottom)
+                    .fillMaxWidth()
+                    .height(storyboardHeight),
+            ) {
+                storyboardContent(false)
+            }
+        }
+    }
+}

@@ -6,8 +6,6 @@ import android.content.res.Configuration
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,7 +63,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.net.toUri
@@ -282,6 +279,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             var finePreviewVisible by remember(currentEntry.id, playerOrientation) {
                 mutableStateOf(false)
             }
+            var finePreviewDismissSignal by remember(currentEntry.id) {
+                mutableIntStateOf(0)
+            }
             val storyboardHeight by animateDpAsState(
                 targetValue = if (finePreviewVisible) storyboardExpandedHeight else storyboardCollapsedHeight,
                 animationSpec = spring(dampingRatio = 0.8f, stiffness = 360f),
@@ -336,66 +336,66 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             } else {
                 PLAYER_STORYBOARD_FALLBACK_BOTTOM_CLEARANCE_DP.dp
             }
-            val storyboardBottom = storyboardBottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
-            val videoBottomInset = if (inPictureInPicture) {
-                0.dp
-            } else {
-                storyboardBottom + storyboardHeight
-            }
-
-            Box(
-                Modifier
+            LocalVideoPlayerLayout(
+                inPictureInPicture = inPictureInPicture,
+                storyboardHeight = storyboardHeight,
+                storyboardBottomClearance = storyboardBottomClearance,
+                finePreviewVisible = finePreviewVisible,
+                onDismissFinePreview = {
+                    finePreviewDismissSignal += 1
+                    finePreviewVisible = false
+                },
+                modifier = Modifier
                     .fillMaxSize()
                     .onGloballyPositioned { coordinates ->
                         viewerBottomInRootPx = coordinates.positionInRoot().y + coordinates.size.height
                     },
-            ) {
-                VideoCompatibilityGuard(
-                    player = localPlayer,
-                    entry = currentEntry,
-                    onClose = onClose,
-                ) {
-                    VideoPlayerScreen(
+                videoContent = { videoBottomInset ->
+                    VideoCompatibilityGuard(
                         player = localPlayer,
                         entry = currentEntry,
-                        playing = if (inPictureInPicture) {
-                            localPlayer.playWhenReady && localPlayer.playbackState != Player.STATE_ENDED
-                        } else {
-                            playing
-                        },
-                        hasPrevious = hasPrevious,
-                        hasNext = hasNext,
                         onClose = onClose,
-                        videoBottomInset = videoBottomInset,
-                        topBarActions = {
-                            VideoCastButton()
-                        },
-                        controlsTopContent = {
-                            Spacer(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(0.dp)
-                                    .onGloballyPositioned { coordinates ->
-                                        controlsTopInRootPx = coordinates.positionInRoot().y
-                                    },
-                            )
-                        },
-                    )
-                }
-                if (!inPictureInPicture) {
+                    ) {
+                        VideoPlayerScreen(
+                            player = localPlayer,
+                            entry = currentEntry,
+                            playing = if (inPictureInPicture) {
+                                localPlayer.playWhenReady && localPlayer.playbackState != Player.STATE_ENDED
+                            } else {
+                                playing
+                            },
+                            hasPrevious = hasPrevious,
+                            hasNext = hasNext,
+                            onClose = onClose,
+                            videoBottomInset = videoBottomInset,
+                            topBarActions = {
+                                VideoCastButton()
+                            },
+                            controlsTopContent = {
+                                Spacer(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(0.dp)
+                                        .onGloballyPositioned { coordinates ->
+                                            controlsTopInRootPx = coordinates.positionInRoot().y
+                                        },
+                                )
+                            },
+                        )
+                    }
+                },
+                storyboardContent = { vertical ->
                     LocalVideoStoryboard(
                         player = localPlayer,
                         entry = currentEntry,
-                        bottomClearance = storyboardBottomClearance,
-                        stripHeight = storyboardHeight,
-                        finePreviewVisible = finePreviewVisible,
+                        vertical = vertical,
                         onFinePreviewVisibilityChanged = { visible ->
                             finePreviewVisible = visible
                         },
-                        modifier = Modifier.fillMaxSize(),
+                        finePreviewDismissSignal = finePreviewDismissSignal,
                     )
-                }
-            }
+                },
+            )
         }
     } else {
         AudioPlayerScreen(
@@ -416,11 +416,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 private fun LocalVideoStoryboard(
     player: Player,
     entry: XEntry,
-    bottomClearance: Dp,
-    stripHeight: Dp,
-    finePreviewVisible: Boolean,
+    vertical: Boolean,
     onFinePreviewVisibilityChanged: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
+    finePreviewDismissSignal: Int,
 ) {
     var positionMs by remember(player, entry.id) {
         mutableLongStateOf(player.currentPosition.coerceAtLeast(0L))
@@ -432,54 +430,18 @@ private fun LocalVideoStoryboard(
         }
     }
 
-    var finePreviewDismissSignal by remember(entry.id) {
-        mutableIntStateOf(0)
-    }
-    val outsideTapInteractionSource = remember { MutableInteractionSource() }
-    val storyboardBottom = bottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
-
-    Box(modifier = modifier.fillMaxSize()) {
-        if (finePreviewVisible) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = storyboardBottom + stripHeight)
-                    .clickable(
-                        interactionSource = outsideTapInteractionSource,
-                        indication = null,
-                    ) {
-                        finePreviewDismissSignal += 1
-                    },
-            )
-        }
-
-        Surface(
-            color = Color.Black.copy(alpha = 0.9f),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(
-                    start = 4.dp,
-                    end = 4.dp,
-                    bottom = storyboardBottom,
-                )
-                .fillMaxWidth()
-                .height(stripHeight),
-        ) {
-            CastStoryboardStrip(
-                entry = entry,
-                positionMs = positionMs,
-                onSeek = { targetMs -> player.seekTo(targetMs) },
-                vertical = false,
-                showJumpToCurrent = true,
-                onFinePreviewVisibilityChanged = onFinePreviewVisibilityChanged,
-                finePreviewDismissSignal = finePreviewDismissSignal,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-            )
-        }
-    }
+    CastStoryboardStrip(
+        entry = entry,
+        positionMs = positionMs,
+        onSeek = { targetMs -> player.seekTo(targetMs) },
+        vertical = vertical,
+        showJumpToCurrent = true,
+        onFinePreviewVisibilityChanged = onFinePreviewVisibilityChanged,
+        finePreviewDismissSignal = finePreviewDismissSignal,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+    )
 }
 
 @Composable
@@ -719,7 +681,6 @@ internal fun formatPlayTime(ms: Long): String {
 }
 
 private const val PLAYER_STORYBOARD_FALLBACK_BOTTOM_CLEARANCE_DP = 180
-private const val PLAYER_STORYBOARD_EDGE_GAP_DP = 6
 private const val PLAYER_STORYBOARD_POSITION_REFRESH_MS = 200L
 private const val VIDEO_RESUME_SAVE_INTERVAL_MS = 2_000L
 private const val VIDEO_RESUME_RESTORE_TOLERANCE_MS = 2_000L
