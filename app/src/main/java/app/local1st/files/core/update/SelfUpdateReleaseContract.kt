@@ -38,10 +38,14 @@ object SelfUpdateReleaseContract {
         "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/debug-latest"
     const val NIGHTLY_API =
         "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/nightly"
+    const val DIAGNOSTIC_LATEST_API =
+        "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/diagnostic-latest"
 
     private val normalMobileAsset =
         Regex("^XFiles-(?!TV-|Diagnostic-)(.+)-b(\\d+)-debug\\.apk$")
     private val normalTvAsset = Regex("^XFiles-TV-(.+)-b(\\d+)-debug\\.apk$")
+    private val diagnosticMobileAsset =
+        Regex("^XFiles-Diagnostic-(.+)-b(\\d+)-debug\\.apk$")
     private val nightlyMetadata = Regex(
         pattern = "(?m)^XFiles\\s+(.+?)\\s+·\\s+build\\s+(\\d+)\\s+\\([^)]+\\)\\.?\\s*$",
     )
@@ -52,30 +56,39 @@ object SelfUpdateReleaseContract {
         releaseBody: String,
         assets: List<ReleaseAsset>,
     ): ResolvedUpdateRelease = when (track) {
-        SelfUpdateTrack.NORMAL -> resolveNormal(edition, assets)
+        SelfUpdateTrack.NORMAL -> resolvePatternedAsset(
+            pattern = when (edition) {
+                SelfUpdateEdition.MOBILE -> normalMobileAsset
+                SelfUpdateEdition.TV -> normalTvAsset
+            },
+            assets = assets,
+            missingMessage = "Release does not contain an update asset for $edition",
+        )
         SelfUpdateTrack.NIGHTLY -> resolveNightly(edition, releaseBody, assets)
     }
 
-    private fun resolveNormal(
-        edition: SelfUpdateEdition,
+    fun resolveDiagnosticMobile(assets: List<ReleaseAsset>): ResolvedUpdateRelease =
+        resolvePatternedAsset(
+            pattern = diagnosticMobileAsset,
+            assets = assets,
+            missingMessage = "Diagnostic release does not contain a mobile APK",
+        )
+
+    private fun resolvePatternedAsset(
+        pattern: Regex,
         assets: List<ReleaseAsset>,
-    ): ResolvedUpdateRelease {
-        val pattern = when (edition) {
-            SelfUpdateEdition.MOBILE -> normalMobileAsset
-            SelfUpdateEdition.TV -> normalTvAsset
-        }
-        return assets.mapNotNull { asset ->
-            val match = pattern.matchEntire(asset.name) ?: return@mapNotNull null
-            val build = match.groupValues[2].toIntOrNull() ?: return@mapNotNull null
-            ResolvedUpdateRelease(
-                versionName = match.groupValues[1],
-                buildNumber = build,
-                assetName = asset.name,
-                downloadUrl = asset.downloadUrl,
-            )
-        }.maxByOrNull { it.buildNumber }
-            ?: throw IllegalArgumentException("Release does not contain an update asset for $edition")
-    }
+        missingMessage: String,
+    ): ResolvedUpdateRelease = assets.mapNotNull { asset ->
+        val match = pattern.matchEntire(asset.name) ?: return@mapNotNull null
+        val build = match.groupValues[2].toIntOrNull() ?: return@mapNotNull null
+        ResolvedUpdateRelease(
+            versionName = match.groupValues[1],
+            buildNumber = build,
+            assetName = asset.name,
+            downloadUrl = asset.downloadUrl,
+        )
+    }.maxByOrNull { it.buildNumber }
+        ?: throw IllegalArgumentException(missingMessage)
 
     private fun resolveNightly(
         edition: SelfUpdateEdition,
