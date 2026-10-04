@@ -121,10 +121,13 @@ class SelfUpdateReleaseContractTest {
             ),
         )
 
-        assertEquals(SelfUpdateReleaseContract.DIAGNOSTIC_LATEST_API, release.apiUrl)
-        assertEquals("1.4.1-smb-diagnostic", release.release.versionName)
-        assertEquals(29850004, release.release.buildNumber)
-        assertEquals("new", release.release.downloadUrl)
+        assertEquals(
+            "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/diagnostic-latest",
+            SelfUpdateReleaseContract.DIAGNOSTIC_LATEST_API,
+        )
+        assertEquals("1.4.1-smb-diagnostic", release.versionName)
+        assertEquals(29850004, release.buildNumber)
+        assertEquals("new", release.downloadUrl)
     }
 
     @Test
