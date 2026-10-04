@@ -1,12 +1,39 @@
 package app.local1st.files.core.fs
 
 import com.hierynomus.msfscc.FileAttributes
+import com.hierynomus.msfscc.fileinformation.FileBasicInformation
 import com.hierynomus.mssmb2.SMBApiException
+import com.hierynomus.smbj.share.DiskShare
 
 internal interface SmbFileDeleteOperations {
     fun delete()
     fun readAttributes(): Long
     fun writeAttributes(attributes: Long)
+}
+
+internal class SmbjFileDeleteOperations(
+    private val share: DiskShare,
+    private val path: String,
+) : SmbFileDeleteOperations {
+    override fun delete() {
+        share.rm(path)
+    }
+
+    override fun readAttributes(): Long =
+        share.getFileInformation(path, FileBasicInformation::class.java).fileAttributes
+
+    override fun writeAttributes(attributes: Long) {
+        share.setFileInformation(
+            path,
+            FileBasicInformation(
+                FileBasicInformation.DONT_SET,
+                FileBasicInformation.DONT_SET,
+                FileBasicInformation.DONT_SET,
+                FileBasicInformation.DONT_SET,
+                attributes,
+            ),
+        )
+    }
 }
 
 /**
