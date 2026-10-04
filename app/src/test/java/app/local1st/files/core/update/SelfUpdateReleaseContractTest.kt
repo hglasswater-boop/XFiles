@@ -112,6 +112,22 @@ class SelfUpdateReleaseContractTest {
     }
 
     @Test
+    fun diagnosticResolutionRemainsIndependentFromNormalTrack() {
+        val release = SelfUpdateReleaseContract.resolveDiagnosticMobile(
+            listOf(
+                ReleaseAsset("XFiles-1.4.1-smb-b29850002-debug.apk", "normal"),
+                ReleaseAsset("XFiles-Diagnostic-1.4.1-smb-diagnostic-b29850003-debug.apk", "old"),
+                ReleaseAsset("XFiles-Diagnostic-1.4.1-smb-diagnostic-b29850004-debug.apk", "new"),
+            ),
+        )
+
+        assertEquals(SelfUpdateReleaseContract.DIAGNOSTIC_LATEST_API, release.apiUrl)
+        assertEquals("1.4.1-smb-diagnostic", release.release.versionName)
+        assertEquals(29850004, release.release.buildNumber)
+        assertEquals("new", release.release.downloadUrl)
+    }
+
+    @Test
     fun updateAvailabilityUsesStrictBuildOrdering() {
         val release = ResolvedUpdateRelease(
             versionName = "1.4.1-smb",
