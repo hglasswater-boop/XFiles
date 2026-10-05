@@ -11,12 +11,19 @@
 
     <string name="update_settings_title">Updates</string>
     <string name="update_current_version">Current version: %1$s (%2$d)</string>
-    <string name="update_auto_check">Automatically check for updates</string>
-    <string name="update_auto_check_summary">Check GitHub for the latest build every time XFiles TV starts.</string>
+    <string name="update_channel">Update channel</string>
+    <string name="update_channel_normal">Normal</string>
+    <string name="update_channel_nightly">Nightly</string>
+    <string name="update_channel_normal_summary">Follow the latest normal main build from debug-latest.</string>
+    <string name="update_channel_nightly_summary">Follow the rolling release build from the nightly GitHub Release.</string>
+    <string name="update_auto_check">Automatically check the selected channel</string>
+    <string name="update_auto_check_summary">Check the selected update channel every time XFiles TV starts.</string>
     <string name="update_last_checked">Last checked: %1$s</string>
     <string name="update_never_checked">Last checked: never</string>
     <string name="update_check_now">Check now</string>
     <string name="update_checking">Checking…</string>
-    <string name="update_up_to_date">You already have the latest build.</string>
+    <string name="update_up_to_date">You already have the latest normal build.</string>
+    <string name="update_nightly_up_to_date">The latest nightly build is already installed.</string>
+    <string name="update_install_latest_nightly">Install latest nightly</string>
     <string name="update_check_failed">Update check failed: %1$s</string>
 </resources>
