@@ -55,7 +55,7 @@ Tap a video thumbnail to open a **storyboard timeline**. XFiles progressively ex
 
 ### A video player designed for browsing, not just playback
 
-- Persistent storyboard between the video surface and playback controls.
+- Persistent storyboard below the video in portrait, or beside it in landscape so the video keeps its height. See [player layout](docs/VIDEO_PLAYER_LAYOUT.md).
 - Resume position restored before player preparation.
 - Double-tap left/right for **-10 / +10 seconds**.
 - Vertical swipe on the right side for media volume.
