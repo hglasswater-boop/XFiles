@@ -29,6 +29,9 @@ import androidx.compose.ui.unit.dp
 private const val PLAYER_STORYBOARD_EDGE_GAP_DP = 6
 private val PLAYER_STORYBOARD_SIDEBAR_WIDTH = 128.dp
 
+internal fun landscapeStoryboardSafeDrawingInsets(insets: WindowInsets): WindowInsets =
+    insets.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)
+
 /**
  * Owns the video/storyboard geometry while leaving playback and storyboard state with the caller.
  * Keep [videoContent] at one call site so a container resize does not replace the player subtree.
@@ -40,14 +43,12 @@ internal fun LocalVideoPlayerLayout(
     storyboardBottomClearance: Dp,
     finePreviewVisible: Boolean,
     onDismissFinePreview: () -> Unit,
-    safeDrawingInsets: WindowInsets? = null,
     modifier: Modifier = Modifier,
     videoContent: @Composable (videoBottomInset: Dp) -> Unit,
     storyboardContent: @Composable (verticalColumns: Int?) -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier) {
         val landscape = !inPictureInPicture && maxWidth > maxHeight
-        val resolvedSafeDrawingInsets = safeDrawingInsets ?: WindowInsets.safeDrawing
         val storyboardBottom = storyboardBottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
         val videoBottomInset = if (inPictureInPicture || landscape) {
             0.dp
@@ -83,9 +84,7 @@ internal fun LocalVideoPlayerLayout(
                 ) {
                     Box(
                         Modifier.fillMaxSize().windowInsetsPadding(
-                            resolvedSafeDrawingInsets.only(
-                                WindowInsetsSides.End + WindowInsetsSides.Vertical,
-                            ),
+                            landscapeStoryboardSafeDrawingInsets(WindowInsets.safeDrawing),
                         ),
                     ) {
                         storyboardContent(1)
