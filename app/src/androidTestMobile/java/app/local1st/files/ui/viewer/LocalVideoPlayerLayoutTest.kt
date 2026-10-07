@@ -3,6 +3,7 @@ package app.local1st.files.ui.viewer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -16,9 +17,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -27,6 +30,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -44,7 +48,7 @@ class LocalVideoPlayerLayoutTest {
 
         assertEquals(300f, bounds.video.height, 1f)
         assertEquals(1, bounds.verticalColumns)
-        assertTrue("storyboard should be to the right", bounds.storyboard.left >= bounds.video.right)
+        assertEquals(bounds.video.right, bounds.storyboard.left, 0.1f)
     }
 
     @Test
@@ -63,7 +67,54 @@ class LocalVideoPlayerLayoutTest {
         assertEquals(472f, bounds.video.width, 1f)
         assertEquals(128f, bounds.storyboard.width, 1f)
         assertEquals(1, bounds.verticalColumns)
-        assertTrue(bounds.storyboard.left >= bounds.video.right)
+        assertEquals(bounds.video.right, bounds.storyboard.left, 0.1f)
+    }
+
+    @Test
+    fun landscapeSidebarKeepsOnlyVerticalAndEndSafeInsets() {
+        val insets = landscapeStoryboardSafeDrawingInsets(
+            WindowInsets(left = 24, top = 3, right = 10, bottom = 7),
+        )
+        val density = Density(1f)
+
+        assertEquals(0, insets.getLeft(density, LayoutDirection.Ltr))
+        assertEquals(10, insets.getRight(density, LayoutDirection.Ltr))
+        assertEquals(3, insets.getTop(density))
+        assertEquals(7, insets.getBottom(density))
+    }
+
+    @Test
+    fun landscapeSidebarDoesNotExposeLightParentAtCorners() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(
+                    Modifier.requiredSize(600.dp, 300.dp)
+                        .background(Color.White)
+                        .testTag("container"),
+                ) {
+                    LocalVideoPlayerLayout(
+                        inPictureInPicture = false,
+                        storyboardHeight = 126.dp,
+                        storyboardBottomClearance = 40.dp,
+                        finePreviewVisible = false,
+                        onDismissFinePreview = {},
+                        videoContent = {
+                            Box(Modifier.fillMaxSize().background(Color.Blue))
+                        },
+                        storyboardContent = {
+                            Box(Modifier.fillMaxSize())
+                        },
+                    )
+                }
+            }
+        }
+
+        compose.waitForIdle()
+        val pixels = compose.onNodeWithTag("container").captureToImage().toPixelMap()
+        val sidebarTopLeft = pixels[472, 0]
+        assertTrue(sidebarTopLeft.red < 0.25f)
+        assertTrue(sidebarTopLeft.green < 0.25f)
+        assertTrue(sidebarTopLeft.blue < 0.25f)
     }
 
     @Test
@@ -73,7 +124,7 @@ class LocalVideoPlayerLayoutTest {
         assertEquals(712f, bounds.video.width, 1f)
         assertEquals(128f, bounds.storyboard.width, 1f)
         assertEquals(1, bounds.verticalColumns)
-        assertTrue(bounds.storyboard.left >= bounds.video.right)
+        assertEquals(bounds.video.right, bounds.storyboard.left, 0.1f)
     }
 
     @Test

@@ -21,8 +21,19 @@ the device orientation flag, to arrange the video and its persistent storyboard.
 
 The local-player landscape sidebar always requests one storyboard column. Other callers
 of `CastStoryboardStrip` choose their own vertical column count; in particular, the
-portrait Chromecast controller keeps its existing two-column timeline. The sidebar keeps
-its contents clear of status bars, navigation bars and display cutouts.
+portrait Chromecast controller keeps its existing two-column timeline.
+
+The landscape sidebar has one internal edge (next to the video) and three device-facing
+edges. Safe-drawing insets are therefore applied only to the top, bottom and end edges.
+The start inset must not be applied inside the sidebar, because it belongs to the opposite
+device edge and would shift the single storyboard column away from the sidebar center.
+After the safe end inset, the storyboard keeps its existing 4 dp horizontal content
+padding, so the thumbnail column remains centered in the usable sidebar width.
+
+The sidebar is directly adjacent to the video with no layout gap. Unlike the floating
+portrait storyboard, the landscape sidebar is rectangular and flush with the container
+edges. It must not use rounded clipping, because clipped corners expose the parent window
+background as light wedges at the storyboard edge.
 
 The video player remains at one Compose call site when the container changes shape, so
 layout changes do not replace the playback instance. Touch gestures and playback controls
@@ -44,15 +55,25 @@ two storyboard columns and consumed one third of the container width, capped at 
 A single 128 dp column preserves a useful thumbnail width while returning substantially
 more horizontal area to the video.
 
+Issue #206 tightens the single-column geometry on devices with landscape safe-drawing
+insets. Applying the full device inset set inside the right-side sidebar can consume its
+internal/start edge and make the thumbnails appear pushed toward the outer side. The same
+issue also removes rounded clipping from the edge-attached landscape sidebar so a light
+parent background never leaks through at the surface corners.
+
 ## Regression coverage
 
 Compose instrumentation tests exercise the production layout with tagged video and
 storyboard slots, using constrained container sizes without requiring media decoding:
 
 - Landscape video retains the full container height, including with fine preview open.
-- The storyboard is beside the video; their bounds do not overlap.
+- The storyboard is beside the video and its start bound exactly matches the video's end
+  bound; there is no layout gap between them.
 - Landscape requests exactly one vertical storyboard column.
 - The landscape sidebar is 128 dp wide, leaving the remaining width to the video.
+- Landscape safe-drawing does not add a start-side inset inside the right sidebar.
+- The landscape sidebar is edge-attached without rounded clipping, so its corners cannot
+  expose a light parent background.
 - Portrait keeps the horizontal storyboard above playback controls and reserves its height.
 - PiP hides the storyboard and gives the video the entire container in both aspect ratios.
 - Switching the same composition from portrait to landscape and back retains the video

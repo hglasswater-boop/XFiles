@@ -4,12 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -26,6 +28,9 @@ import androidx.compose.ui.unit.dp
 
 private const val PLAYER_STORYBOARD_EDGE_GAP_DP = 6
 private val PLAYER_STORYBOARD_SIDEBAR_WIDTH = 128.dp
+
+internal fun landscapeStoryboardSafeDrawingInsets(insets: WindowInsets): WindowInsets =
+    insets.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)
 
 /**
  * Owns the video/storyboard geometry while leaving playback and storyboard state with the caller.
@@ -75,10 +80,13 @@ internal fun LocalVideoPlayerLayout(
             if (landscape) {
                 Surface(
                     color = Color.Black.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.width(PLAYER_STORYBOARD_SIDEBAR_WIDTH).fillMaxHeight(),
                 ) {
-                    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    Box(
+                        Modifier.fillMaxSize().windowInsetsPadding(
+                            landscapeStoryboardSafeDrawingInsets(WindowInsets.safeDrawing),
+                        ),
+                    ) {
                         storyboardContent(1)
                     }
                 }
