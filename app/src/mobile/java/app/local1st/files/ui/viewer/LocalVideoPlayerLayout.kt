@@ -5,6 +5,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,12 +40,14 @@ internal fun LocalVideoPlayerLayout(
     storyboardBottomClearance: Dp,
     finePreviewVisible: Boolean,
     onDismissFinePreview: () -> Unit,
+    safeDrawingInsets: WindowInsets? = null,
     modifier: Modifier = Modifier,
     videoContent: @Composable (videoBottomInset: Dp) -> Unit,
     storyboardContent: @Composable (verticalColumns: Int?) -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier) {
         val landscape = !inPictureInPicture && maxWidth > maxHeight
+        val resolvedSafeDrawingInsets = safeDrawingInsets ?: WindowInsets.safeDrawing
         val storyboardBottom = storyboardBottomClearance + PLAYER_STORYBOARD_EDGE_GAP_DP.dp
         val videoBottomInset = if (inPictureInPicture || landscape) {
             0.dp
@@ -75,10 +79,15 @@ internal fun LocalVideoPlayerLayout(
             if (landscape) {
                 Surface(
                     color = Color.Black.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.width(PLAYER_STORYBOARD_SIDEBAR_WIDTH).fillMaxHeight(),
                 ) {
-                    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    Box(
+                        Modifier.fillMaxSize().windowInsetsPadding(
+                            resolvedSafeDrawingInsets.only(
+                                WindowInsetsSides.End + WindowInsetsSides.Vertical,
+                            ),
+                        ),
+                    ) {
                         storyboardContent(1)
                     }
                 }
