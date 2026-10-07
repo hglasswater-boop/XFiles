@@ -363,11 +363,11 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         )
                     }
                 },
-                storyboardContent = { vertical ->
+                storyboardContent = { verticalColumns ->
                     LocalVideoStoryboard(
                         player = localPlayer,
                         entry = currentEntry,
-                        vertical = vertical,
+                        verticalColumns = verticalColumns,
                         onFinePreviewVisibilityChanged = { visible ->
                             finePreviewVisible = visible
                         },
@@ -395,7 +395,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 private fun LocalVideoStoryboard(
     player: Player,
     entry: XEntry,
-    vertical: Boolean,
+    verticalColumns: Int?,
     onFinePreviewVisibilityChanged: (Boolean) -> Unit,
     finePreviewDismissSignal: Int,
 ) {
@@ -413,7 +413,7 @@ private fun LocalVideoStoryboard(
         entry = entry,
         positionMs = positionMs,
         onSeek = { targetMs -> player.seekTo(targetMs) },
-        vertical = vertical,
+        verticalColumns = verticalColumns,
         showJumpToCurrent = true,
         onFinePreviewVisibilityChanged = onFinePreviewVisibilityChanged,
         finePreviewDismissSignal = finePreviewDismissSignal,

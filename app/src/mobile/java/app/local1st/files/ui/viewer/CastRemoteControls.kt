@@ -429,7 +429,7 @@ internal fun CastRemoteControls(
                         userScrubbing = false
                         submitSeek(targetMs, coalesceBurst = false)
                     },
-                    vertical = !isLandscape,
+                    verticalColumns = if (isLandscape) null else 2,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

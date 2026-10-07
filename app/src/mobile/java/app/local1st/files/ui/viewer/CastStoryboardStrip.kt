@@ -93,17 +93,19 @@ private sealed interface CastStoryboardUiState {
 /**
  * Storyboard for the remote Cast controller and local player chrome.
  *
- * Portrait Cast controls use a vertically scrolling two-column timeline, while landscape and
- * the local player use the compact horizontal strip. All layouts reuse the browser storyboard
- * loader and disk cache. Long-pressing a frame expands a precise timeline from the bottom while
- * leaving the coarse storyboard visible, so refinement never interrupts playback context.
+ * Callers choose a compact horizontal strip with `verticalColumns = null`, or a vertically
+ * scrolling grid with an explicit column count. The local landscape player uses one column;
+ * portrait Cast controls and the expanded storyboard dialog use two. All layouts reuse the
+ * browser storyboard loader and disk cache. Long-pressing a frame expands a precise timeline
+ * from the bottom while leaving the coarse storyboard visible, so refinement never interrupts
+ * playback context.
  */
 @Composable
 internal fun CastStoryboardStrip(
     entry: XEntry,
     positionMs: Long,
     onSeek: (Long) -> Unit,
-    vertical: Boolean,
+    verticalColumns: Int?,
     showJumpToCurrent: Boolean = true,
     onFinePreviewVisibilityChanged: (Boolean) -> Unit = {},
     finePreviewDismissSignal: Int = 0,
@@ -112,6 +114,8 @@ internal fun CastStoryboardStrip(
     sharedExtractionPriority: StoryboardExtractionPriority? = null,
     modifier: Modifier = Modifier,
 ) {
+    val verticalColumnCount = verticalColumns?.coerceAtLeast(1)
+    val vertical = verticalColumnCount != null
     val context = LocalContext.current
     val sampleCount = VideoStoryboardSettings.current(context)
     val minSpacingSeconds = VideoStoryboardSettings.currentMinSpacingSeconds(context)
@@ -351,7 +355,7 @@ internal fun CastStoryboardStrip(
                 if (vertical) {
                     LazyVerticalGrid(
                         state = gridState,
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Fixed(verticalColumnCount ?: 1),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
@@ -624,7 +628,7 @@ internal fun CastStoryboardStrip(
                         entry = entry,
                         positionMs = positionMs,
                         onSeek = onSeek,
-                        vertical = true,
+                        verticalColumns = 2,
                         showJumpToCurrent = true,
                         sharedResult = sharedReadyState.result,
                         sharedComplete = sharedReadyState.complete,

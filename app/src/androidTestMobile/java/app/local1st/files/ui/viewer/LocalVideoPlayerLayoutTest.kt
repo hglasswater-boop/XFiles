@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -42,7 +43,7 @@ class LocalVideoPlayerLayoutTest {
         val bounds = renderLayout(width = 600.dp, height = 300.dp, storyboardHeight = 126.dp)
 
         assertEquals(300f, bounds.video.height, 1f)
-        assertTrue("landscape storyboard must use the vertical strip", bounds.vertical)
+        assertEquals(1, bounds.verticalColumns)
         assertTrue("storyboard should be to the right", bounds.storyboard.left >= bounds.video.right)
     }
 
@@ -51,25 +52,27 @@ class LocalVideoPlayerLayoutTest {
         val bounds = renderLayout(width = 600.dp, height = 300.dp, storyboardHeight = 252.dp, fine = true)
 
         assertEquals(300f, bounds.video.height, 1f)
-        assertTrue("landscape storyboard must use the vertical strip", bounds.vertical)
+        assertEquals(1, bounds.verticalColumns)
         assertTrue("storyboard should be to the right", bounds.storyboard.left >= bounds.video.right)
     }
 
     @Test
-    fun landscapeSidebarUsesThirdOfAvailableWidthBelowCap() {
+    fun landscapeSidebarUsesFixedSingleColumnWidth() {
         val bounds = renderLayout(width = 600.dp, height = 300.dp, storyboardHeight = 126.dp)
 
-        assertEquals(400f, bounds.video.width, 1f)
-        assertTrue(bounds.vertical)
+        assertEquals(472f, bounds.video.width, 1f)
+        assertEquals(128f, bounds.storyboard.width, 1f)
+        assertEquals(1, bounds.verticalColumns)
         assertTrue(bounds.storyboard.left >= bounds.video.right)
     }
 
     @Test
-    fun wideLandscapeSidebarIsCappedAt240Dp() {
+    fun wideLandscapeKeepsSingleColumnSidebarAt128Dp() {
         val bounds = renderLayout(width = 840.dp, height = 300.dp, storyboardHeight = 126.dp)
 
-        assertEquals(600f, bounds.video.width, 1f)
-        assertTrue(bounds.vertical)
+        assertEquals(712f, bounds.video.width, 1f)
+        assertEquals(128f, bounds.storyboard.width, 1f)
+        assertEquals(1, bounds.verticalColumns)
         assertTrue(bounds.storyboard.left >= bounds.video.right)
     }
 
@@ -81,7 +84,7 @@ class LocalVideoPlayerLayoutTest {
         assertEquals(428f, bounds.storyboard.top, 1f)
         assertEquals(554f, bounds.storyboard.bottom, 1f)
         assertEquals(126f, bounds.storyboard.height, 1f)
-        assertEquals(false, bounds.vertical)
+        assertNull(bounds.verticalColumns)
     }
 
     @Test
@@ -91,7 +94,7 @@ class LocalVideoPlayerLayoutTest {
         assertEquals(228f, bounds.video.bottom, 1f)
         assertEquals(228f, bounds.storyboard.top, 1f)
         assertEquals(354f, bounds.storyboard.bottom, 1f)
-        assertEquals(false, bounds.vertical)
+        assertNull(bounds.verticalColumns)
     }
 
     @Test
@@ -194,7 +197,7 @@ class LocalVideoPlayerLayoutTest {
         clearance: Dp = 40.dp,
         fine: Boolean = false,
     ): LayoutBounds {
-        var storyboardVertical = false
+        var storyboardVerticalColumns: Int? = null
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 Box(Modifier.requiredSize(width, height).background(Color.DarkGray).testTag("container")) {
@@ -210,8 +213,8 @@ class LocalVideoPlayerLayoutTest {
                                     .background(Color.Blue).testTag("video"),
                             )
                         },
-                        storyboardContent = { vertical ->
-                            storyboardVertical = vertical
+                        storyboardContent = { verticalColumns ->
+                            storyboardVerticalColumns = verticalColumns
                             Box(Modifier.fillMaxSize().testTag("storyboard"))
                         },
                     )
@@ -223,7 +226,7 @@ class LocalVideoPlayerLayoutTest {
         return LayoutBounds(
             video = compose.onNodeWithTag("video").bounds().relativeTo(container),
             storyboard = compose.onNodeWithTag("storyboard").bounds().relativeTo(container),
-            vertical = storyboardVertical,
+            verticalColumns = storyboardVerticalColumns,
         )
     }
 
@@ -240,5 +243,9 @@ class LocalVideoPlayerLayoutTest {
     private fun Rect.relativeTo(origin: Rect): Rect =
         Rect(left - origin.left, top - origin.top, right - origin.left, bottom - origin.top)
 
-    private data class LayoutBounds(val video: Rect, val storyboard: Rect, val vertical: Boolean)
+    private data class LayoutBounds(
+        val video: Rect,
+        val storyboard: Rect,
+        val verticalColumns: Int?,
+    )
 }
