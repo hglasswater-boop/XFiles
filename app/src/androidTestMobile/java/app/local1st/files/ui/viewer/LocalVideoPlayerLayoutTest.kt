@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -27,7 +28,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,7 +47,7 @@ class LocalVideoPlayerLayoutTest {
 
         assertEquals(300f, bounds.video.height, 1f)
         assertEquals(1, bounds.verticalColumns)
-        assertTrue("storyboard should be to the right", bounds.storyboard.left >= bounds.video.right)
+        assertEquals(bounds.video.right, bounds.storyboard.left, 0.1f)
     }
 
     @Test
@@ -96,7 +96,7 @@ class LocalVideoPlayerLayoutTest {
     }
 
     @Test
-    fun landscapeSidebarDoesNotExposeLightParentAtRoundedCorners() {
+    fun landscapeSidebarDoesNotExposeLightParentAtCorners() {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 Box(
@@ -137,7 +137,7 @@ class LocalVideoPlayerLayoutTest {
         assertEquals(712f, bounds.video.width, 1f)
         assertEquals(128f, bounds.storyboard.width, 1f)
         assertEquals(1, bounds.verticalColumns)
-        assertTrue(bounds.storyboard.left >= bounds.video.right)
+        assertEquals(bounds.video.right, bounds.storyboard.left, 0.1f)
     }
 
     @Test
