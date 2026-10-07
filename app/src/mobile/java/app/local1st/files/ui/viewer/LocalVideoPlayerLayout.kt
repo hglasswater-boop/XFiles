@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 private const val PLAYER_STORYBOARD_EDGE_GAP_DP = 6
-private val PLAYER_STORYBOARD_SIDEBAR_MAX_WIDTH = 240.dp
+private val PLAYER_STORYBOARD_SIDEBAR_WIDTH = 128.dp
 
 /**
  * Owns the video/storyboard geometry while leaving playback and storyboard state with the caller.
@@ -40,7 +40,7 @@ internal fun LocalVideoPlayerLayout(
     onDismissFinePreview: () -> Unit,
     modifier: Modifier = Modifier,
     videoContent: @Composable (videoBottomInset: Dp) -> Unit,
-    storyboardContent: @Composable (vertical: Boolean) -> Unit,
+    storyboardContent: @Composable (verticalColumns: Int?) -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier) {
         val landscape = !inPictureInPicture && maxWidth > maxHeight
@@ -50,8 +50,6 @@ internal fun LocalVideoPlayerLayout(
         } else {
             storyboardBottom + storyboardHeight
         }
-        val sidebarWidth = minOf(maxWidth / 3, PLAYER_STORYBOARD_SIDEBAR_MAX_WIDTH)
-
         Row(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 videoContent(videoBottomInset)
@@ -78,10 +76,10 @@ internal fun LocalVideoPlayerLayout(
                 Surface(
                     color = Color.Black.copy(alpha = 0.9f),
                     shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.width(sidebarWidth).fillMaxHeight(),
+                    modifier = Modifier.width(PLAYER_STORYBOARD_SIDEBAR_WIDTH).fillMaxHeight(),
                 ) {
                     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                        storyboardContent(true)
+                        storyboardContent(1)
                     }
                 }
             }
@@ -97,7 +95,7 @@ internal fun LocalVideoPlayerLayout(
                     .fillMaxWidth()
                     .height(storyboardHeight),
             ) {
-                storyboardContent(false)
+                storyboardContent(null)
             }
         }
     }
