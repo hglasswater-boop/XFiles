@@ -10,15 +10,20 @@ the device orientation flag, to arrange the video and its persistent storyboard.
   and a 6 dp gap below the video surface. The storyboard is 126 dp high, or 252 dp when
   its fine preview is open.
 - **Landscape container (width greater than height):** place the storyboard in a
-  two-column vertical sidebar at the end of the container. Its total width is one third
-  of the available width, capped at 240 dp. The video and its controls occupy the remaining
-  width and the full container height. Reserve no bottom space for the storyboard or
-  playback controls on the video surface. Opening a fine preview changes only the
-  sidebar's contents, without reducing the video height.
+  single-column vertical sidebar at the end of the container. The sidebar is fixed at
+  128 dp wide so the coarse storyboard keeps approximately the same 120 dp frame width
+  used by the horizontal strip after its 4 dp horizontal content padding. The video and
+  its controls occupy all remaining width and the full container height. Reserve no
+  bottom space for the storyboard or playback controls on the video surface. Opening a
+  fine preview changes only the sidebar's contents, without reducing the video area.
 - **Picture-in-Picture:** show no storyboard and reserve no storyboard space on either
   axis, regardless of the PiP window's aspect ratio.
 
-The sidebar keeps its contents clear of status bars, navigation bars and display cutouts.
+The local-player landscape sidebar always requests one storyboard column. Other callers
+of `CastStoryboardStrip` choose their own vertical column count; in particular, the
+portrait Chromecast controller keeps its existing two-column timeline. The sidebar keeps
+its contents clear of status bars, navigation bars and display cutouts.
+
 The video player remains at one Compose call site when the container changes shape, so
 layout changes do not replace the playback instance. Touch gestures and playback controls
 continue to belong to the video area. Tapping outside an open fine preview dismisses it.
@@ -34,6 +39,11 @@ landscape. The initial fallback clearance was 180 dp, plus a 6 dp gap. A 360 dp-
 landscape container therefore initially left only 54 dp for the video, or no height
 with the fine preview open. A sidebar removes this competition for vertical space.
 
+Issue #204 further reduces horizontal competition. The first sidebar implementation used
+two storyboard columns and consumed one third of the container width, capped at 240 dp.
+A single 128 dp column preserves a useful thumbnail width while returning substantially
+more horizontal area to the video.
+
 ## Regression coverage
 
 Compose instrumentation tests exercise the production layout with tagged video and
@@ -41,7 +51,8 @@ storyboard slots, using constrained container sizes without requiring media deco
 
 - Landscape video retains the full container height, including with fine preview open.
 - The storyboard is beside the video; their bounds do not overlap.
-- A wide landscape container caps the sidebar at 240 dp; a smaller one uses one third.
+- Landscape requests exactly one vertical storyboard column.
+- The landscape sidebar is 128 dp wide, leaving the remaining width to the video.
 - Portrait keeps the horizontal storyboard above playback controls and reserves its height.
 - PiP hides the storyboard and gives the video the entire container in both aspect ratios.
 - Switching the same composition from portrait to landscape and back retains the video
