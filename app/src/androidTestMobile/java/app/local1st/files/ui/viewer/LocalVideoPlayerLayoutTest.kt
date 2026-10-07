@@ -3,6 +3,7 @@ package app.local1st.files.ui.viewer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -19,12 +20,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -63,7 +66,68 @@ class LocalVideoPlayerLayoutTest {
         assertEquals(472f, bounds.video.width, 1f)
         assertEquals(128f, bounds.storyboard.width, 1f)
         assertEquals(1, bounds.verticalColumns)
-        assertTrue(bounds.storyboard.left >= bounds.video.right)
+        assertEquals(bounds.video.right, bounds.storyboard.left, 0.1f)
+    }
+
+    @Test
+    fun landscapeSidebarIgnoresSafeInsetOnInternalStartEdge() {
+        val bounds = renderLayout(
+            width = 600.dp,
+            height = 300.dp,
+            storyboardHeight = 126.dp,
+            safeDrawingInsets = WindowInsets(left = 24, top = 0, right = 0, bottom = 0),
+        )
+
+        assertEquals(472f, bounds.storyboard.left, 1f)
+        assertEquals(128f, bounds.storyboard.width, 1f)
+    }
+
+    @Test
+    fun landscapeSidebarStillRespectsSafeInsetOnDeviceEndEdge() {
+        val bounds = renderLayout(
+            width = 600.dp,
+            height = 300.dp,
+            storyboardHeight = 126.dp,
+            safeDrawingInsets = WindowInsets(left = 24, top = 0, right = 10, bottom = 0),
+        )
+
+        assertEquals(472f, bounds.storyboard.left, 1f)
+        assertEquals(118f, bounds.storyboard.width, 1f)
+    }
+
+    @Test
+    fun landscapeSidebarDoesNotExposeLightParentAtRoundedCorners() {
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(
+                    Modifier.requiredSize(600.dp, 300.dp)
+                        .background(Color.White)
+                        .testTag("container"),
+                ) {
+                    LocalVideoPlayerLayout(
+                        inPictureInPicture = false,
+                        storyboardHeight = 126.dp,
+                        storyboardBottomClearance = 40.dp,
+                        finePreviewVisible = false,
+                        onDismissFinePreview = {},
+                        safeDrawingInsets = WindowInsets(0, 0, 0, 0),
+                        videoContent = {
+                            Box(Modifier.fillMaxSize().background(Color.Blue))
+                        },
+                        storyboardContent = {
+                            Box(Modifier.fillMaxSize())
+                        },
+                    )
+                }
+            }
+        }
+
+        compose.waitForIdle()
+        val pixels = compose.onNodeWithTag("container").captureToImage().toPixelMap()
+        val sidebarTopLeft = pixels[472, 0]
+        assertTrue(sidebarTopLeft.red < 0.25f)
+        assertTrue(sidebarTopLeft.green < 0.25f)
+        assertTrue(sidebarTopLeft.blue < 0.25f)
     }
 
     @Test
@@ -196,6 +260,7 @@ class LocalVideoPlayerLayoutTest {
         storyboardHeight: Dp,
         clearance: Dp = 40.dp,
         fine: Boolean = false,
+        safeDrawingInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     ): LayoutBounds {
         var storyboardVerticalColumns: Int? = null
         compose.setContent {
@@ -207,6 +272,7 @@ class LocalVideoPlayerLayoutTest {
                         storyboardBottomClearance = clearance,
                         finePreviewVisible = fine,
                         onDismissFinePreview = {},
+                        safeDrawingInsets = safeDrawingInsets,
                         videoContent = { inset ->
                             Box(
                                 Modifier.fillMaxSize().padding(bottom = inset)
