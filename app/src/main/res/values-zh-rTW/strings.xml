@@ -233,4 +233,7 @@
     <string name="pdf_page_indicator">第 %1$d / %2$d 頁</string>
     <string name="pdf_page_render_failed">無法算繪第 %1$d 頁</string>
     <string name="pdf_page_content_description">第 %1$d 頁</string>
+    <string name="cast_image_unsupported">Cast 不支援此圖片格式</string>
+    <string name="cast_image_unavailable">無法投放圖片（請檢查檔案位置、大小和網路）</string>
+    <string name="cast_image_failed">無法在 Cast 裝置上顯示圖片</string>
 </resources>

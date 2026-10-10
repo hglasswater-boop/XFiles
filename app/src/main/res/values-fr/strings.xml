@@ -233,4 +233,7 @@
     <string name="pdf_page_indicator">Page %1$d / %2$d</string>
     <string name="pdf_page_render_failed">Impossible d’afficher la page %1$d</string>
     <string name="pdf_page_content_description">Page %1$d</string>
+    <string name="cast_image_unsupported">Ce format d’image n’est pas compatible avec Cast</string>
+    <string name="cast_image_unavailable">Impossible d’envoyer l’image (vérifiez l’emplacement, la taille et le réseau)</string>
+    <string name="cast_image_failed">Impossible d’afficher l’image sur l’appareil Cast</string>
 </resources>

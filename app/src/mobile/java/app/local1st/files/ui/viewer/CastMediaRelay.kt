@@ -98,6 +98,13 @@ internal class CastMediaRelay(
         )
     }
 
+    /** Only serve images for which the relay knows the exact response length. */
+    fun imageUrlFor(entry: XEntry): Uri? {
+        if (!canCastRelayImage(entry) || castImageMimeType(entry) == null) return null
+        if ((sourcesById[entry.id]?.size ?: -1L) < 0L) return null
+        return urlFor(entry.id)
+    }
+
     /**
      * Opens the expensive SMB session/file handles before the Cast receiver asks for them. This is
      * deliberately asynchronous so player setup and UI never wait for NAS authentication. Sources
@@ -453,6 +460,7 @@ internal fun isOpenEndedByteRange(header: String): Boolean {
 }
 
 internal fun castMimeType(entry: XEntry): String {
+    castImageMimeType(entry)?.let { return it }
     entry.mime?.takeIf { it.isNotBlank() }?.let { return it }
     return when (entry.extension.lowercase(Locale.US)) {
         "mp4", "m4v" -> "video/mp4"

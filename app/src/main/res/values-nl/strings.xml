@@ -233,4 +233,7 @@
     <string name="pdf_page_indicator">Pagina %1$d / %2$d</string>
     <string name="pdf_page_render_failed">Kan pagina %1$d niet weergeven</string>
     <string name="pdf_page_content_description">Pagina %1$d</string>
+    <string name="cast_image_unsupported">Dit afbeeldingsformaat wordt niet ondersteund door Cast</string>
+    <string name="cast_image_unavailable">Kan afbeelding niet verzenden (controleer locatie, grootte en netwerk)</string>
+    <string name="cast_image_failed">Kan afbeelding niet weergeven op het Cast-apparaat</string>
 </resources>

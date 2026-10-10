@@ -235,4 +235,7 @@
     <string name="pdf_page_indicator">Strona %1$d / %2$d</string>
     <string name="pdf_page_render_failed">Nie udało się wyświetlić strony %1$d</string>
     <string name="pdf_page_content_description">Strona %1$d</string>
+    <string name="cast_image_unsupported">Ten format obrazu nie jest obsługiwany przez Cast</string>
+    <string name="cast_image_unavailable">Nie można przesłać obrazu (sprawdź lokalizację, rozmiar i sieć)</string>
+    <string name="cast_image_failed">Nie można wyświetlić obrazu na urządzeniu Cast</string>
 </resources>

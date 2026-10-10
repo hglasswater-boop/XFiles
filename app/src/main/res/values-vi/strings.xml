@@ -233,4 +233,7 @@
     <string name="pdf_page_indicator">Trang %1$d / %2$d</string>
     <string name="pdf_page_render_failed">Không thể kết xuất trang %1$d</string>
     <string name="pdf_page_content_description">Trang %1$d</string>
+    <string name="cast_image_unsupported">Định dạng ảnh này không được Cast hỗ trợ</string>
+    <string name="cast_image_unavailable">Không thể gửi ảnh (kiểm tra vị trí, kích thước tệp và mạng)</string>
+    <string name="cast_image_failed">Không thể hiển thị ảnh trên thiết bị Cast</string>
 </resources>
