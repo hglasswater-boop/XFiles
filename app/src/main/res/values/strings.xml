@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">This image format is not supported by Cast</string>
     <string name="cast_image_unavailable">Cannot send this image to Cast (unsupported location, unknown size, or no local network)</string>
     <string name="cast_image_failed">Could not display the image on the Cast device</string>
+    <string name="cast_auto_advance">After playback</string>
+    <string name="cast_auto_off">Stop</string>
+    <string name="cast_auto_next">Next</string>
+    <string name="cast_auto_previous">Previous</string>
 </resources>
