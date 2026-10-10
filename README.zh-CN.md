@@ -136,13 +136,16 @@ Chromecast 只包含在 **手机版**。Google TV 版用于电视本机浏览和
 
 从 [**GitHub Releases**](https://github.com/hglasswater-boop/XFiles/releases) 获取签名 APK。
 
-当前稳定版本线为 `v1.4.1-smb`：
+当前稳定版本线为 `v1.4.2-smb`：
 
-- `XFiles-1.4.1-smb.apk`：普通手机版。
-- `XFiles-TV-1.4.1-smb.apk`：Google TV 版。
+- `XFiles-1.4.2-smb.apk`：普通手机版。
+- `XFiles-TV-1.4.2-smb.apk`：Google TV 版。
 - Release CI 同时生成手机端 AAB 作为 CI artifact。
 
 Mobile / TV 的应用内更新仅使用 Debug CI 发布的签名 `debug-latest`。Release CI 仅在首次创建版本标签时发布稳定版，同时构建手机 AAB，不再发布 `nightly`。`diagnose/*` 分支仍可发布独立包名的 `diagnostic-latest`。
+
+**从旧 Nightly 版本迁移**：旧版无法自动找到新的更新源。请勿卸载应用，需手动覆盖安装一次已签名的普通版 APK，以保留应用数据。参见[1.4.2 发布说明](docs/releases/1.4.2-smb.md)。
+
 
 需要 **Android 8.0 / API 26 或更高版本**。
 
