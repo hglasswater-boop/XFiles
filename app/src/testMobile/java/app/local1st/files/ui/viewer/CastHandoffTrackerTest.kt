@@ -92,6 +92,59 @@ class CastHandoffTrackerTest {
     }
 
     @Test
+    fun naturalEndRetainsConfirmedRemoteVideoWhenReceiverClearsItsItem() {
+        val tracker = CastHandoffTracker(initialLocalMediaId = "video-b")
+        tracker.beginRemoteHandoff()
+
+        assertEquals("video-b", tracker.observe(isRemote = true, reportedMediaId = "video-b"))
+        assertFalse(tracker.isPending)
+        assertEquals("video-b", tracker.observe(isRemote = true, reportedMediaId = null))
+        assertEquals("video-b", tracker.presentationMediaId(isRemote = true, reportedMediaId = null))
+    }
+
+    @Test
+    fun completedRemoteJumpRetainsTheNewVideoAfterNaturalEnd() {
+        val tracker = CastHandoffTracker(initialLocalMediaId = "video-a")
+        tracker.beginRemoteHandoff(explicitTargetMediaId = "video-c")
+
+        assertEquals("video-c", tracker.observe(isRemote = true, reportedMediaId = "video-a"))
+        assertEquals("video-c", tracker.observe(isRemote = true, reportedMediaId = "video-c"))
+        assertFalse(tracker.isPending)
+        assertEquals("video-c", tracker.observe(isRemote = true, reportedMediaId = null))
+        assertEquals("video-c", tracker.presentationMediaId(isRemote = true, reportedMediaId = null))
+    }
+
+    @Test
+    fun transientNullDuringHandoffStillShowsPendingTarget() {
+        val tracker = CastHandoffTracker(initialLocalMediaId = "video-a")
+        tracker.beginRemoteHandoff(explicitTargetMediaId = "video-b")
+
+        assertEquals("video-b", tracker.observe(isRemote = true, reportedMediaId = null))
+        assertEquals("video-b", tracker.presentationMediaId(isRemote = true, reportedMediaId = null))
+        assertTrue(tracker.isPending)
+    }
+
+    @Test
+    fun disconnectDoesNotRetainLastRemoteVideo() {
+        val tracker = CastHandoffTracker(initialLocalMediaId = "video-b")
+        tracker.beginRemoteHandoff()
+        tracker.observe(isRemote = true, reportedMediaId = "video-b")
+
+        assertEquals(null, tracker.observe(isRemote = false, reportedMediaId = null))
+        assertEquals(null, tracker.presentationMediaId(isRemote = true, reportedMediaId = null))
+    }
+
+    @Test
+    fun playbackErrorDiscardsLastConfirmedRemoteVideo() {
+        val tracker = CastHandoffTracker(initialLocalMediaId = "video-b")
+        tracker.beginRemoteHandoff()
+        tracker.observe(isRemote = true, reportedMediaId = "video-b")
+
+        assertEquals(null, tracker.observe(isRemote = true, reportedMediaId = null, playbackFailed = true))
+        assertEquals(null, tracker.presentationMediaId(isRemote = true, reportedMediaId = null))
+    }
+
+    @Test
     fun differentItemInReusedPlaylistAlwaysGetsExplicitDefaultSeekWithoutResume() {
         assertEquals(
             ReusedRemoteSelectionAction.SeekToDefault(mediaItemIndex = 2),
