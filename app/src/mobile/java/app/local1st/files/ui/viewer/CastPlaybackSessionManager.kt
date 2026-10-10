@@ -64,6 +64,7 @@ internal object CastPlaybackSessionManager {
      */
     private class HandoffAwarePlayer(
         private val delegatePlayer: Player,
+        private val remotePlayer: Player,
         private val entryIds: List<String>,
         private val mediaItems: List<MediaItem>,
         private val handoffTracker: CastHandoffTracker,
@@ -76,7 +77,7 @@ internal object CastPlaybackSessionManager {
             if (!isRemote()) return null
             val mediaId = handoffTracker.presentationMediaId(
                 isRemote = true,
-                reportedMediaId = delegatePlayer.currentMediaItem?.mediaId,
+                reportedMediaId = remotePlayer.currentMediaItem?.mediaId,
             ) ?: return null
             return entryIds.indexOf(mediaId).takeIf { it >= 0 }
         }
@@ -256,6 +257,7 @@ internal object CastPlaybackSessionManager {
         val handoffTracker = CastHandoffTracker(startEntry?.id)
         val presentationPlayer = HandoffAwarePlayer(
             delegatePlayer = castPlayer,
+            remotePlayer = remotePlayer,
             entryIds = ids,
             mediaItems = mediaItems,
             handoffTracker = handoffTracker,
