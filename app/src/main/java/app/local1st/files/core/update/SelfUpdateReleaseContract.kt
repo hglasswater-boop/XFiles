@@ -1,19 +1,5 @@
 package app.local1st.files.core.update
 
-enum class SelfUpdateTrack(
-    val storedValue: String,
-    val apiUrl: String,
-) {
-    NORMAL("normal", SelfUpdateReleaseContract.DEBUG_LATEST_API),
-    NIGHTLY("nightly", SelfUpdateReleaseContract.NIGHTLY_API),
-    ;
-
-    companion object {
-        fun fromStoredValue(value: String?): SelfUpdateTrack =
-            entries.firstOrNull { it.storedValue == value } ?: NORMAL
-    }
-}
-
 enum class SelfUpdateEdition {
     MOBILE,
     TV,
@@ -32,24 +18,25 @@ data class ResolvedUpdateRelease(
 ) {
     fun isNewerThan(installedBuild: Int): Boolean = buildNumber > installedBuild
 
-    fun isInstallableOver(
-        installedBuild: Int?,
-        installedTrack: SelfUpdateTrack?,
-        selectedTrack: SelfUpdateTrack,
-    ): Boolean {
-        if (installedBuild == null) return true
-        if (buildNumber > installedBuild) return true
-        return buildNumber == installedBuild &&
-            installedTrack != null &&
-            installedTrack != selectedTrack
-    }
+    fun isInstallableOver(installedBuild: Int?, installedIsDebuggable: Boolean?): Boolean =
+        isInstallableNormalBuild(buildNumber, installedBuild, installedIsDebuggable)
 }
+
+/**
+ * Normal is the only self-update source. Equal-version replacement is permitted solely
+ * to migrate an existing non-debuggable (formerly Nightly/stable) normal-package install.
+ */
+fun isInstallableNormalBuild(
+    downloadedBuild: Int,
+    installedBuild: Int?,
+    installedIsDebuggable: Boolean?,
+): Boolean = installedBuild == null ||
+    downloadedBuild > installedBuild ||
+    (downloadedBuild == installedBuild && installedIsDebuggable == false)
 
 object SelfUpdateReleaseContract {
     const val DEBUG_LATEST_API =
         "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/debug-latest"
-    const val NIGHTLY_API =
-        "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/nightly"
     const val DIAGNOSTIC_LATEST_API =
         "https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/diagnostic-latest"
 
@@ -58,26 +45,18 @@ object SelfUpdateReleaseContract {
     private val normalTvAsset = Regex("^XFiles-TV-(.+)-b(\\d+)-debug\\.apk$")
     private val diagnosticMobileAsset =
         Regex("^XFiles-Diagnostic-(.+)-b(\\d+)-debug\\.apk$")
-    private val nightlyMetadata = Regex(
-        pattern = "(?m)^XFiles\\s+(.+?)\\s+·\\s+build\\s+(\\d+)\\s+\\([^)]+\\)\\.?\\s*$",
-    )
 
-    fun resolve(
-        track: SelfUpdateTrack,
+    fun resolveNormal(
         edition: SelfUpdateEdition,
-        releaseBody: String,
         assets: List<ReleaseAsset>,
-    ): ResolvedUpdateRelease = when (track) {
-        SelfUpdateTrack.NORMAL -> resolvePatternedAsset(
-            pattern = when (edition) {
-                SelfUpdateEdition.MOBILE -> normalMobileAsset
-                SelfUpdateEdition.TV -> normalTvAsset
-            },
-            assets = assets,
-            missingMessage = "Release does not contain an update asset for $edition",
-        )
-        SelfUpdateTrack.NIGHTLY -> resolveNightly(edition, releaseBody, assets)
-    }
+    ): ResolvedUpdateRelease = resolvePatternedAsset(
+        pattern = when (edition) {
+            SelfUpdateEdition.MOBILE -> normalMobileAsset
+            SelfUpdateEdition.TV -> normalTvAsset
+        },
+        assets = assets,
+        missingMessage = "Release does not contain an update asset for $edition",
+    )
 
     fun resolveDiagnosticMobile(assets: List<ReleaseAsset>): ResolvedUpdateRelease =
         resolvePatternedAsset(
@@ -101,28 +80,4 @@ object SelfUpdateReleaseContract {
         )
     }.maxByOrNull { it.buildNumber }
         ?: throw IllegalArgumentException(missingMessage)
-
-    private fun resolveNightly(
-        edition: SelfUpdateEdition,
-        releaseBody: String,
-        assets: List<ReleaseAsset>,
-    ): ResolvedUpdateRelease {
-        val metadata = nightlyMetadata.find(releaseBody)
-            ?: throw IllegalArgumentException("Nightly release metadata is missing or malformed")
-        val version = metadata.groupValues[1]
-        val build = metadata.groupValues[2].toIntOrNull()
-            ?: throw IllegalArgumentException("Nightly build number is invalid")
-        val expectedAsset = when (edition) {
-            SelfUpdateEdition.MOBILE -> "XFiles-nightly.apk"
-            SelfUpdateEdition.TV -> "XFiles-TV-nightly.apk"
-        }
-        val asset = assets.singleOrNull { it.name == expectedAsset }
-            ?: throw IllegalArgumentException("Nightly release does not contain $expectedAsset")
-        return ResolvedUpdateRelease(
-            versionName = version,
-            buildNumber = build,
-            assetName = asset.name,
-            downloadUrl = asset.downloadUrl,
-        )
-    }
 }
