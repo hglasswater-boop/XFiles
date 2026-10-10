@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">Định dạng ảnh này không được Cast hỗ trợ</string>
     <string name="cast_image_unavailable">Không thể gửi ảnh (kiểm tra vị trí, kích thước tệp và mạng)</string>
     <string name="cast_image_failed">Không thể hiển thị ảnh trên thiết bị Cast</string>
+    <string name="cast_auto_advance">Sau khi phát</string>
+    <string name="cast_auto_off">Dừng</string>
+    <string name="cast_auto_next">Tiếp</string>
+    <string name="cast_auto_previous">Trước</string>
 </resources>
