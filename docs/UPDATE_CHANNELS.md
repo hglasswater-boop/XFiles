@@ -26,7 +26,7 @@ The independent Mobile diagnostic package uses `diagnostic-latest` only from its
 - API: `https://api.github.com/repos/hglasswater-boop/XFiles/releases/tags/debug-latest`.
 - Mobile asset: `XFiles-<version>-b<build>-debug.apk`; TV asset: `XFiles-TV-<version>-b<build>-debug.apk`.
 - These builds use the **same stable signing identity** but are debuggable. The asset's `<build>` is the APK `versionCode`.
-- Debug is eligible if its build code is newer than installed; as with the existing migration contract, **equal build** may be offered only when the installed normal APK is **non-debuggable**.
+- Debug is eligible **only if its build code is strictly newer** than installed. The prior equal-build non-debuggable-to-debuggable migration is retired for this stable-aware updater: an already-installed stable APK must not prompt a same-build switch to Debug.
 - If both sources have eligible assets, choose the higher build code, preferring stable on a tie. A missing/malformed stable asset does **not** block a valid debug update, and vice versa.
 - Continue to publish `debug-latest` on each `main` push: **existing app versions that only know the debug feed cannot discover the stable feed until their updater is upgraded through this bridge**. The new stable-aware logic reaches installed users through the next `debug-latest` package. Old apps configured for retired Nightly may still require one manual update.
 
@@ -49,8 +49,8 @@ The independent Mobile diagnostic package uses `diagnostic-latest` only from its
 
 ## Regression coverage
 
-Tests must cover: stable metadata/tag/body/asset agreement; missing/wrong-edition assets; draft/prerelease rejection; strict stable upgrade; equal-build debug migration only over non-debuggable; no downgrade; newest candidate selection and stable tie preference; diagnostic independence; existing Mobile/TV app update UI flows; package-signature preflight and manifest validation where Android tests can exercise them.
+Tests must cover: stable metadata/tag/body/asset agreement; missing/wrong-edition assets; draft/prerelease rejection; strict build-number upgrades for both sources (including equal-build rejection); no downgrade; newest candidate selection and stable tie preference; diagnostic independence; existing Mobile/TV app update UI flows; package-signature preflight and manifest validation where Android tests can exercise them.
 
 ## Historical note
 
-Prior to #221, normal update checks used **only** `debug-latest`, with an intentional one-time migration from non-debuggable stable/Nightly packages. Older installed builds with the retired `selected_track=nightly` preference use the normal feed in newer app versions; builds that still fetch the deleted `nightly` tag need a one-time manually installed update.
+Prior to #221, normal update checks used **only** `debug-latest`, with an intentional one-time equal-build migration from non-debuggable stable/Nightly packages. That exception is removed: any subsequent transition to a different build type must have a strictly newer build number. Older installed builds with the retired `selected_track=nightly` preference use the normal feed in newer app versions; builds that still fetch the deleted `nightly` tag need a one-time manually installed update.
