@@ -240,4 +240,8 @@
     <string name="cast_image_unsupported">تنسيق الصورة هذا غير مدعوم للإرسال</string>
     <string name="cast_image_unavailable">تعذر إرسال الصورة (تحقق من موقع الملف وحجمه والشبكة)</string>
     <string name="cast_image_failed">تعذر عرض الصورة على جهاز البث</string>
+    <string name="cast_auto_advance">بعد التشغيل</string>
+    <string name="cast_auto_off">إيقاف</string>
+    <string name="cast_auto_next">التالي</string>
+    <string name="cast_auto_previous">السابق</string>
 </resources>
