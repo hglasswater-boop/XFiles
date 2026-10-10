@@ -102,67 +102,67 @@ fun ImageViewer(items: List<XEntry>, startIndex: Int, onClose: () -> Unit) {
 
     EditionImageCastHost(items, items[pagerState.settledPage.coerceIn(0, items.lastIndex)]) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-        HorizontalPager(
-            state = pagerState,
-            userScrollEnabled = !currentZoomed,
-            beyondViewportPageCount = 1,
-            key = { items[it].id },
-            modifier = Modifier.fillMaxSize(),
-        ) { page ->
-            ZoomableImagePage(
-                entry = items[page],
-                isSettled = pagerState.settledPage == page,
-                onToggleBars = { barsVisible = !barsVisible },
-                onZoomChanged = { zoomedPages[page] = it },
-            )
-        }
-
-        AnimatedVisibility(
-            visible = barsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent),
-                        ),
-                    )
-                    // IgnoringVisibility: the status bar is gone while the bar is hidden, and the
-                    // row would otherwise fade back in at the wrong height and then jump.
-                    .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TooltipBox(
-                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                    tooltip = { PlainTooltip { Text(stringResource(R.string.close)) } },
-                    state = rememberTooltipState(),
-                ) {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
-                    }
-                }
-                Text(
-                    items[pagerState.currentPage.coerceIn(0, items.size - 1)].name,
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                EditionImageCastButton()
-                Text(
-                    "${pagerState.currentPage + 1}/${items.size}",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(horizontal = 12.dp),
+            HorizontalPager(
+                state = pagerState,
+                userScrollEnabled = !currentZoomed,
+                beyondViewportPageCount = 1,
+                key = { items[it].id },
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                ZoomableImagePage(
+                    entry = items[page],
+                    isSettled = pagerState.settledPage == page,
+                    onToggleBars = { barsVisible = !barsVisible },
+                    onZoomChanged = { zoomedPages[page] = it },
                 )
             }
-        }
+
+            AnimatedVisibility(
+                visible = barsVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent),
+                            ),
+                        )
+                        // IgnoringVisibility: the status bar is gone while the bar is hidden, and the
+                        // row would otherwise fade back in at the wrong height and then jump.
+                        .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                        tooltip = { PlainTooltip { Text(stringResource(R.string.close)) } },
+                        state = rememberTooltipState(),
+                    ) {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
+                        }
+                    }
+                    Text(
+                        items[pagerState.currentPage.coerceIn(0, items.size - 1)].name,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    EditionImageCastButton()
+                    Text(
+                        "${pagerState.currentPage + 1}/${items.size}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                }
+            }
         }
     }
 }
