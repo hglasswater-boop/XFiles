@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">Cast 不支持此图片格式</string>
     <string name="cast_image_unavailable">无法投放图片（请检查文件位置、大小和网络）</string>
     <string name="cast_image_failed">无法在 Cast 设备上显示图片</string>
+    <string name="cast_auto_advance">播放结束后</string>
+    <string name="cast_auto_off">停止</string>
+    <string name="cast_auto_next">下一个</string>
+    <string name="cast_auto_previous">上一个</string>
 </resources>

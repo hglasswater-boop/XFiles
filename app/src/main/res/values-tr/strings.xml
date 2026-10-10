@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">Bu görüntü biçimi Cast tarafından desteklenmiyor</string>
     <string name="cast_image_unavailable">Görüntü gönderilemiyor (konumu, boyutu ve ağı kontrol edin)</string>
     <string name="cast_image_failed">Görüntü Cast cihazında gösterilemedi</string>
+    <string name="cast_auto_advance">Oynatma sonrası</string>
+    <string name="cast_auto_off">Durdur</string>
+    <string name="cast_auto_next">Sonraki</string>
+    <string name="cast_auto_previous">Önceki</string>
 </resources>

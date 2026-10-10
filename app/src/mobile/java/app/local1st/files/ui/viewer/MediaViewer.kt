@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.net.toUri
 import androidx.core.util.Consumer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.C
@@ -152,6 +153,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
     }
     val localPlayer = castSession.localPlayer
     val player = castSession.player
+    val autoAdvanceMode by CastPlaybackSessionManager.autoAdvanceMode.collectAsStateWithLifecycle()
 
     var currentIndex by remember(player) {
         mutableIntStateOf(player.currentMediaItemIndex.coerceIn(0, playable.lastIndex))
@@ -261,6 +263,8 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 playing = playing,
                 hasPrevious = hasPrevious,
                 hasNext = hasNext,
+                autoAdvanceMode = autoAdvanceMode,
+                onAutoAdvanceModeChange = CastPlaybackSessionManager::setAutoAdvanceMode,
                 onClose = onClose,
             )
         } else {

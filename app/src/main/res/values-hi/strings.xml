@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">यह छवि प्रारूप Cast पर समर्थित नहीं है</string>
     <string name="cast_image_unavailable">छवि भेजी नहीं जा सकती (फ़ाइल स्थान, आकार और नेटवर्क जाँचें)</string>
     <string name="cast_image_failed">Cast डिवाइस पर छवि नहीं दिखाई जा सकी</string>
+    <string name="cast_auto_advance">प्लेबैक के बाद</string>
+    <string name="cast_auto_off">रोकें</string>
+    <string name="cast_auto_next">अगला</string>
+    <string name="cast_auto_previous">पिछला</string>
 </resources>

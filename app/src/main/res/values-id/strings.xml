@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">Format gambar ini tidak didukung Cast</string>
     <string name="cast_image_unavailable">Tidak dapat mengirim gambar (periksa lokasi, ukuran dan jaringan)</string>
     <string name="cast_image_failed">Tidak dapat menampilkan gambar pada perangkat Cast</string>
+    <string name="cast_auto_advance">Setelah diputar</string>
+    <string name="cast_auto_off">Berhenti</string>
+    <string name="cast_auto_next">Berikutnya</string>
+    <string name="cast_auto_previous">Sebelumnya</string>
 </resources>

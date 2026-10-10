@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">Ce format d’image n’est pas compatible avec Cast</string>
     <string name="cast_image_unavailable">Impossible d’envoyer l’image (vérifiez l’emplacement, la taille et le réseau)</string>
     <string name="cast_image_failed">Impossible d’afficher l’image sur l’appareil Cast</string>
+    <string name="cast_auto_advance">Après la lecture</string>
+    <string name="cast_auto_off">Arrêt</string>
+    <string name="cast_auto_next">Suivant</string>
+    <string name="cast_auto_previous">Précédent</string>
 </resources>

@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">Cast 不支援此圖片格式</string>
     <string name="cast_image_unavailable">無法投放圖片（請檢查檔案位置、大小和網路）</string>
     <string name="cast_image_failed">無法在 Cast 裝置上顯示圖片</string>
+    <string name="cast_auto_advance">播放結束後</string>
+    <string name="cast_auto_off">停止</string>
+    <string name="cast_auto_next">下一個</string>
+    <string name="cast_auto_previous">上一個</string>
 </resources>

@@ -238,4 +238,8 @@
     <string name="cast_image_unsupported">Ten format obrazu nie jest obsługiwany przez Cast</string>
     <string name="cast_image_unavailable">Nie można przesłać obrazu (sprawdź lokalizację, rozmiar i sieć)</string>
     <string name="cast_image_failed">Nie można wyświetlić obrazu na urządzeniu Cast</string>
+    <string name="cast_auto_advance">Po odtworzeniu</string>
+    <string name="cast_auto_off">Zatrzymaj</string>
+    <string name="cast_auto_next">Następny</string>
+    <string name="cast_auto_previous">Poprzedni</string>
 </resources>

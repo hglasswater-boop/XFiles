@@ -235,4 +235,8 @@
     <string name="cast_image_unsupported">この画像形式はキャストに対応していません</string>
     <string name="cast_image_unavailable">画像をキャストできません（保存場所・ファイルサイズ・ネットワークを確認してください）</string>
     <string name="cast_image_failed">キャスト先で画像を表示できませんでした</string>
+    <string name="cast_auto_advance">再生終了後</string>
+    <string name="cast_auto_off">停止</string>
+    <string name="cast_auto_next">次へ</string>
+    <string name="cast_auto_previous">前へ</string>
 </resources>

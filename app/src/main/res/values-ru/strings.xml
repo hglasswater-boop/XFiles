@@ -238,4 +238,8 @@
     <string name="cast_image_unsupported">Этот формат изображения не поддерживается Cast</string>
     <string name="cast_image_unavailable">Не удалось отправить изображение (проверьте путь, размер файла и сеть)</string>
     <string name="cast_image_failed">Не удалось показать изображение на устройстве Cast</string>
+    <string name="cast_auto_advance">После воспроизведения</string>
+    <string name="cast_auto_off">Остановить</string>
+    <string name="cast_auto_next">Следующее</string>
+    <string name="cast_auto_previous">Предыдущее</string>
 </resources>

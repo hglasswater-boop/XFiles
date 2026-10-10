@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">이 이미지 형식은 Cast에서 지원하지 않습니다</string>
     <string name="cast_image_unavailable">이미지를 보낼 수 없습니다(파일 위치, 크기 및 네트워크 확인)</string>
     <string name="cast_image_failed">Cast 기기에서 이미지를 표시할 수 없습니다</string>
+    <string name="cast_auto_advance">재생 종료 후</string>
+    <string name="cast_auto_off">중지</string>
+    <string name="cast_auto_next">다음</string>
+    <string name="cast_auto_previous">이전</string>
 </resources>
