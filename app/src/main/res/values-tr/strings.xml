@@ -233,4 +233,7 @@
     <string name="pdf_page_indicator">Sayfa %1$d / %2$d</string>
     <string name="pdf_page_render_failed">Sayfa %1$d görüntülenemedi</string>
     <string name="pdf_page_content_description">Sayfa %1$d</string>
+    <string name="cast_image_unsupported">Bu görüntü biçimi Cast tarafından desteklenmiyor</string>
+    <string name="cast_image_unavailable">Görüntü gönderilemiyor (konumu, boyutu ve ağı kontrol edin)</string>
+    <string name="cast_image_failed">Görüntü Cast cihazında gösterilemedi</string>
 </resources>
