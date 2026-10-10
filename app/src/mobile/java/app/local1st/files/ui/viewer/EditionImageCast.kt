@@ -43,7 +43,7 @@ internal class ImageCastController(
         override fun onSessionStarting(session: CastSession) = Unit
         override fun onSessionStarted(session: CastSession, sessionId: String) = reconnect(session)
         override fun onSessionStartFailed(session: CastSession, error: Int) {
-            error(R.string.cast_image_failed)
+            showError(R.string.cast_image_failed)
         }
         override fun onSessionEnding(session: CastSession) = Unit
         override fun onSessionEnded(session: CastSession, error: Int) = reset()
@@ -78,17 +78,17 @@ internal class ImageCastController(
         if (!shouldSendCastImage(sentId, entry.id, sentSession !== session)) return
         val mime = castImageMimeType(entry)
         if (mime == null) {
-            error(R.string.cast_image_unsupported)
+            showError(R.string.cast_image_unsupported)
             return
         }
         val url = relay.imageUrlFor(entry)
         if (url == null) {
-            error(R.string.cast_image_unavailable)
+            showError(R.string.cast_image_unavailable)
             return
         }
         val client = session.remoteMediaClient
         if (client == null) {
-            error(R.string.cast_image_failed)
+            showError(R.string.cast_image_failed)
             return
         }
 
@@ -102,7 +102,6 @@ internal class ImageCastController(
             .build()
         val request = MediaLoadRequestData.Builder()
             .setMediaInfo(media)
-            .setAutoplay(false)
             .build()
 
         // The old video session must not keep advertising playback after a photo replaces it.
@@ -113,12 +112,12 @@ internal class ImageCastController(
         client.load(request).setResultCallback { result ->
             if (!result.status.isSuccess && !closed && sentId == entry.id) {
                 sentId = null
-                error(R.string.cast_image_failed)
+                showError(R.string.cast_image_failed)
             }
         }
     }
 
-    private fun error(message: Int) {
+    private fun showError(message: Int) {
         if (!closed) Toast.makeText(appContext, appContext.getString(message), Toast.LENGTH_LONG).show()
     }
 
