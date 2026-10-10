@@ -236,4 +236,8 @@
     <string name="cast_image_unsupported">Dit afbeeldingsformaat wordt niet ondersteund door Cast</string>
     <string name="cast_image_unavailable">Kan afbeelding niet verzenden (controleer locatie, grootte en netwerk)</string>
     <string name="cast_image_failed">Kan afbeelding niet weergeven op het Cast-apparaat</string>
+    <string name="cast_auto_advance">Na afspelen</string>
+    <string name="cast_auto_off">Stop</string>
+    <string name="cast_auto_next">Volgende</string>
+    <string name="cast_auto_previous">Vorige</string>
 </resources>
