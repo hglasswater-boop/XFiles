@@ -392,9 +392,8 @@ internal fun CastRemoteControls(
                 }
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(bottom = if (isLandscape) 0.dp else 2.dp),
             ) {
                 Text(
@@ -402,33 +401,38 @@ internal fun CastRemoteControls(
                     color = Color.LightGray,
                     style = MaterialTheme.typography.labelSmall,
                 )
-                CastAutoAdvanceMode.entries.forEach { mode ->
-                    val label = when (mode) {
-                        CastAutoAdvanceMode.OFF -> R.string.cast_auto_off
-                        CastAutoAdvanceMode.NEXT -> R.string.cast_auto_next
-                        CastAutoAdvanceMode.PREVIOUS -> R.string.cast_auto_previous
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CastAutoAdvanceMode.entries.forEach { mode ->
+                        val label = when (mode) {
+                            CastAutoAdvanceMode.OFF -> R.string.cast_auto_off
+                            CastAutoAdvanceMode.NEXT -> R.string.cast_auto_next
+                            CastAutoAdvanceMode.PREVIOUS -> R.string.cast_auto_previous
+                        }
+                        val icon = when (mode) {
+                            CastAutoAdvanceMode.OFF -> Icons.Outlined.StopCircle
+                            CastAutoAdvanceMode.NEXT -> Icons.Outlined.SkipNext
+                            CastAutoAdvanceMode.PREVIOUS -> Icons.Outlined.SkipPrevious
+                        }
+                        FilterChip(
+                            selected = autoAdvanceMode == mode,
+                            onClick = { onAutoAdvanceModeChange(mode) },
+                            label = { Text(stringResource(label), maxLines = 1) },
+                            leadingIcon = {
+                                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = Color.DarkGray,
+                                labelColor = Color.White,
+                                iconColor = Color.White,
+                                selectedContainerColor = Color.White,
+                                selectedLabelColor = Color.Black,
+                                selectedLeadingIconColor = Color.Black,
+                            ),
+                        )
                     }
-                    val icon = when (mode) {
-                        CastAutoAdvanceMode.OFF -> Icons.Outlined.StopCircle
-                        CastAutoAdvanceMode.NEXT -> Icons.Outlined.SkipNext
-                        CastAutoAdvanceMode.PREVIOUS -> Icons.Outlined.SkipPrevious
-                    }
-                    FilterChip(
-                        selected = autoAdvanceMode == mode,
-                        onClick = { onAutoAdvanceModeChange(mode) },
-                        label = { Text(stringResource(label), maxLines = 1) },
-                        leadingIcon = {
-                            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = Color.DarkGray,
-                            labelColor = Color.White,
-                            iconColor = Color.White,
-                            selectedContainerColor = Color.White,
-                            selectedLabelColor = Color.Black,
-                            selectedLeadingIconColor = Color.Black,
-                        ),
-                    )
                 }
             }
 
