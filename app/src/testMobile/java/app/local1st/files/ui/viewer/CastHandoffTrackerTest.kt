@@ -135,6 +135,18 @@ class CastHandoffTrackerTest {
     }
 
     @Test
+    fun switchingBackToLocalPlayerClearsLastRemoteVideo() {
+        val tracker = CastHandoffTracker(initialLocalMediaId = "video-b")
+        tracker.beginRemoteHandoff()
+        tracker.observe(isRemote = true, reportedMediaId = "video-b")
+
+        tracker.noteLocalMedia("video-a")
+
+        assertEquals(null, tracker.presentationMediaId(isRemote = true, reportedMediaId = null))
+        assertEquals("video-a", tracker.presentationMediaId(isRemote = false, reportedMediaId = "video-a"))
+    }
+
+    @Test
     fun playbackErrorDiscardsLastConfirmedRemoteVideo() {
         val tracker = CastHandoffTracker(initialLocalMediaId = "video-b")
         tracker.beginRemoteHandoff()
