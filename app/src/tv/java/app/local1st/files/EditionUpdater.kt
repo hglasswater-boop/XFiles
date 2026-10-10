@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -35,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.core.update.ReleaseAsset
 import app.local1st.files.core.update.SelfUpdateEdition
 import app.local1st.files.core.update.SelfUpdateReleaseContract
-import app.local1st.files.core.update.SelfUpdateTrack
+import app.local1st.files.core.update.isInstallableNormalBuild
 import app.local1st.files.core.util.SelfUpdateInstaller
 import java.io.File
 import java.io.FileOutputStream
@@ -49,7 +48,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 private data class TvRelease(
-    val track: SelfUpdateTrack,
     val versionName: String,
     val buildNumber: Int,
     val assetName: String,
@@ -60,7 +58,6 @@ private object TvSelfUpdater {
     private const val PREFS = "tv_self_update"
     private const val LAST_AUTO_CHECK = "last_auto_check"
     private const val AUTO_CHECK_ENABLED = "auto_check_enabled"
-    private const val SELECTED_TRACK = "selected_track"
     private const val AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
 
     fun isAutoCheckEnabled(context: Context): Boolean =
@@ -71,20 +68,6 @@ private object TvSelfUpdater {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(AUTO_CHECK_ENABLED, enabled)
-            .apply()
-    }
-
-    fun selectedTrack(context: Context): SelfUpdateTrack =
-        SelfUpdateTrack.fromStoredValue(
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(SELECTED_TRACK, null),
-        )
-
-    fun setSelectedTrack(context: Context, track: SelfUpdateTrack) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(SELECTED_TRACK, track.storedValue)
-            .remove(LAST_AUTO_CHECK)
             .apply()
     }
 
@@ -106,40 +89,36 @@ private object TvSelfUpdater {
         return now
     }
 
-    suspend fun check(context: Context, track: SelfUpdateTrack): TvRelease? =
-        withContext(Dispatchers.IO) {
-            val connection = openConnection(track.apiUrl, "application/vnd.github+json")
-            try {
-                val code = connection.responseCode
-                if (code == HttpURLConnection.HTTP_NOT_FOUND) return@withContext null
-                if (code !in 200..299) error("GitHub HTTP $code")
-                val body = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(body)
-                val resolved = SelfUpdateReleaseContract.resolve(
-                    track = track,
-                    edition = SelfUpdateEdition.TV,
-                    releaseBody = json.optString("body"),
-                    assets = json.releaseAssets(),
-                )
-                if (!resolved.isInstallableOver(
-                        installedBuild = BuildConfig.VERSION_CODE,
-                        installedTrack = trackForApplication(context.applicationInfo),
-                        selectedTrack = track,
-                    )
-                ) {
-                    return@withContext null
-                }
-                TvRelease(
-                    track = track,
-                    versionName = resolved.versionName,
-                    buildNumber = resolved.buildNumber,
-                    assetName = resolved.assetName,
-                    downloadUrl = resolved.downloadUrl,
-                )
-            } finally {
-                connection.disconnect()
+    suspend fun check(context: Context): TvRelease? = withContext(Dispatchers.IO) {
+        val connection = openConnection(
+            SelfUpdateReleaseContract.DEBUG_LATEST_API,
+            "application/vnd.github+json",
+        )
+        try {
+            val code = connection.responseCode
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) return@withContext null
+            if (code !in 200..299) error("GitHub HTTP $code")
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(body)
+            val resolved = SelfUpdateReleaseContract.resolveNormal(
+                edition = SelfUpdateEdition.TV,
+                assets = json.releaseAssets(),
+            )
+            val installedIsDebuggable =
+                context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+            if (!resolved.isInstallableOver(BuildConfig.VERSION_CODE, installedIsDebuggable)) {
+                return@withContext null
             }
+            TvRelease(
+                versionName = resolved.versionName,
+                buildNumber = resolved.buildNumber,
+                assetName = resolved.assetName,
+                downloadUrl = resolved.downloadUrl,
+            )
+        } finally {
+            connection.disconnect()
         }
+    }
 
     suspend fun downloadAndValidate(context: Context, release: TvRelease): File =
         withContext(Dispatchers.IO) {
@@ -183,13 +162,6 @@ private object TvSelfUpdater {
         SelfUpdateInstaller.install(context, apk)
     }
 
-    private fun trackForApplication(applicationInfo: ApplicationInfo): SelfUpdateTrack =
-        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            SelfUpdateTrack.NORMAL
-        } else {
-            SelfUpdateTrack.NIGHTLY
-        }
-
     @Suppress("DEPRECATION")
     private fun validateApk(context: Context, apk: File, release: TvRelease) {
         val packageInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
@@ -201,19 +173,16 @@ private object TvSelfUpdater {
         if (downloadedBuild != release.buildNumber) {
             error("Downloaded APK build number does not match the GitHub release")
         }
-        val downloadedTrack = packageInfo.applicationInfo?.let(::trackForApplication)
-            ?: error("Downloaded APK track could not be determined")
-        if (downloadedTrack != release.track) {
-            error("Downloaded APK does not match the selected update track")
+        val downloadedIsDebuggable = packageInfo.applicationInfo?.let { app ->
+            app.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        } ?: false
+        if (!downloadedIsDebuggable) {
+            error("Downloaded normal APK is not a debuggable debug-latest build")
         }
-        val installedTrack = trackForApplication(context.applicationInfo)
-        val installable = when {
-            downloadedBuild > BuildConfig.VERSION_CODE -> true
-            downloadedBuild < BuildConfig.VERSION_CODE -> false
-            else -> installedTrack != release.track
-        }
-        if (!installable) {
-            error("Downloaded APK is not an installable update for the selected track")
+        val installedIsDebuggable =
+            context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (!isInstallableNormalBuild(downloadedBuild, BuildConfig.VERSION_CODE, installedIsDebuggable)) {
+            error("Downloaded APK is not an installable normal update")
         }
     }
 
@@ -248,36 +217,20 @@ fun EditionUpdateSettingsSection() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var autoCheckEnabled by remember { mutableStateOf(TvSelfUpdater.isAutoCheckEnabled(context)) }
-    var selectedTrack by remember { mutableStateOf(TvSelfUpdater.selectedTrack(context)) }
     var lastCheck by remember { mutableStateOf(TvSelfUpdater.lastCheck(context)) }
     var checking by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<TvRelease?>(null) }
 
-    fun selectTrack(track: SelfUpdateTrack) {
-        if (track == selectedTrack) return
-        selectedTrack = track
-        TvSelfUpdater.setSelectedTrack(context, track)
-        lastCheck = 0L
-        statusMessage = null
-    }
-
     fun requestInstall() {
-        val track = selectedTrack
         scope.launch {
             checking = true
             statusMessage = null
-            runCatching { TvSelfUpdater.check(context, track) }
+            runCatching { TvSelfUpdater.check(context) }
                 .onSuccess { found ->
                     lastCheck = TvSelfUpdater.markChecked(context)
                     if (found == null) {
-                        statusMessage = context.getString(
-                            if (track == SelfUpdateTrack.NIGHTLY) {
-                                R.string.update_nightly_up_to_date
-                            } else {
-                                R.string.update_up_to_date
-                            },
-                        )
+                        statusMessage = context.getString(R.string.update_up_to_date)
                     } else {
                         release = found
                     }
@@ -301,37 +254,6 @@ fun EditionUpdateSettingsSection() {
                     BuildConfig.VERSION_CODE,
                 ),
                 style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.update_channel),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = selectedTrack == SelfUpdateTrack.NORMAL,
-                    enabled = !checking,
-                    onClick = { selectTrack(SelfUpdateTrack.NORMAL) },
-                    label = { Text(stringResource(R.string.update_channel_normal)) },
-                )
-                FilterChip(
-                    selected = selectedTrack == SelfUpdateTrack.NIGHTLY,
-                    enabled = !checking,
-                    onClick = { selectTrack(SelfUpdateTrack.NIGHTLY) },
-                    label = { Text(stringResource(R.string.update_channel_nightly)) },
-                )
-            }
-            Text(
-                stringResource(
-                    if (selectedTrack == SelfUpdateTrack.NIGHTLY) {
-                        R.string.update_channel_nightly_summary
-                    } else {
-                        R.string.update_channel_normal_summary
-                    },
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
             Row(
@@ -387,12 +309,8 @@ fun EditionUpdateSettingsSection() {
             ) {
                 Text(
                     stringResource(
-                        when {
-                            checking -> R.string.update_checking
-                            selectedTrack == SelfUpdateTrack.NIGHTLY ->
-                                R.string.update_install_latest_nightly
-                            else -> R.string.update_check_now
-                        },
+                        if (checking) R.string.update_checking
+                        else R.string.update_check_now,
                     ),
                 )
             }
@@ -492,8 +410,7 @@ fun EditionStartupUpdateCheck() {
 
     LaunchedEffect(Unit) {
         if (!TvSelfUpdater.autoCheckDue(context)) return@LaunchedEffect
-        val track = TvSelfUpdater.selectedTrack(context)
-        runCatching { TvSelfUpdater.check(context, track) }
+        runCatching { TvSelfUpdater.check(context) }
             .onSuccess {
                 TvSelfUpdater.markChecked(context)
                 release = it
