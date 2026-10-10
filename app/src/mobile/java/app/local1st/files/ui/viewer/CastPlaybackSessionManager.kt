@@ -417,6 +417,13 @@ internal object CastPlaybackSessionManager {
         created
     }
 
+    /** Remove the old video player/notification before the receiver is given a photo. */
+    fun stopForImageCast() {
+        synchronized(lock) {
+            activeSession?.let(::destroyLocked)
+        }
+    }
+
     fun releaseViewer(session: Session) {
         synchronized(lock) {
             if (viewerSession === session) viewerSession = null
