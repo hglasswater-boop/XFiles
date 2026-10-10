@@ -34,24 +34,19 @@ data class ResolvedUpdateRelease(
     fun isNewerThan(installedBuild: Int): Boolean = buildNumber > installedBuild
 
     fun isInstallableOver(installedBuild: Int?, installedIsDebuggable: Boolean?): Boolean =
-        when (source) {
-            SelfUpdateSource.STABLE -> installedBuild == null || buildNumber > installedBuild
-            SelfUpdateSource.DEBUG ->
-                isInstallableNormalBuild(buildNumber, installedBuild, installedIsDebuggable)
-        }
+        isInstallableNormalBuild(buildNumber, installedBuild, installedIsDebuggable)
 }
 
 /**
- * Normal is the only self-update source. Equal-version replacement is permitted solely
- * to migrate an existing non-debuggable (formerly Nightly/stable) normal-package install.
+ * Both stable and rolling debug updates require a strictly newer Android build number.
+ * Never offer a same-build update that would replace a stable install with a debug APK.
  */
+@Suppress("UNUSED_PARAMETER")
 fun isInstallableNormalBuild(
     downloadedBuild: Int,
     installedBuild: Int?,
     installedIsDebuggable: Boolean?,
-): Boolean = installedBuild == null ||
-    downloadedBuild > installedBuild ||
-    (downloadedBuild == installedBuild && installedIsDebuggable == false)
+): Boolean = downloadedBuild > 0 && (installedBuild == null || downloadedBuild > installedBuild)
 
 object SelfUpdateReleaseContract {
     const val STABLE_LATEST_API =
