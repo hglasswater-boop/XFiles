@@ -30,7 +30,7 @@ object FileTypes {
     // Keep the thumbnail path independent of a device/vendor MimeTypeMap being incomplete.
     // Network filesystems commonly provide no MIME at all, so extension fallback is essential.
     private val imageExtensions = setOf(
-        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff",
+        "jpg", "jpeg", "png", "apng", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff",
     )
     private val videoExtensions = setOf(
         "mp4", "m4v", "mkv", "avi", "mov", "webm", "mpg", "mpeg", "ts", "m2ts", "mts",
@@ -49,6 +49,7 @@ object FileTypes {
                 in imageExtensions -> when (ext) {
                     "jpg", "jpeg" -> "image/jpeg"
                     "png" -> "image/png"
+                    "apng" -> "image/apng"
                     "gif" -> "image/gif"
                     "webp" -> "image/webp"
                     else -> "image/*"
