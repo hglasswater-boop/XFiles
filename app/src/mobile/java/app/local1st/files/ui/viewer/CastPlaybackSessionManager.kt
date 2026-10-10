@@ -74,9 +74,10 @@ internal object CastPlaybackSessionManager {
 
         private fun presentedIndex(): Int? {
             if (!isRemote()) return null
-            val mediaId = handoffTracker.pendingTargetMediaId
-                ?: delegatePlayer.currentMediaItem?.mediaId
-                ?: return null
+            val mediaId = handoffTracker.presentationMediaId(
+                isRemote = true,
+                reportedMediaId = delegatePlayer.currentMediaItem?.mediaId,
+            ) ?: return null
             return entryIds.indexOf(mediaId).takeIf { it >= 0 }
         }
 
