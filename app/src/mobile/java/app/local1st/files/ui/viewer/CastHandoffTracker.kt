@@ -10,6 +10,7 @@ package app.local1st.files.ui.viewer
  */
 internal class CastHandoffTracker(initialLocalMediaId: String?) {
     private var lastLocalMediaId: String? = initialLocalMediaId
+    private var lastConfirmedRemoteMediaId: String? = null
     private var targetMediaId: String? = null
 
     val pendingTargetMediaId: String?
@@ -20,6 +21,7 @@ internal class CastHandoffTracker(initialLocalMediaId: String?) {
 
     fun noteLocalMedia(mediaId: String?) {
         targetMediaId = null
+        lastConfirmedRemoteMediaId = null
         if (mediaId != null) lastLocalMediaId = mediaId
     }
 
@@ -40,23 +42,27 @@ internal class CastHandoffTracker(initialLocalMediaId: String?) {
     ): String? {
         if (!isRemote || playbackFailed) {
             targetMediaId = null
+            lastConfirmedRemoteMediaId = null
             if (!isRemote && reportedMediaId != null) lastLocalMediaId = reportedMediaId
             return reportedMediaId
         }
 
-        val target = targetMediaId ?: return reportedMediaId
-        if (reportedMediaId == target) {
-            targetMediaId = null
-            return reportedMediaId
+        val target = targetMediaId
+        if (target != null && reportedMediaId != target) return target
+        if (reportedMediaId != null) {
+            lastConfirmedRemoteMediaId = reportedMediaId
+            if (reportedMediaId == target) targetMediaId = null
         }
-        return target
+        return reportedMediaId ?: lastConfirmedRemoteMediaId
     }
 
     fun presentationMediaId(isRemote: Boolean, reportedMediaId: String?): String? =
-        if (isRemote) targetMediaId ?: reportedMediaId else reportedMediaId
+        if (isRemote) targetMediaId ?: reportedMediaId ?: lastConfirmedRemoteMediaId
+        else reportedMediaId
 
     fun abort(reportedLocalMediaId: String? = null) {
         targetMediaId = null
+        lastConfirmedRemoteMediaId = null
         if (reportedLocalMediaId != null) lastLocalMediaId = reportedLocalMediaId
     }
 }
