@@ -233,4 +233,7 @@
     <string name="pdf_page_indicator">Seite %1$d / %2$d</string>
     <string name="pdf_page_render_failed">Seite %1$d konnte nicht dargestellt werden</string>
     <string name="pdf_page_content_description">Seite %1$d</string>
+    <string name="cast_image_unsupported">Dieses Bildformat wird beim Casten nicht unterstützt</string>
+    <string name="cast_image_unavailable">Bild kann nicht übertragen werden (Speicherort, Dateigröße oder Netzwerk prüfen)</string>
+    <string name="cast_image_failed">Das Bild konnte auf dem Cast-Gerät nicht angezeigt werden</string>
 </resources>
