@@ -100,7 +100,8 @@ fun ImageViewer(items: List<XEntry>, startIndex: Int, onClose: () -> Unit) {
     // would give the picture the whole screen except a strip it still cannot use.
     SystemBarsHidden(hidden = !barsVisible)
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    EditionImageCastHost(items, items[pagerState.settledPage.coerceIn(0, items.lastIndex)]) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = !currentZoomed,
@@ -153,6 +154,7 @@ fun ImageViewer(items: List<XEntry>, startIndex: Int, onClose: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                EditionImageCastButton()
                 Text(
                     "${pagerState.currentPage + 1}/${items.size}",
                     color = Color.White,
@@ -160,6 +162,7 @@ fun ImageViewer(items: List<XEntry>, startIndex: Int, onClose: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
             }
+        }
         }
     }
 }
