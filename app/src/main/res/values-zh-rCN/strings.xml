@@ -233,4 +233,7 @@
     <string name="pdf_page_indicator">第 %1$d / %2$d 页</string>
     <string name="pdf_page_render_failed">无法渲染第 %1$d 页</string>
     <string name="pdf_page_content_description">第 %1$d 页</string>
+    <string name="cast_image_unsupported">Cast 不支持此图片格式</string>
+    <string name="cast_image_unavailable">无法投放图片（请检查文件位置、大小和网络）</string>
+    <string name="cast_image_failed">无法在 Cast 设备上显示图片</string>
 </resources>
