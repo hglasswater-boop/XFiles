@@ -32,9 +32,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.local1st.files.core.update.ReleaseAsset
+import app.local1st.files.core.update.ResolvedUpdateRelease
+import app.local1st.files.core.update.SelfUpdateSource
+import app.local1st.files.core.update.StableReleaseMetadata
 import app.local1st.files.core.update.SelfUpdateEdition
 import app.local1st.files.core.update.SelfUpdateReleaseContract
-import app.local1st.files.core.update.isInstallableNormalBuild
+import app.local1st.files.core.util.SelfUpdateApkVerifier
 import app.local1st.files.core.util.SelfUpdateInstaller
 import java.io.File
 import java.io.FileOutputStream
@@ -52,6 +55,7 @@ private data class TvRelease(
     val buildNumber: Int,
     val assetName: String,
     val downloadUrl: String,
+    val source: SelfUpdateSource,
 )
 
 private object TvSelfUpdater {
@@ -90,33 +94,41 @@ private object TvSelfUpdater {
     }
 
     suspend fun check(context: Context): TvRelease? = withContext(Dispatchers.IO) {
-        val connection = openConnection(
-            SelfUpdateReleaseContract.DEBUG_LATEST_API,
-            "application/vnd.github+json",
-        )
-        try {
-            val code = connection.responseCode
-            if (code == HttpURLConnection.HTTP_NOT_FOUND) return@withContext null
-            if (code !in 200..299) error("GitHub HTTP $code")
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(body)
-            val resolved = SelfUpdateReleaseContract.resolveNormal(
-                edition = SelfUpdateEdition.TV,
-                assets = json.releaseAssets(),
-            )
-            val installedIsDebuggable =
-                context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-            if (!resolved.isInstallableOver(BuildConfig.VERSION_CODE, installedIsDebuggable)) {
-                return@withContext null
+        val stable = runCatching {
+            fetchRelease(SelfUpdateReleaseContract.STABLE_LATEST_API)?.let {
+                SelfUpdateReleaseContract.resolveStable(
+                    edition = SelfUpdateEdition.TV,
+                    release = it.stableReleaseMetadata(),
+                )
             }
+        }
+        val debug = runCatching {
+            fetchRelease(SelfUpdateReleaseContract.DEBUG_LATEST_API)?.let {
+                SelfUpdateReleaseContract.resolveNormal(
+                    edition = SelfUpdateEdition.TV,
+                    assets = it.releaseAssets(),
+                )
+            }
+        }
+        val installedIsDebuggable =
+            context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        val resolved = SelfUpdateReleaseContract.selectNormalUpdate(
+            stable = stable.getOrNull(),
+            debug = debug.getOrNull(),
+            installedBuild = BuildConfig.VERSION_CODE,
+            installedIsDebuggable = installedIsDebuggable,
+        )
+        if (resolved == null && (stable.isFailure || debug.isFailure)) {
+            throw (stable.exceptionOrNull() ?: debug.exceptionOrNull()!!)
+        }
+        resolved?.let {
             TvRelease(
-                versionName = resolved.versionName,
-                buildNumber = resolved.buildNumber,
-                assetName = resolved.assetName,
-                downloadUrl = resolved.downloadUrl,
+                versionName = it.versionName,
+                buildNumber = it.buildNumber,
+                assetName = it.assetName,
+                downloadUrl = it.downloadUrl,
+                source = it.source,
             )
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -176,13 +188,42 @@ private object TvSelfUpdater {
         val downloadedIsDebuggable = packageInfo.applicationInfo?.let { app ->
             app.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         } ?: false
-        if (!downloadedIsDebuggable) {
-            error("Downloaded normal APK is not a debuggable debug-latest build")
+        if (downloadedIsDebuggable != (release.source == SelfUpdateSource.DEBUG)) {
+            error("Downloaded APK build type does not match GitHub release")
         }
         val installedIsDebuggable =
             context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        if (!isInstallableNormalBuild(downloadedBuild, BuildConfig.VERSION_CODE, installedIsDebuggable)) {
+        val candidate = ResolvedUpdateRelease(
+            versionName = release.versionName,
+            buildNumber = release.buildNumber,
+            assetName = release.assetName,
+            downloadUrl = release.downloadUrl,
+            source = release.source,
+        )
+        if (!candidate.isInstallableOver(BuildConfig.VERSION_CODE, installedIsDebuggable)) {
             error("Downloaded APK is not an installable normal update")
+        }
+        SelfUpdateApkVerifier.requireMatchingInstalledSigner(context, apk, context.packageName)
+    }
+
+    private fun JSONObject.stableReleaseMetadata(): StableReleaseMetadata =
+        StableReleaseMetadata(
+            tagName = getString("tag_name"),
+            body = optString("body"),
+            draft = optBoolean("draft"),
+            prerelease = optBoolean("prerelease"),
+            assets = releaseAssets(),
+        )
+
+    private fun fetchRelease(url: String): JSONObject? {
+        val connection = openConnection(url, "application/vnd.github+json")
+        try {
+            val code = connection.responseCode
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) return null
+            if (code !in 200..299) error("GitHub HTTP $code")
+            return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            connection.disconnect()
         }
     }
 

@@ -33,9 +33,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.local1st.files.core.update.ReleaseAsset
+import app.local1st.files.core.update.ResolvedUpdateRelease
+import app.local1st.files.core.update.SelfUpdateSource
+import app.local1st.files.core.update.StableReleaseMetadata
 import app.local1st.files.core.update.SelfUpdateEdition
 import app.local1st.files.core.update.SelfUpdateReleaseContract
-import app.local1st.files.core.update.isInstallableNormalBuild
+import app.local1st.files.core.util.SelfUpdateApkVerifier
 import app.local1st.files.core.util.SelfUpdateInstaller
 import java.io.File
 import java.io.FileOutputStream
@@ -61,6 +64,7 @@ private data class MobileRelease(
     val buildNumber: Int,
     val assetName: String,
     val downloadUrl: String,
+    val source: SelfUpdateSource,
 )
 
 private data class InstalledNormalPackage(
@@ -104,23 +108,42 @@ private object MobileSelfUpdater {
     }
 
     suspend fun checkNormal(context: Context): MobileRelease? = withContext(Dispatchers.IO) {
-        val json = fetchRelease(SelfUpdateReleaseContract.DEBUG_LATEST_API)
-            ?: return@withContext null
-        val resolved = SelfUpdateReleaseContract.resolveNormal(
-            edition = SelfUpdateEdition.MOBILE,
-            assets = json.releaseAssets(),
-        )
-        val installed = installedNormalPackage(context)
-        if (!resolved.isInstallableOver(installed?.buildNumber, installed?.isDebuggable)) {
-            return@withContext null
+        val stable = runCatching {
+            fetchRelease(SelfUpdateReleaseContract.STABLE_LATEST_API)?.let {
+                SelfUpdateReleaseContract.resolveStable(
+                    edition = SelfUpdateEdition.MOBILE,
+                    release = it.stableReleaseMetadata(),
+                )
+            }
         }
-        MobileRelease(
-            channel = MobileReleaseChannel.NORMAL,
-            versionName = resolved.versionName,
-            buildNumber = resolved.buildNumber,
-            assetName = resolved.assetName,
-            downloadUrl = resolved.downloadUrl,
+        val debug = runCatching {
+            fetchRelease(SelfUpdateReleaseContract.DEBUG_LATEST_API)?.let {
+                SelfUpdateReleaseContract.resolveNormal(
+                    edition = SelfUpdateEdition.MOBILE,
+                    assets = it.releaseAssets(),
+                )
+            }
+        }
+        val installed = installedNormalPackage(context)
+        val resolved = SelfUpdateReleaseContract.selectNormalUpdate(
+            stable = stable.getOrNull(),
+            debug = debug.getOrNull(),
+            installedBuild = installed?.buildNumber,
+            installedIsDebuggable = installed?.isDebuggable,
         )
+        if (resolved == null && (stable.isFailure || debug.isFailure)) {
+            throw (stable.exceptionOrNull() ?: debug.exceptionOrNull()!!)
+        }
+        resolved?.let {
+            MobileRelease(
+                channel = MobileReleaseChannel.NORMAL,
+                versionName = it.versionName,
+                buildNumber = it.buildNumber,
+                assetName = it.assetName,
+                downloadUrl = it.downloadUrl,
+                source = it.source,
+            )
+        }
     }
 
     suspend fun checkDiagnostic(context: Context): MobileRelease? = withContext(Dispatchers.IO) {
@@ -137,6 +160,7 @@ private object MobileSelfUpdater {
             buildNumber = resolved.buildNumber,
             assetName = resolved.assetName,
             downloadUrl = resolved.downloadUrl,
+            source = SelfUpdateSource.DEBUG,
         )
     }
 
@@ -223,16 +247,18 @@ private object MobileSelfUpdater {
             val downloadedIsDebuggable = packageInfo.applicationInfo?.let { app ->
                 app.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
             } ?: false
-            if (!downloadedIsDebuggable) {
-                error("Downloaded normal APK is not a debuggable debug-latest build")
+            if (downloadedIsDebuggable != (release.source == SelfUpdateSource.DEBUG)) {
+                error("Downloaded APK build type does not match GitHub release")
             }
             val installed = installedNormalPackage(context)
-            if (!isInstallableNormalBuild(
-                    downloadedBuild = downloadedBuild,
-                    installedBuild = installed?.buildNumber,
-                    installedIsDebuggable = installed?.isDebuggable,
-                )
-            ) {
+            val candidate = ResolvedUpdateRelease(
+                versionName = release.versionName,
+                buildNumber = release.buildNumber,
+                assetName = release.assetName,
+                downloadUrl = release.downloadUrl,
+                source = release.source,
+            )
+            if (!candidate.isInstallableOver(installed?.buildNumber, installed?.isDebuggable)) {
                 error("Downloaded APK is not an installable normal update")
             }
         } else {
@@ -241,7 +267,17 @@ private object MobileSelfUpdater {
                 error("Downloaded APK is not newer than the installed build")
             }
         }
+        SelfUpdateApkVerifier.requireMatchingInstalledSigner(context, apk, release.channel.packageName)
     }
+
+    private fun JSONObject.stableReleaseMetadata(): StableReleaseMetadata =
+        StableReleaseMetadata(
+            tagName = getString("tag_name"),
+            body = optString("body"),
+            draft = optBoolean("draft"),
+            prerelease = optBoolean("prerelease"),
+            assets = releaseAssets(),
+        )
 
     private fun fetchRelease(url: String): JSONObject? {
         val connection = openConnection(url, "application/vnd.github+json")

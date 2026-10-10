@@ -148,7 +148,7 @@ For the current stable line, `v1.4.3-smb`:
 - `XFiles-TV-1.4.3-smb.apk` is the Google TV edition.
 - The release workflow also builds a mobile AAB as a CI artifact.
 
-The signed `debug-latest` builds published by Debug CI are the only in-app automatic-update source for Mobile and TV. The release workflow publishes versioned stable packages when a new version tag is introduced and builds the mobile AAB artifact; it no longer publishes `nightly`. Branches under `diagnose/*` can publish a separate `diagnostic-latest` package.
+The built-in update checker on Mobile and TV compares the latest stable signed release with the rolling signed `debug-latest` builds, offers the newest installable `versionCode`, and prefers stable when both builds are equally new. Download and installation still require your confirmation; no downgrade is attempted. Existing versions which only know `debug-latest` can acquire this updated checker from their next debug feed update. The release workflow publishes versioned stable packages and a Mobile AAB; Nightly remains retired. `diagnose/*` branches may publish a separate `diagnostic-latest` package.
 
 **Upgrading from an older Nightly-selected build:** install the signed Normal APK over the existing app once, without uninstalling, because the old Nightly updater cannot discover the retired channel's replacement. See [1.4.2 release notes](docs/releases/1.4.2-smb.md).
 
