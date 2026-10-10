@@ -19,11 +19,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Forward10
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -31,6 +33,8 @@ import androidx.compose.material.icons.outlined.Replay10
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -52,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +64,7 @@ import androidx.media3.cast.MediaRouteButton
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import kotlin.math.abs
 import kotlinx.coroutines.delay
@@ -72,6 +78,8 @@ internal fun CastRemoteControls(
     playing: Boolean,
     hasPrevious: Boolean,
     hasNext: Boolean,
+    autoAdvanceMode: CastAutoAdvanceMode,
+    onAutoAdvanceModeChange: (CastAutoAdvanceMode) -> Unit,
     onClose: () -> Unit,
 ) {
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -381,6 +389,46 @@ internal fun CastRemoteControls(
                     enabled = canNext,
                 ) {
                     Icon(Icons.Outlined.SkipNext, contentDescription = "Next", tint = Color.White)
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = if (isLandscape) 0.dp else 2.dp),
+            ) {
+                Text(
+                    stringResource(R.string.cast_auto_advance),
+                    color = Color.LightGray,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                CastAutoAdvanceMode.entries.forEach { mode ->
+                    val label = when (mode) {
+                        CastAutoAdvanceMode.OFF -> R.string.cast_auto_off
+                        CastAutoAdvanceMode.NEXT -> R.string.cast_auto_next
+                        CastAutoAdvanceMode.PREVIOUS -> R.string.cast_auto_previous
+                    }
+                    val icon = when (mode) {
+                        CastAutoAdvanceMode.OFF -> Icons.Outlined.StopCircle
+                        CastAutoAdvanceMode.NEXT -> Icons.Outlined.SkipNext
+                        CastAutoAdvanceMode.PREVIOUS -> Icons.Outlined.SkipPrevious
+                    }
+                    FilterChip(
+                        selected = autoAdvanceMode == mode,
+                        onClick = { onAutoAdvanceModeChange(mode) },
+                        label = { Text(stringResource(label), maxLines = 1) },
+                        leadingIcon = {
+                            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = Color.DarkGray,
+                            labelColor = Color.White,
+                            iconColor = Color.White,
+                            selectedContainerColor = Color.White,
+                            selectedLabelColor = Color.Black,
+                            selectedLeadingIconColor = Color.Black,
+                        ),
+                    )
                 }
             }
 
