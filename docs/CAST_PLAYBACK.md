@@ -18,9 +18,25 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
   video**. A transient or terminal `null` media ID from the still-connected receiver
   must not reset the controller's selection to the first video in the folder.
 - The selection remains on that last confirmed video when the **single receiver item
-  naturally finishes**. Playback reports stopped/ended rather than automatically
-  selecting the first or next folder item. Previous/next commands still work if there
-  are adjacent videos in the folder.
+  naturally finishes** and auto-advance is Off. Playback reports stopped/ended rather
+  than selecting the first or next folder item. Previous/next commands remain available.
+- The Cast controller offers three mutually exclusive auto-advance modes with an icon
+  and visible label for each: **Off** (stop on this video), **Next** (forward in folder
+  order), and **Previous** (backward in folder order). Off is the initial mode. This
+  mode is owned by the process-scoped Cast session manager, so it survives dismissing
+  and reopening the controller during the same app process, but is not persisted across
+  app restarts. Changing the mode does not immediately start another video.
+- Auto-advance runs **only** when the active remote receiver reports
+  `Player.STATE_ENDED`, with no pending handoff or player error. Its source video
+  is the last receiver-confirmed media ID, not the local playlist's index or Cast's
+  sometimes-empty receiver queue. The manager replaces the receiver's one media item
+  with the immediately adjacent folder video via the existing explicit remote load.
+  At either folder boundary the current video remains selected and playback ends;
+  there is **no wraparound**.
+- Process a natural completion for a video **once** even if Cast sends duplicate
+  terminal events from multiple listeners. After that video is deliberately replayed
+  and reaches a fresh ready state, a subsequent natural ending may advance again.
+  Explicit seek, pause, manual stop, disconnect and playback error never advance.
 - An explicit jump supersedes the previous selection immediately, but stale callbacks
   from the previous receiver item cannot acknowledge it. The new selection is confirmed
   only when the receiver reports its target media ID.
@@ -39,8 +55,16 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
 3. The pending jump stays authoritative over stale A/`null` reports.
 4. Disconnection and failed playback do not retain the old remote identity.
 5. The non-remote path never substitutes the remembered remote media ID.
+6. Off mode leaves the item selected; Next and Previous choose the correct adjacent item.
+7. First/last boundaries never wrap; unknown videos never select an arbitrary item.
+8. Repeated END events for the same video do not skip multiple videos, and a replayed
+   video may advance again after it has entered a fresh ready state.
+9. Pending handoff, errors, disconnection and non-ended playback cannot advance.
 
 Physical-device validation (not covered by JVM tests): cast a non-first video,
-allow it to finish, check that the controller, browser highlight and notification
-still refer to that video and that playback is no longer active. Repeat for
-manual stop/disconnect and previous/next across videos.
+allow it to finish with Off selected and check that the controller, browser
+highlight and notification still refer to it with playback stopped. Change mode
+to Next and Previous and check sequential automatic playback in each direction;
+verify both folder boundaries, pause, manual stop/disconnect and manual next/previous.
+With the controller dismissed, verify auto-advance still runs and updating the mode
+after reopening controls takes effect on the next video end.
