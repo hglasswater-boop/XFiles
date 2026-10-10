@@ -47,14 +47,17 @@ internal object CastPlaybackSessionManager {
     internal class Session internal constructor(
         val entryIds: List<String>,
         val entries: List<XEntry>,
+        val mediaItems: List<MediaItem>,
         val relay: CastMediaRelay,
         val localPlayer: ExoPlayer,
         val remotePlayer: RemoteCastPlayer,
         val castPlayer: CastPlayer,
         val player: Player,
         val handoffTracker: CastHandoffTracker,
+        val autoAdvance: CastAutoAdvance,
         val notificationController: CastPlaybackNotificationController,
         var lifecycleListener: Player.Listener? = null,
+        var receiverListener: Player.Listener? = null,
     )
 
     /**
@@ -172,6 +175,13 @@ internal object CastPlaybackSessionManager {
 
     private val _activePlayback = MutableStateFlow<ActiveCastPlayback?>(null)
     val activePlayback = _activePlayback.asStateFlow()
+
+    private val _autoAdvanceMode = MutableStateFlow(CastAutoAdvanceMode.OFF)
+    val autoAdvanceMode = _autoAdvanceMode.asStateFlow()
+
+    fun setAutoAdvanceMode(mode: CastAutoAdvanceMode) {
+        _autoAdvanceMode.value = mode
+    }
 
     private val openControlRequestChannel = Channel<Unit>(Channel.CONFLATED)
     val openControlRequests = openControlRequestChannel.receiveAsFlow()
@@ -330,6 +340,7 @@ internal object CastPlaybackSessionManager {
                         lastPrewarmedIndex = currentIndex
                         prewarmCastWindow(created.relay, created.entries, currentIndex)
                     }
+                    maybeAutoAdvanceLocked(created)
                     publishRemoteStateLocked(created)
                 }
             }
@@ -362,19 +373,38 @@ internal object CastPlaybackSessionManager {
                 }
             }
         }
+        val receiverListener = object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                synchronized(lock) {
+                    if (activeSession !== created || !isRemote(created)) return
+                    created.handoffTracker.observe(
+                        isRemote = true,
+                        reportedMediaId = created.remotePlayer.currentMediaItem?.mediaId,
+                        playbackFailed = created.castPlayer.playerError != null ||
+                            created.remotePlayer.playerError != null,
+                    )
+                    maybeAutoAdvanceLocked(created)
+                    publishRemoteStateLocked(created)
+                }
+            }
+        }
         created = Session(
             entryIds = ids,
             entries = entries,
+            mediaItems = mediaItems,
             relay = relay,
             localPlayer = localPlayer,
             remotePlayer = remotePlayer,
             castPlayer = castPlayer,
             player = presentationPlayer,
             handoffTracker = handoffTracker,
+            autoAdvance = CastAutoAdvance(),
             notificationController = notificationController,
             lifecycleListener = lifecycleListener,
+            receiverListener = receiverListener,
         )
         castPlayer.addListener(lifecycleListener)
+        remotePlayer.addListener(receiverListener)
 
         if (isRemote(created)) {
             // Cast was already connected before this viewer/session was created. Keep the local
@@ -461,6 +491,32 @@ internal object CastPlaybackSessionManager {
         castPlayer.playWhenReady = true
     }
 
+    private fun maybeAutoAdvanceLocked(session: Session) {
+        val selectedMediaId = session.handoffTracker.presentationMediaId(
+            isRemote = true,
+            reportedMediaId = session.remotePlayer.currentMediaItem?.mediaId,
+        )
+        val nextIndex = session.autoAdvance.nextOnEnd(
+            mode = _autoAdvanceMode.value,
+            entryIds = session.entryIds,
+            selectedMediaId = selectedMediaId,
+            playbackState = session.remotePlayer.playbackState,
+            handoffPending = session.handoffTracker.isPending,
+            playbackFailed = session.castPlayer.playerError != null ||
+                session.remotePlayer.playerError != null,
+            isRemote = isRemote(session),
+        ) ?: return
+        selectRemoteMedia(
+            castPlayer = session.castPlayer,
+            handoffTracker = session.handoffTracker,
+            relay = session.relay,
+            entries = session.entries,
+            mediaItems = session.mediaItems,
+            mediaItemIndex = nextIndex,
+            positionMs = null,
+        )
+    }
+
     private fun prewarmCastWindow(relay: CastMediaRelay, entries: List<XEntry>, centerIndex: Int) {
         if (entries.isEmpty()) return
         val center = centerIndex.coerceIn(0, entries.lastIndex)
@@ -537,6 +593,10 @@ internal object CastPlaybackSessionManager {
             runCatching { session.castPlayer.removeListener(listener) }
         }
         session.lifecycleListener = null
+        session.receiverListener?.let { listener ->
+            runCatching { session.remotePlayer.removeListener(listener) }
+        }
+        session.receiverListener = null
         runCatching { session.localPlayer.pause() }
         runCatching { session.castPlayer.release() }
         runCatching { session.remotePlayer.release() }
