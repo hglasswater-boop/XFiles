@@ -143,13 +143,16 @@ XFiles TV は別パッケージとして、リモコン操作向けに最適化�
 
 署名済み APK は [**GitHub Releases**](https://github.com/hglasswater-boop/XFiles/releases) から取得できます。
 
-現行の正式版系統 `v1.4.1-smb` では:
+現行の正式版系統 `v1.4.2-smb` では:
 
-- `XFiles-1.4.1-smb.apk` が通常のモバイル版。
-- `XFiles-TV-1.4.1-smb.apk` が Google TV 版。
+- `XFiles-1.4.2-smb.apk` が通常のモバイル版。
+- `XFiles-TV-1.4.2-smb.apk` が Google TV 版。
 - Release CI ではモバイル AAB も生成します。
 
-正式タグ作成後の `main` 更新ではローリング prerelease の `nightly` が更新されます。Debug CI はアプリ内の通常更新経路で使う署名済み `debug-latest` も公開し、`diagnose/*` ブランチでは別パッケージの `diagnostic-latest` を公開できます。
+アプリ内の自動更新経路は Debug CI が公開する署名済み `debug-latest` のみです（Mobile / TV 共通）。Release CI は新しいバージョンタグが導入されたときに正式版を公開し、モバイル AAB も生成します。`nightly` の公開と更新チャンネル切替は廃止しました。`diagnose/*` ブランチでは別パッケージの `diagnostic-latest` を公開できます。
+
+**旧Nightly版から移行する場合**：旧アプリは新しい通常更新先を自動認識できません。データを保持するためアンインストールせず、署名済み通常版APKを一度上書きインストールしてください。[1.4.2リリースノート](docs/releases/1.4.2-smb.md)も参照してください。
+
 
 **Android 8.0 / API 26 以上**が必要です。
 

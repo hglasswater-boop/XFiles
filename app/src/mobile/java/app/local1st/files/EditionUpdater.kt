@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -36,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.core.update.ReleaseAsset
 import app.local1st.files.core.update.SelfUpdateEdition
 import app.local1st.files.core.update.SelfUpdateReleaseContract
-import app.local1st.files.core.update.SelfUpdateTrack
+import app.local1st.files.core.update.isInstallableNormalBuild
 import app.local1st.files.core.util.SelfUpdateInstaller
 import java.io.File
 import java.io.FileOutputStream
@@ -58,7 +57,6 @@ private enum class MobileReleaseChannel(
 
 private data class MobileRelease(
     val channel: MobileReleaseChannel,
-    val track: SelfUpdateTrack?,
     val versionName: String,
     val buildNumber: Int,
     val assetName: String,
@@ -67,14 +65,13 @@ private data class MobileRelease(
 
 private data class InstalledNormalPackage(
     val buildNumber: Int,
-    val track: SelfUpdateTrack?,
+    val isDebuggable: Boolean?,
 )
 
 private object MobileSelfUpdater {
     private const val PREFS = "mobile_self_update"
     private const val LAST_AUTO_CHECK = "last_auto_check"
     private const val AUTO_CHECK_ENABLED = "auto_check_enabled"
-    private const val SELECTED_TRACK = "selected_track"
     private const val AUTO_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
 
     fun isAutoCheckEnabled(context: Context): Boolean =
@@ -85,20 +82,6 @@ private object MobileSelfUpdater {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(AUTO_CHECK_ENABLED, enabled)
-            .apply()
-    }
-
-    fun selectedTrack(context: Context): SelfUpdateTrack =
-        SelfUpdateTrack.fromStoredValue(
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(SELECTED_TRACK, null),
-        )
-
-    fun setSelectedTrack(context: Context, track: SelfUpdateTrack) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(SELECTED_TRACK, track.storedValue)
-            .remove(LAST_AUTO_CHECK)
             .apply()
     }
 
@@ -120,33 +103,25 @@ private object MobileSelfUpdater {
         return now
     }
 
-    suspend fun checkNormal(context: Context, track: SelfUpdateTrack): MobileRelease? =
-        withContext(Dispatchers.IO) {
-            val json = fetchRelease(track.apiUrl) ?: return@withContext null
-            val resolved = SelfUpdateReleaseContract.resolve(
-                track = track,
-                edition = SelfUpdateEdition.MOBILE,
-                releaseBody = json.optString("body"),
-                assets = json.releaseAssets(),
-            )
-            val installed = installedNormalPackage(context)
-            if (!resolved.isInstallableOver(
-                    installedBuild = installed?.buildNumber,
-                    installedTrack = installed?.track,
-                    selectedTrack = track,
-                )
-            ) {
-                return@withContext null
-            }
-            MobileRelease(
-                channel = MobileReleaseChannel.NORMAL,
-                track = track,
-                versionName = resolved.versionName,
-                buildNumber = resolved.buildNumber,
-                assetName = resolved.assetName,
-                downloadUrl = resolved.downloadUrl,
-            )
+    suspend fun checkNormal(context: Context): MobileRelease? = withContext(Dispatchers.IO) {
+        val json = fetchRelease(SelfUpdateReleaseContract.DEBUG_LATEST_API)
+            ?: return@withContext null
+        val resolved = SelfUpdateReleaseContract.resolveNormal(
+            edition = SelfUpdateEdition.MOBILE,
+            assets = json.releaseAssets(),
+        )
+        val installed = installedNormalPackage(context)
+        if (!resolved.isInstallableOver(installed?.buildNumber, installed?.isDebuggable)) {
+            return@withContext null
         }
+        MobileRelease(
+            channel = MobileReleaseChannel.NORMAL,
+            versionName = resolved.versionName,
+            buildNumber = resolved.buildNumber,
+            assetName = resolved.assetName,
+            downloadUrl = resolved.downloadUrl,
+        )
+    }
 
     suspend fun checkDiagnostic(context: Context): MobileRelease? = withContext(Dispatchers.IO) {
         val json = fetchRelease(SelfUpdateReleaseContract.DIAGNOSTIC_LATEST_API)
@@ -158,7 +133,6 @@ private object MobileSelfUpdater {
         }
         MobileRelease(
             channel = MobileReleaseChannel.DIAGNOSTIC,
-            track = null,
             versionName = resolved.versionName,
             buildNumber = resolved.buildNumber,
             assetName = resolved.assetName,
@@ -225,17 +199,12 @@ private object MobileSelfUpdater {
             )
             InstalledNormalPackage(
                 buildNumber = packageInfo.versionCode,
-                track = packageInfo.applicationInfo?.let(::trackForApplication),
+                isDebuggable = packageInfo.applicationInfo?.let { app ->
+                    app.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+                },
             )
         } catch (_: PackageManager.NameNotFoundException) {
             null
-        }
-
-    private fun trackForApplication(applicationInfo: ApplicationInfo): SelfUpdateTrack =
-        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            SelfUpdateTrack.NORMAL
-        } else {
-            SelfUpdateTrack.NIGHTLY
         }
 
     @Suppress("DEPRECATION")
@@ -251,22 +220,20 @@ private object MobileSelfUpdater {
         }
 
         if (release.channel == MobileReleaseChannel.NORMAL) {
-            val selectedTrack = release.track ?: error("Normal release is missing its update track")
-            val downloadedTrack = packageInfo.applicationInfo?.let(::trackForApplication)
-                ?: error("Downloaded APK track could not be determined")
-            if (downloadedTrack != selectedTrack) {
-                error("Downloaded APK does not match the selected update track")
+            val downloadedIsDebuggable = packageInfo.applicationInfo?.let { app ->
+                app.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+            } ?: false
+            if (!downloadedIsDebuggable) {
+                error("Downloaded normal APK is not a debuggable debug-latest build")
             }
             val installed = installedNormalPackage(context)
-            val installable = when {
-                installed == null -> true
-                downloadedBuild > installed.buildNumber -> true
-                downloadedBuild < installed.buildNumber -> false
-                installed.track == null -> false
-                else -> installed.track != selectedTrack
-            }
-            if (!installable) {
-                error("Downloaded APK is not an installable update for the selected track")
+            if (!isInstallableNormalBuild(
+                    downloadedBuild = downloadedBuild,
+                    installedBuild = installed?.buildNumber,
+                    installedIsDebuggable = installed?.isDebuggable,
+                )
+            ) {
+                error("Downloaded APK is not an installable normal update")
             }
         } else {
             val installedBuild = installedBuildNumber(context, release.channel.packageName)
@@ -320,37 +287,21 @@ fun EditionUpdateSettingsSection() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var autoCheckEnabled by remember { mutableStateOf(MobileSelfUpdater.isAutoCheckEnabled(context)) }
-    var selectedTrack by remember { mutableStateOf(MobileSelfUpdater.selectedTrack(context)) }
     var lastCheck by remember { mutableStateOf(MobileSelfUpdater.lastCheck(context)) }
     var checkingNormal by remember { mutableStateOf(false) }
     var checkingDiagnostic by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<MobileRelease?>(null) }
 
-    fun selectTrack(track: SelfUpdateTrack) {
-        if (track == selectedTrack) return
-        selectedTrack = track
-        MobileSelfUpdater.setSelectedTrack(context, track)
-        lastCheck = 0L
-        statusMessage = null
-    }
-
     fun requestNormalInstall() {
-        val track = selectedTrack
         scope.launch {
             checkingNormal = true
             statusMessage = null
-            runCatching { MobileSelfUpdater.checkNormal(context, track) }
+            runCatching { MobileSelfUpdater.checkNormal(context) }
                 .onSuccess { found ->
                     lastCheck = MobileSelfUpdater.markChecked(context)
                     if (found == null) {
-                        statusMessage = context.getString(
-                            if (track == SelfUpdateTrack.NIGHTLY) {
-                                R.string.update_nightly_up_to_date
-                            } else {
-                                R.string.update_normal_up_to_date
-                            },
-                        )
+                        statusMessage = context.getString(R.string.update_normal_up_to_date)
                     } else {
                         release = found
                     }
@@ -397,37 +348,6 @@ fun EditionUpdateSettingsSection() {
                     BuildConfig.VERSION_CODE,
                 ),
                 style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.update_channel),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = selectedTrack == SelfUpdateTrack.NORMAL,
-                    enabled = !checking,
-                    onClick = { selectTrack(SelfUpdateTrack.NORMAL) },
-                    label = { Text(stringResource(R.string.update_channel_normal)) },
-                )
-                FilterChip(
-                    selected = selectedTrack == SelfUpdateTrack.NIGHTLY,
-                    enabled = !checking,
-                    onClick = { selectTrack(SelfUpdateTrack.NIGHTLY) },
-                    label = { Text(stringResource(R.string.update_channel_nightly)) },
-                )
-            }
-            Text(
-                stringResource(
-                    if (selectedTrack == SelfUpdateTrack.NIGHTLY) {
-                        R.string.update_channel_nightly_summary
-                    } else {
-                        R.string.update_channel_normal_summary
-                    },
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
             Row(
@@ -488,12 +408,8 @@ fun EditionUpdateSettingsSection() {
                 ) {
                     Text(
                         stringResource(
-                            when {
-                                checkingNormal -> R.string.update_checking
-                                selectedTrack == SelfUpdateTrack.NIGHTLY ->
-                                    R.string.update_install_latest_nightly
-                                else -> R.string.update_install_latest_normal
-                            },
+                            if (checkingNormal) R.string.update_checking
+                            else R.string.update_install_latest_normal,
                         ),
                     )
                 }
@@ -640,8 +556,7 @@ fun EditionStartupUpdateCheck() {
 
     LaunchedEffect(Unit) {
         if (!MobileSelfUpdater.autoCheckDue(context)) return@LaunchedEffect
-        val track = MobileSelfUpdater.selectedTrack(context)
-        runCatching { MobileSelfUpdater.checkNormal(context, track) }
+        runCatching { MobileSelfUpdater.checkNormal(context) }
             .onSuccess {
                 MobileSelfUpdater.markChecked(context)
                 release = it

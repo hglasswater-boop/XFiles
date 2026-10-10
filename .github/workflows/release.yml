@@ -75,7 +75,19 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Decide release (stable vs rolling prerelease)
+      - name: Retire legacy Nightly release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release delete nightly --cleanup-tag --yes
+          fi
+          if gh api "repos/${{ github.repository }}/git/ref/tags/nightly" >/dev/null 2>&1; then
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly"
+          fi
+
+      - name: Decide stable release
         id: decide
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -87,17 +99,14 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${VERSION}")
           if [ "$CODE" = "200" ]; then
-            echo "tag=nightly"                                      >> "$GITHUB_OUTPUT"
-            echo "name=XFiles ${VERSION} nightly (build ${BUILD})" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true"                                 >> "$GITHUB_OUTPUT"
-            echo "apk=XFiles-nightly.apk"                          >> "$GITHUB_OUTPUT"
-            echo "tv_apk=XFiles-TV-nightly.apk"                    >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=v${VERSION}"                                 >> "$GITHUB_OUTPUT"
-            echo "name=XFiles ${VERSION}"                          >> "$GITHUB_OUTPUT"
-            echo "prerelease=false"                                >> "$GITHUB_OUTPUT"
-            echo "apk=XFiles-${VERSION}.apk"                       >> "$GITHUB_OUTPUT"
-            echo "tv_apk=XFiles-TV-${VERSION}.apk"                 >> "$GITHUB_OUTPUT"
+            echo "publish=true"                                  >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}"                               >> "$GITHUB_OUTPUT"
+            echo "name=XFiles ${VERSION}"                        >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"                              >> "$GITHUB_OUTPUT"
+            echo "apk=XFiles-${VERSION}.apk"                     >> "$GITHUB_OUTPUT"
+            echo "tv_apk=XFiles-TV-${VERSION}.apk"               >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD"     >> "$GITHUB_OUTPUT"
@@ -133,35 +142,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Rename APKs
+        if: steps.decide.outputs.publish == 'true'
         run: |
           cp app/build/outputs/apk/mobile/release/app-mobile-release.apk "${{ steps.decide.outputs.apk }}"
           cp app/build/outputs/apk/tv/release/app-tv-release.apk "${{ steps.decide.outputs.tv_apk }}"
 
-      - name: Drop previous nightly
-        if: steps.decide.outputs.prerelease == 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          REPO="${{ github.repository }}"
-          AUTH="Authorization: Bearer $GITHUB_TOKEN"
-          ACCEPT="Accept: application/vnd.github+json"
-          CODE=$(curl -sS -o "$RUNNER_TEMP/nightly.json" -w '%{http_code}' \
-            -H "$AUTH" -H "$ACCEPT" \
-            "https://api.github.com/repos/${REPO}/releases/tags/nightly")
-          if [ "$CODE" = "200" ]; then
-            ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' \
-              "$RUNNER_TEMP/nightly.json")
-            if [ -n "$ID" ]; then
-              curl -sS -X DELETE -H "$AUTH" -H "$ACCEPT" \
-                "https://api.github.com/repos/${REPO}/releases/${ID}"
-            fi
-          fi
-          curl -sS -X DELETE -H "$AUTH" -H "$ACCEPT" \
-            -o /dev/null -w '' \
-            "https://api.github.com/repos/${REPO}/git/refs/tags/nightly" || true
-
       - name: Publish release
+        if: steps.decide.outputs.publish == 'true'
         uses: softprops/action-gh-release@v3
         with:
           token: ${{ github.token }}
