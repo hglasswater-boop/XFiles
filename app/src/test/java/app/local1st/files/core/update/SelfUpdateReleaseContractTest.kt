@@ -87,8 +87,8 @@ class SelfUpdateReleaseContractTest {
     }
 
     @Test
-    fun equalBuildPermitsLegacyNonDebuggableMigrationOnly() {
-        assertTrue(isInstallableNormalBuild(200, 200, false))
+    fun equalBuildIsNotOfferedEvenForNonDebuggableStableInstalls() {
+        assertFalse(isInstallableNormalBuild(200, 200, false))
         assertFalse(isInstallableNormalBuild(200, 200, true))
         assertFalse(isInstallableNormalBuild(200, 200, null))
     }
@@ -107,7 +107,7 @@ class SelfUpdateReleaseContractTest {
             assetName = "XFiles-1.4.1-smb-b200-debug.apk",
             downloadUrl = "download",
         )
-        assertTrue(release.isInstallableOver(200, false))
+        assertFalse(release.isInstallableOver(200, false))
         assertFalse(release.isInstallableOver(200, true))
         assertFalse(release.isInstallableOver(201, false))
         assertTrue(release.isNewerThan(199))
@@ -211,14 +211,14 @@ class SelfUpdateReleaseContractTest {
     }
 
     @Test
-    fun legacyEqualBuildMigrationStillOnlyUsesDebugCandidate() {
+    fun sameBuildDoesNotSwitchInstalledStableToDebug() {
         val stable = SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata)
         val debug = SelfUpdateReleaseContract.resolveNormal(
             SelfUpdateEdition.MOBILE,
             listOf(ReleaseAsset("XFiles-1.4.3-smb-b29860653-debug.apk", "debug")),
         )
         assertEquals(
-            debug,
+            null,
             SelfUpdateReleaseContract.selectNormalUpdate(stable, debug, 29860653, false),
         )
         assertEquals(
