@@ -142,13 +142,16 @@ XFiles TV is a separate package built specifically for a remote control:
 
 Grab signed builds from [**GitHub Releases**](https://github.com/hglasswater-boop/XFiles/releases).
 
-For the current stable line, `v1.4.1-smb`:
+For the current stable line, `v1.4.2-smb`:
 
-- `XFiles-1.4.1-smb.apk` is the normal mobile edition.
-- `XFiles-TV-1.4.1-smb.apk` is the Google TV edition.
+- `XFiles-1.4.2-smb.apk` is the normal mobile edition.
+- `XFiles-TV-1.4.2-smb.apk` is the Google TV edition.
 - The release workflow also builds a mobile AAB as a CI artifact.
 
 The signed `debug-latest` builds published by Debug CI are the only in-app automatic-update source for Mobile and TV. The release workflow publishes versioned stable packages when a new version tag is introduced and builds the mobile AAB artifact; it no longer publishes `nightly`. Branches under `diagnose/*` can publish a separate `diagnostic-latest` package.
+
+**Upgrading from an older Nightly-selected build:** install the signed Normal APK over the existing app once, without uninstalling, because the old Nightly updater cannot discover the retired channel's replacement. See [1.4.2 release notes](docs/releases/1.4.2-smb.md).
+
 
 Requires **Android 8.0 / API 26 or newer**.
 
