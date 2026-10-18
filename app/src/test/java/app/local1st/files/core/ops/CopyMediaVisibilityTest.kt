@@ -42,6 +42,25 @@ class CopyMediaVisibilityTest {
     }
 
     @Test
+    fun copyingNasDirectoryPublishesEachCompletedImage() = runBlocking {
+        val targetDir = temporaryFolder.newFolder("Pictures")
+        val dir = XEntry(id = "smb://conn/Album", name = "Album", isDir = true)
+        val first = XEntry(id = "smb://conn/Album/one.png", name = "one.png", isDir = false, size = 4)
+        val second = XEntry(id = "smb://conn/Album/two.jpg", name = "two.jpg", isDir = false, size = 4)
+        val scans = mutableListOf<String>()
+        val nas = FakeNasFileSystem(
+            source = { ByteArrayInputStream("data".toByteArray()) },
+            children = mapOf(dir.id to listOf(first, second)),
+        )
+        val engine = engine(nas, LocalMediaIndexer(listOf(temporaryFolder.root)) { scans += it })
+        val running = engine.submit(FileOp.Copy(listOf(dir), localDir(targetDir)))
+
+        withTimeout(5_000) { running.progress.first { it.state == OpState.DONE } }
+
+        assertEquals(listOf("one.png", "two.jpg"), scans.map { File(it).name })
+    }
+
+    @Test
     fun failedTransferDeletesPartialFileAndDoesNotIndex() = runBlocking {
         val targetDir = temporaryFolder.newFolder("Pictures")
         val scans = mutableListOf<String>()
@@ -120,9 +139,12 @@ class CopyMediaVisibilityTest {
         kind = EntryKind.DIR,
     )
 
-    private class FakeNasFileSystem(private val source: () -> InputStream) : XFileSystem {
+    private class FakeNasFileSystem(
+        private val source: () -> InputStream,
+        private val children: Map<String, List<XEntry>> = emptyMap(),
+    ) : XFileSystem {
         override val scheme = XId.SCHEME_SMB
-        override fun list(dir: XEntry): List<XEntry> = emptyList()
+        override fun list(dir: XEntry): List<XEntry> = children[dir.id].orEmpty()
         override fun stat(id: String): XEntry? = null
         override fun openIn(entry: XEntry): InputStream = source()
         override fun openOut(parentDir: XEntry, name: String): OutputStream = error("unsupported")
