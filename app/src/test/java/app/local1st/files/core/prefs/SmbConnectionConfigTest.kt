@@ -69,6 +69,48 @@ class SmbConnectionConfigTest {
     }
 
     @Test
+    fun `old connections default to WireGuard disabled`() {
+        val config = smbConnectionFromInput(
+            id = "test",
+            name = "NAS",
+            host = "192.168.1.1",
+            sharePath = "files",
+            username = "",
+            domain = "",
+        )
+        assertEquals("", config.wireGuardTunnel)
+    }
+
+    @Test
+    fun `WireGuard tunnel name is trimmed but never interpreted`() {
+        val config = smbConnectionFromInput(
+            id = "test",
+            name = "NAS",
+            host = "192.168.1.1",
+            sharePath = "files",
+            username = "",
+            domain = "",
+            wireGuardTunnel = " Home-WG ",
+        )
+        assertEquals("Home-WG", config.wireGuardTunnel)
+    }
+
+    @Test
+    fun `WireGuard tunnel name rejects embedded control characters`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            smbConnectionFromInput(
+                id = "test",
+                name = "NAS",
+                host = "192.168.1.1",
+                sharePath = "files",
+                username = "",
+                domain = "",
+                wireGuardTunnel = "bad\nname",
+            )
+        }
+    }
+
+    @Test
     fun `friendly SMB paths never expose connection id`() {
         val config = smbConnectionFromInput(
             id = "123e4567-e89b-12d3-a456-426614174000",

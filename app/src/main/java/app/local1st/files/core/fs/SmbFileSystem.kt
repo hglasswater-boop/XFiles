@@ -24,6 +24,7 @@ import java.util.EnumSet
 /** SMB2/SMB3 filesystem backed by SMBJ. Each saved connection represents one share. */
 open class SmbFileSystem(
     private val connections: SmbConnectionRepo,
+    private val wireGuard: SmbWireGuardRetry? = null,
 ) : XFileSystem {
     override val scheme: String = XId.SCHEME_SMB
 
@@ -303,7 +304,8 @@ open class SmbFileSystem(
     private fun <T> withShare(config: SmbConnectionConfig, block: (DiskShare) -> T): T {
         val client = SmbClientFactory.create()
         try {
-            val connection = client.connect(config.host, config.port)
+            val connection = wireGuard?.connect(config) { client.connect(config.host, config.port) }
+                ?: client.connect(config.host, config.port)
             val auth = if (config.username.isBlank()) {
                 AuthenticationContext.anonymous()
             } else {
@@ -390,7 +392,9 @@ open class SmbFileSystem(
     ): OpenFileHandle {
         val client = SmbClientFactory.create()
         try {
-            val connection = client.connect(target.connection.host, target.connection.port)
+            val connection = wireGuard?.connect(target.connection) {
+                client.connect(target.connection.host, target.connection.port)
+            } ?: client.connect(target.connection.host, target.connection.port)
             val auth = if (target.connection.username.isBlank()) {
                 AuthenticationContext.anonymous()
             } else {
@@ -440,10 +444,11 @@ open class SmbFileSystem(
          * Verifies host reachability, authentication, share access, and the configured start path.
          * Nothing is saved and no remote content is modified.
          */
-        fun testConnection(config: SmbConnectionConfig, password: String) {
+        fun testConnection(config: SmbConnectionConfig, password: String, wireGuard: SmbWireGuardRetry? = null) {
             val client = SmbClientFactory.create()
             try {
-                val connection = client.connect(config.host, config.port)
+                val connection = wireGuard?.connect(config) { client.connect(config.host, config.port) }
+                ?: client.connect(config.host, config.port)
                 val auth = if (config.username.isBlank()) {
                     AuthenticationContext.anonymous()
                 } else {

@@ -87,6 +87,7 @@ object SettingsBackup {
                         .put("username", connection.username)
                         .put("domain", connection.domain)
                         .put("port", connection.port)
+                        .put("wireGuardTunnel", connection.wireGuardTunnel)
                         .put("password", Graph.smbConnections.password(connection.id)),
                 )
             }
@@ -215,6 +216,7 @@ object SettingsBackup {
                         username = item.optString("username"),
                         domain = item.optString("domain"),
                         port = item.optInt("port", 445),
+                        wireGuardTunnel = item.optString("wireGuardTunnel"),
                     )
                 }.getOrNull() ?: continue
                 add(SmbConnectionRestore(config, item.optString("password")))

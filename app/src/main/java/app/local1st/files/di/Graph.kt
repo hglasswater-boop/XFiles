@@ -4,6 +4,11 @@ import android.content.Context
 import android.os.Build
 import app.local1st.files.core.fs.FsRegistry
 import app.local1st.files.core.fs.LegacySafAccess
+import app.local1st.files.core.fs.SmbWireGuardAndroid
+import app.local1st.files.core.fs.SmbWireGuardRetry
+import app.local1st.files.core.fs.awaitSmbPort
+import app.local1st.files.core.fs.isSmbPortReachable
+import app.local1st.files.core.fs.isSmbReachableOnPhysicalWifi
 import app.local1st.files.core.fs.RootsRepository
 import app.local1st.files.core.ops.OperationEngine
 import app.local1st.files.core.prefs.Favorite
@@ -41,6 +46,16 @@ object Graph {
     val settings: SettingsRepo by lazy { SettingsRepo(appContext) }
     val folderSorts: FolderSortRepo by lazy { FolderSortRepo(appContext) }
     val smbConnections: SmbConnectionRepo by lazy { SmbConnectionRepo(appContext) }
+    val smbWireGuard: SmbWireGuardRetry by lazy {
+        val controller = SmbWireGuardAndroid(appContext)
+        SmbWireGuardRetry(
+            startTunnel = controller::startTunnel,
+            stopTunnel = controller::stopTunnel,
+            localReachable = { host, port -> isSmbReachableOnPhysicalWifi(appContext, host, port) },
+            awaitReachable = ::awaitSmbPort,
+            isReachable = ::isSmbPortReachable,
+        )
+    }
     /** Starts with Application.onCreate so the render snapshot can beat Compose's first draw. */
     private lateinit var startupSession: Deferred<SessionState>
     @Volatile

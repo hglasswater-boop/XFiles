@@ -1,11 +1,18 @@
 package app.local1st.files.ui.dialogs
 
+import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -18,11 +25,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.local1st.files.R
 import app.local1st.files.core.fs.SmbFileSystem
+import app.local1st.files.core.fs.SmbWireGuardAndroid
 import app.local1st.files.core.prefs.smbConnectionFromInput
 import app.local1st.files.di.Graph
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +66,16 @@ fun SmbConnectionDialog(
     var username by rememberSaveable(connectionId) { mutableStateOf(existing?.username.orEmpty()) }
     var password by rememberSaveable(connectionId) { mutableStateOf("") }
     var domain by rememberSaveable(connectionId) { mutableStateOf(existing?.domain.orEmpty()) }
+    var wireGuardEnabled by rememberSaveable(connectionId) { mutableStateOf(existing?.wireGuardTunnel?.isNotBlank() == true) }
+    var wireGuardTunnel by rememberSaveable(connectionId) { mutableStateOf(existing?.wireGuardTunnel.orEmpty()) }
+    var wireGuardPermissionGranted by remember {
+        mutableStateOf(context.checkSelfPermission(SmbWireGuardAndroid.PERMISSION) == PackageManager.PERMISSION_GRANTED)
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        wireGuardPermissionGranted = granted
+    }
+    val validInput = host.isNotBlank() && share.isNotBlank() &&
+        (!wireGuardEnabled || wireGuardTunnel.isNotBlank())
     var testing by rememberSaveable(connectionId) { mutableStateOf(false) }
     var testSucceeded by rememberSaveable(connectionId) { mutableStateOf<Boolean?>(null) }
     var testMessage by rememberSaveable(connectionId) { mutableStateOf<String?>(null) }
@@ -81,13 +101,14 @@ fun SmbConnectionDialog(
                         username = username,
                         domain = domain,
                         port = existing?.port ?: 445,
+                        wireGuardTunnel = wireGuardTunnel.takeIf { wireGuardEnabled }.orEmpty(),
                     )
                     val effectivePassword = if (existing != null && password.isEmpty()) {
                         Graph.smbConnections.password(existing.id)
                     } else {
                         password
                     }
-                    SmbFileSystem.testConnection(draft, effectivePassword)
+                    SmbFileSystem.testConnection(draft, effectivePassword, Graph.smbWireGuard)
                     draft
                 }
             }
@@ -109,7 +130,7 @@ fun SmbConnectionDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (editing) "SMBサーバーを編集" else "SMBサーバーを追加") },
         text = {
-            Column {
+            Column(modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it; clearTestResult() },
@@ -161,6 +182,28 @@ fun SmbConnectionDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = wireGuardEnabled,
+                        onCheckedChange = { wireGuardEnabled = it; clearTestResult() },
+                    )
+                    Text("WireGuard（SMB接続失敗時に自動起動）")
+                }
+                if (wireGuardEnabled) {
+                    OutlinedTextField(
+                        value = wireGuardTunnel,
+                        onValueChange = { wireGuardTunnel = it; clearTestResult() },
+                        label = { Text("WireGuardのトンネル名") },
+                        supportingText = { Text("公式WireGuardアプリでリモート操作を有効にしてください") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(onClick = {
+                        permissionLauncher.launch(SmbWireGuardAndroid.PERMISSION)
+                    }) {
+                        Text(if (wireGuardPermissionGranted) "WireGuard操作権限：許可済み" else "WireGuard操作権限を許可")
+                    }
+                }
                 testMessage?.let { message ->
                     Text(
                         text = message,
@@ -176,7 +219,7 @@ fun SmbConnectionDialog(
         },
         confirmButton = {
             Button(
-                enabled = !testing && host.isNotBlank() && share.isNotBlank(),
+                enabled = !testing && validInput,
                 onClick = {
                     runCatching {
                         if (existing == null) {
@@ -187,6 +230,7 @@ fun SmbConnectionDialog(
                                 username = username,
                                 password = password,
                                 domain = domain,
+                                wireGuardTunnel = wireGuardTunnel.takeIf { wireGuardEnabled }.orEmpty(),
                             )
                         } else {
                             Graph.smbConnections.update(
@@ -198,6 +242,7 @@ fun SmbConnectionDialog(
                                 password = password.takeIf { it.isNotEmpty() },
                                 domain = domain,
                                 port = existing.port,
+                                wireGuardTunnel = wireGuardTunnel.takeIf { wireGuardEnabled }.orEmpty(),
                             )
                         }
                     }.onSuccess {
@@ -216,7 +261,7 @@ fun SmbConnectionDialog(
         dismissButton = {
             Row {
                 TextButton(
-                    enabled = !testing && host.isNotBlank() && share.isNotBlank(),
+                    enabled = !testing && validInput,
                     onClick = ::runConnectionTest,
                 ) {
                     Text(if (testing) "テスト中…" else "接続テスト")
