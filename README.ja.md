@@ -143,10 +143,10 @@ XFiles TV は別パッケージとして、リモコン操作向けに最適化�
 
 署名済み APK は [**GitHub Releases**](https://github.com/hglasswater-boop/XFiles/releases) から取得できます。
 
-現行の正式版系統 `v1.4.4-smb` では:
+現行の正式版系統 `v1.4.5-smb` では:
 
-- `XFiles-1.4.4-smb.apk` が通常のモバイル版。
-- `XFiles-TV-1.4.4-smb.apk` が Google TV 版。
+- `XFiles-1.4.5-smb.apk` が通常のモバイル版。
+- `XFiles-TV-1.4.5-smb.apk` が Google TV 版。
 - Release CI ではモバイル AAB も生成します。
 
 アプリ内更新は Mobile / TV ともに**最新の正式版と署名済み `debug-latest` を比較**し、インストール可能な新しいビルド番号のAPKを案内します。同一ビルド番号では正式版を優先し、ダウングレードは行いません。ダウンロードとインストールには利用者の確認が必要です。従来の `debug-latest` 専用アプリには、まず次回のデバッグ更新経由で新しい更新チェック機能が届きます。Release CI は正式版とモバイルAABを公開します。Nightlyの公開・チャンネル切替は廃止済みです。`diagnose/*` ブランチでは別パッケージの `diagnostic-latest` を公開できます。
