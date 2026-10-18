@@ -2,6 +2,7 @@ package app.local1st.files.core.fs
 
 import app.local1st.files.core.prefs.SmbConnectionConfig
 import java.io.IOException
+import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
@@ -16,6 +17,23 @@ class SmbWireGuardRetryTest {
         share = "files",
         wireGuardTunnel = tunnel,
     )
+
+    @Test
+    fun `NAS IPv4 matches Wi-Fi subnet only for the correct prefix`() {
+        val nas = InetAddress.getByName("192.168.1.10")
+        assertTrue(isAddressInSubnet(nas, InetAddress.getByName("192.168.1.25"), 24))
+        org.junit.Assert.assertFalse(isAddressInSubnet(nas, InetAddress.getByName("192.168.10.25"), 24))
+        org.junit.Assert.assertFalse(isAddressInSubnet(nas, InetAddress.getByName("10.0.0.10"), 8))
+    }
+
+    @Test
+    fun `IPv4 target never matches an IPv6 network`() {
+        org.junit.Assert.assertFalse(isAddressInSubnet(
+            InetAddress.getByName("192.168.1.10"),
+            InetAddress.getByName("2001:db8::1"),
+            64,
+        ))
+    }
 
     @Test
     fun `verified local Wi-Fi stops configured tunnel before SMB connection`() {
