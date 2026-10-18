@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -33,10 +34,14 @@ internal class SmbWireGuardAndroid(private val context: Context) {
             )
         }
         try {
+            // The official app exports this receiver with CONTROL_TUNNELS permission.
+            // Explicit component delivery avoids an implicit broadcast being dropped.
             context.sendBroadcast(
-                Intent(action).setPackage(PACKAGE).putExtra("tunnel", tunnel),
+                Intent(action).setClassName(PACKAGE, RECEIVER_CLASS).putExtra("tunnel", tunnel),
             )
+            Log.i(LOG_TAG, "Sent WireGuard control request: action=$action, tunnel=$tunnel")
         } catch (error: SecurityException) {
+            Log.w(LOG_TAG, "WireGuard control permission denied", error)
             throw SecurityException("WireGuardの外部操作が許可されていません。", error)
         }
     }
@@ -46,17 +51,18 @@ internal class SmbWireGuardAndroid(private val context: Context) {
         const val PERMISSION = "com.wireguard.android.permission.CONTROL_TUNNELS"
         private const val ACTION_TUNNEL_UP = "com.wireguard.android.action.SET_TUNNEL_UP"
         private const val ACTION_TUNNEL_DOWN = "com.wireguard.android.action.SET_TUNNEL_DOWN"
+        const val RECEIVER_CLASS = "com.wireguard.android.model.TunnelManager\$IntentReceiver"
+        const val LOG_TAG = "XFilesWireGuard"
     }
 }
 
 
 /**
- * A TCP socket explicitly bound to a non-VPN Wi-Fi network proves the NAS port can be
- * reached without using the tunnel. Android's default network may be Wi-Fi even when a
- * split-tunnel VPN is active, so do not gate this check on activeNetwork being VPN.
+ * Verify a NAS by comparing its address to the physical Wi-Fi interface's real IP prefix,
+ * THEN checking the SMB TCP port using a socket bound to that same Wi-Fi Network.
+ * Do not trust matching ranges alone: another network can reuse common private IPs.
  *
- * Do not require the NAS to be in the phone's Wi-Fi subnet: home routers can route to
- * another local VLAN. If Android's lockdown policy denies this socket, return false.
+ * Executed when a configured SMB connection is opened, not on Wi-Fi state changes.
  */
 internal fun isSmbReachableOnPhysicalWifi(context: Context, host: String, port: Int): Boolean =
     runCatching {
@@ -70,16 +76,38 @@ internal fun isSmbReachableOnPhysicalWifi(context: Context, host: String, port: 
                 return@any false
             }
 
-            val targets = runCatching { network.getAllByName(host) }.getOrDefault(emptyArray())
-            targets.any { target ->
+            val wifiPrefixes = manager.getLinkProperties(network)?.linkAddresses
+                ?.map { it.address to it.prefixLength }
+                .orEmpty()
+            if (wifiPrefixes.isEmpty()) {
+                Log.d(SmbWireGuardAndroid.LOG_TAG, "Physical Wi-Fi has no readable IP prefix")
+                return@any false
+            }
+            val candidates = runCatching {
+                matchingWifiSubnetAddresses(network.getAllByName(host).toList(), wifiPrefixes)
+            }.onFailure {
+                Log.w(SmbWireGuardAndroid.LOG_TAG, "Wi-Fi DNS lookup failed", it)
+            }.getOrDefault(emptyList())
+
+            if (candidates.isEmpty()) {
+                Log.d(SmbWireGuardAndroid.LOG_TAG, "NAS IP not in the connected Wi-Fi subnet")
+                return@any false
+            }
+            candidates.any { target ->
                 runCatching {
                     network.socketFactory.createSocket().use { socket ->
                         socket.connect(InetSocketAddress(target, port), 600)
                         true
                     }
+                }.onSuccess {
+                    Log.i(SmbWireGuardAndroid.LOG_TAG, "Same-subnet NAS port reachable on physical Wi-Fi")
+                }.onFailure {
+                    Log.d(SmbWireGuardAndroid.LOG_TAG, "Same-subnet NAS not TCP-reachable on physical Wi-Fi", it)
                 }.getOrDefault(false)
             }
         }
+    }.onFailure {
+        Log.w(SmbWireGuardAndroid.LOG_TAG, "Physical Wi-Fi route check failed", it)
     }.getOrDefault(false)
 
 /** Single TCP probe used to distinguish a dead host from SMB negotiation failures. */
