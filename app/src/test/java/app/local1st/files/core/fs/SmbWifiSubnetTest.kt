@@ -52,6 +52,14 @@ class SmbWifiSubnetTest {
     }
 
     @Test
+    fun `multiple Wi-Fi prefixes select only the matching NAS addresses`() {
+        val hosts = listOf(addr("10.20.2.10"), addr("172.16.9.2"), addr("192.168.3.8"))
+        val prefixes = listOf(addr("10.20.1.12") to 16, addr("172.16.8.2") to 23)
+        assertEquals(listOf(addr("10.20.2.10"), addr("172.16.9.2")),
+            matchingWifiSubnetAddresses(hosts, prefixes))
+    }
+
+    @Test
     fun `nothing is probed when phone is not on a matching Wi-Fi range`() {
         val hosts = listOf(addr("10.0.0.2"), addr("192.168.11.7"))
         val wifi = listOf(addr("192.168.10.120") to 24)
