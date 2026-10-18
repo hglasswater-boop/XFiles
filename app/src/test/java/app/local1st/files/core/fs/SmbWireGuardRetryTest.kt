@@ -18,6 +18,83 @@ class SmbWireGuardRetryTest {
     )
 
     @Test
+    fun `verified local Wi-Fi stops configured tunnel before SMB connection`() {
+        val operations = mutableListOf<String>()
+        val retry = SmbWireGuardRetry(
+            startTunnel = { operations.add("up:$it") },
+            stopTunnel = { operations.add("down:$it") },
+            localReachable = { host, port ->
+                assertEquals("192.168.1.2", host)
+                assertEquals(445, port)
+                true
+            },
+            awaitReachable = { _, _ -> error("no retry") },
+        )
+        assertEquals("connected", retry.connect(connection()) {
+            operations.add("smb")
+            "connected"
+        })
+        assertEquals(listOf("down:home", "smb"), operations)
+    }
+
+    @Test
+    fun `off is never requested without VPN-independent Wi-Fi reachability`() {
+        var stops = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = { },
+            stopTunnel = { stops++ },
+            localReachable = { _, _ -> false },
+            awaitReachable = { _, _ -> error("no retry") },
+        )
+        assertEquals("connected", retry.connect(connection()) { "connected" })
+        assertEquals(0, stops)
+    }
+
+    @Test
+    fun `opt-out SMB connection never sends a down request`() {
+        var probes = 0
+        var stops = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = { },
+            stopTunnel = { stops++ },
+            localReachable = { _, _ -> probes++; true },
+            awaitReachable = { _, _ -> error("no retry") },
+        )
+        assertEquals("ok", retry.connect(connection(tunnel = "")) { "ok" })
+        assertEquals(0, probes)
+        assertEquals(0, stops)
+    }
+
+    @Test
+    fun `failure to stop VPN does not block direct SMB access`() {
+        val retry = SmbWireGuardRetry(
+            startTunnel = { },
+            stopTunnel = { throw SecurityException("remote control not enabled") },
+            localReachable = { _, _ -> true },
+            awaitReachable = { _, _ -> error("no retry") },
+        )
+        assertEquals("ok", retry.connect(connection()) { "ok" })
+    }
+
+    @Test
+    fun `local down requests are deduplicated for repeated connections`() {
+        var stops = 0
+        var now = 100L
+        val retry = SmbWireGuardRetry(
+            startTunnel = { },
+            stopTunnel = { stops++ },
+            localReachable = { _, _ -> true },
+            awaitReachable = { _, _ -> error("no retry") },
+            nowMillis = { now },
+        )
+        repeat(2) { assertEquals("ok", retry.connect(connection()) { "ok" }) }
+        assertEquals(1, stops)
+        now += 11_000L
+        assertEquals("ok", retry.connect(connection()) { "ok" })
+        assertEquals(2, stops)
+    }
+
+    @Test
     fun `direct connection never activates VPN`() {
         var starts = 0
         val retry = SmbWireGuardRetry(
