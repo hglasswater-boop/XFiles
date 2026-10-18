@@ -21,7 +21,9 @@ class SmbWireGuardRetry(
 
     fun <T> connect(config: SmbConnectionConfig, openTcp: () -> T): T {
         val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank)
-        if (tunnel != null && runCatching { localReachable(config.host, config.port) }.getOrDefault(false)) {
+        val onHomeLan = tunnel != null &&
+            runCatching { localReachable(config.host, config.port) }.getOrDefault(false)
+        if (onHomeLan && tunnel != null) {
             synchronized(requestLock) {
                 val now = nowMillis()
                 val previous = previousStops[tunnel]
@@ -35,6 +37,8 @@ class SmbWireGuardRetry(
         try {
             return openTcp()
         } catch (tcpFailure: IOException) {
+            // A home-LAN DOWN broadcast is asynchronous. Never undo it with an UP request.
+            if (onHomeLan) throw tcpFailure
             val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank) ?: throw tcpFailure
             if (isReachable(config.host, config.port)) throw tcpFailure
             synchronized(requestLock) {
