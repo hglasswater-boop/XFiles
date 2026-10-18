@@ -3,7 +3,6 @@ package app.local1st.files.core.fs
 import app.local1st.files.core.prefs.SmbConnectionConfig
 import java.io.IOException
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -52,7 +51,7 @@ class SmbWireGuardRetryTest {
         var attempts = 0
         var checkedHost = ""
         val retry = SmbWireGuardRetry(
-            startTunnel = started::add,
+            startTunnel = { started.add(it) },
             awaitReachable = { host, port ->
                 checkedHost = "$host:$port"
                 true
