@@ -14,7 +14,7 @@ import java.nio.file.attribute.BasicFileAttributes
  * The scanner callback is injected by the Android composition root; all eligibility rules
  * remain platform-independent and testable. Indexing is best effort and must not fail a copy.
  */
-internal class LocalMediaIndexer(
+class LocalMediaIndexer(
     sharedStorageRoots: List<File>,
     private val scan: (String) -> Unit,
 ) {
