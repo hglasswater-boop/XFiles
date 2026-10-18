@@ -10,6 +10,7 @@ import java.io.IOException
 class SmbWireGuardRetry(
     private val startTunnel: (String) -> Unit,
     private val awaitReachable: (String, Int) -> Boolean,
+    private val isReachable: (String, Int) -> Boolean = { _, _ -> false },
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     private val requestLock = Any()
@@ -18,8 +19,9 @@ class SmbWireGuardRetry(
     fun <T> connect(config: SmbConnectionConfig, openTcp: () -> T): T {
         try {
             return openTcp()
-        } catch (tcpFailure: Exception) {
+        } catch (tcpFailure: IOException) {
             val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank) ?: throw tcpFailure
+            if (isReachable(config.host, config.port)) throw tcpFailure
             synchronized(requestLock) {
                 val now = nowMillis()
                 val previous = previousStarts[tunnel]
