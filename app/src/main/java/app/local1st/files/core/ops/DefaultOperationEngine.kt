@@ -63,6 +63,7 @@ class DefaultOperationEngine(
     private val scope: CoroutineScope,
     private val registry: FsRegistry,
     private val cacheDir: File,
+    private val mediaIndexer: LocalMediaIndexer? = null,
 ) : OperationEngine {
 
     private val nextId = AtomicLong(1L)
@@ -256,7 +257,12 @@ class DefaultOperationEngine(
             }
             else -> false
         }
-        if (renamed) destNames += src.name
+        if (renamed) {
+            destNames += src.name
+            if (src.scheme == XId.SCHEME_FILE && destDir.scheme == XId.SCHEME_FILE) {
+                runCatching { mediaIndexer?.publishTree(File(destDir.path, src.name)) }
+            }
+        }
         return renamed
     }
 
@@ -291,6 +297,9 @@ class DefaultOperationEngine(
                 }
             }
             completed = true
+            if (destParent.scheme == XId.SCHEME_FILE) {
+                runCatching { mediaIndexer?.publish(File(destParent.path, name)) }
+            }
         } finally {
             // Never leave a partial target behind on cancel or error.
             if (!completed) runCatching { deleteChildIfExists(destParent, name) }
