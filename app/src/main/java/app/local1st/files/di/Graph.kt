@@ -8,6 +8,7 @@ import app.local1st.files.core.fs.SmbWireGuardAndroid
 import app.local1st.files.core.fs.SmbWireGuardRetry
 import app.local1st.files.core.fs.awaitSmbPort
 import app.local1st.files.core.fs.isSmbPortReachable
+import app.local1st.files.core.fs.isSmbReachableOnPhysicalWifi
 import app.local1st.files.core.fs.RootsRepository
 import app.local1st.files.core.ops.OperationEngine
 import app.local1st.files.core.prefs.Favorite
@@ -46,8 +47,11 @@ object Graph {
     val folderSorts: FolderSortRepo by lazy { FolderSortRepo(appContext) }
     val smbConnections: SmbConnectionRepo by lazy { SmbConnectionRepo(appContext) }
     val smbWireGuard: SmbWireGuardRetry by lazy {
+        val controller = SmbWireGuardAndroid(appContext)
         SmbWireGuardRetry(
-            startTunnel = SmbWireGuardAndroid(appContext)::startTunnel,
+            startTunnel = controller::startTunnel,
+            stopTunnel = controller::stopTunnel,
+            localReachable = { host, port -> isSmbReachableOnPhysicalWifi(appContext, host, port) },
             awaitReachable = ::awaitSmbPort,
             isReachable = ::isSmbPortReachable,
         )
