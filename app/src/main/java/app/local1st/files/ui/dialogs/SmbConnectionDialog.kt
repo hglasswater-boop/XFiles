@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.local1st.files.R
 import app.local1st.files.core.fs.SmbFileSystem
 import app.local1st.files.core.fs.SmbWireGuardAndroid
+import app.local1st.files.core.fs.diagnosePhysicalWifiSmb
 import app.local1st.files.core.prefs.smbConnectionFromInput
 import app.local1st.files.di.Graph
 import kotlinx.coroutines.Dispatchers
@@ -79,10 +80,13 @@ fun SmbConnectionDialog(
     var testing by rememberSaveable(connectionId) { mutableStateOf(false) }
     var testSucceeded by rememberSaveable(connectionId) { mutableStateOf<Boolean?>(null) }
     var testMessage by rememberSaveable(connectionId) { mutableStateOf<String?>(null) }
+    var diagnosingVpn by rememberSaveable(connectionId) { mutableStateOf(false) }
+    var vpnDiagnosis by rememberSaveable(connectionId) { mutableStateOf<String?>(null) }
 
     fun clearTestResult() {
         testSucceeded = null
         testMessage = null
+        vpnDiagnosis = null
     }
 
     fun runConnectionTest() {
@@ -123,6 +127,19 @@ fun SmbConnectionDialog(
                     ?: "接続できませんでした"
                 testMessage = "接続失敗: $detail"
             }
+        }
+    }
+
+    fun runVpnDiagnosis() {
+        if (diagnosingVpn || host.isBlank()) return
+        diagnosingVpn = true
+        vpnDiagnosis = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                diagnosePhysicalWifiSmb(context, host, existing?.port ?: 445)
+            }
+            vpnDiagnosis = result
+            diagnosingVpn = false
         }
     }
 
@@ -203,6 +220,22 @@ fun SmbConnectionDialog(
                     }) {
                         Text(if (wireGuardPermissionGranted) "WireGuard操作権限：許可済み" else "WireGuard操作権限を許可")
                     }
+                    TextButton(
+                        enabled = host.isNotBlank() && !diagnosingVpn,
+                        onClick = ::runVpnDiagnosis,
+                    ) {
+                        Text(if (diagnosingVpn) "VPN/LAN診断中…" else "VPN/LAN診断（接続は変更しません）")
+                    }
+                    vpnDiagnosis?.let { report ->
+                        Text(
+                            text = report,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Text(
+                        "同一IP帯でもVPNがWi-Fi直通を禁止する場合、SMB接続時に一時OFF→NASへの到達確認を行い、不達なら復旧を試みます。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 testMessage?.let { message ->
                     Text(

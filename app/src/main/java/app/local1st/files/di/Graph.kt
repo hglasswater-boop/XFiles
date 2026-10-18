@@ -10,6 +10,9 @@ import app.local1st.files.core.fs.SmbWireGuardRetry
 import app.local1st.files.core.fs.awaitSmbPort
 import app.local1st.files.core.fs.isSmbPortReachable
 import app.local1st.files.core.fs.isSmbReachableOnPhysicalWifi
+import app.local1st.files.core.fs.isNasInPhysicalWifiSubnet
+import app.local1st.files.core.fs.hasActiveVpnNetwork
+import app.local1st.files.core.fs.awaitPhysicalWifiSmb
 import app.local1st.files.core.fs.RootsRepository
 import app.local1st.files.core.ops.OperationEngine
 import app.local1st.files.core.prefs.Favorite
@@ -61,6 +64,9 @@ object Graph {
                 }
             },
             localReachable = { host, port -> isSmbReachableOnPhysicalWifi(appContext, host, port) },
+            hasMatchingWifiSubnet = { host -> isNasInPhysicalWifiSubnet(appContext, host) },
+            hasActiveVpn = { hasActiveVpnNetwork(appContext) },
+            awaitWifiDirect = { host, port -> awaitPhysicalWifiSmb(appContext, host, port) },
             awaitReachable = ::awaitSmbPort,
             isReachable = ::isSmbPortReachable,
         )

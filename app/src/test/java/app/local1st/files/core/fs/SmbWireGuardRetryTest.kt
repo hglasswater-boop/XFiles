@@ -2,6 +2,11 @@ package app.local1st.files.core.fs
 
 import app.local1st.files.core.prefs.SmbConnectionConfig
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -223,6 +228,162 @@ class SmbWireGuardRetryTest {
         assertEquals("ok", retry.connect(connection()) { "ok" })
         assertEquals(2, stops)
         assertEquals(1, starts)
+    }
+
+    @Test
+    fun `VPN without bypass briefly shuts down to verify matching home Wi-Fi`() {
+        val events = mutableListOf<String>()
+        val retry = SmbWireGuardRetry(
+            startTunnel = { events.add("UP") },
+            stopTunnel = { events.add("DOWN:$it") },
+            localReachable = { _, _ -> false },
+            hasMatchingWifiSubnet = { host -> host == "192.168.1.2" },
+            hasActiveVpn = { true },
+            awaitWifiDirect = { _, _ -> events.add("Wi-Fi TCP ok"); true },
+            isReachable = { _, _ -> error("existing VPN route must not win") },
+            awaitReachable = { _, _ -> error("not a remote tunnel") },
+        )
+        assertEquals("ok", retry.connect(connection()) { events.add("SMBJ"); "ok" })
+        assertEquals(listOf("DOWN:home", "Wi-Fi TCP ok", "SMBJ"), events)
+    }
+
+    @Test
+    fun `non-matching subnet cannot temporarily stop any VPN`() {
+        var stops = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = { error("UP unexpected") },
+            stopTunnel = { stops++ },
+            hasMatchingWifiSubnet = { false },
+            hasActiveVpn = { true },
+            awaitWifiDirect = { _, _ -> error("no trial") },
+            isReachable = { _, _ -> true },
+            awaitReachable = { _, _ -> error("no retry") },
+        )
+        assertEquals("ok", retry.connect(connection()) { "ok" })
+        assertEquals(0, stops)
+    }
+
+    @Test
+    fun `no running VPN does not trigger a temporary DOWN trial`() {
+        var stops = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = { error("UP unexpected") },
+            stopTunnel = { stops++ },
+            hasMatchingWifiSubnet = { true },
+            hasActiveVpn = { false },
+            awaitWifiDirect = { _, _ -> error("no trial") },
+            isReachable = { _, _ -> true },
+            awaitReachable = { _, _ -> error("no retry") },
+        )
+        assertEquals("ok", retry.connect(connection()) { "ok" })
+        assertEquals(0, stops)
+    }
+
+    @Test
+    fun `failed LAN cutover restores the previously connected VPN and waits before SMBJ`() {
+        val events = mutableListOf<String>()
+        var vpnActive = true
+        val retry = SmbWireGuardRetry(
+            startTunnel = { events.add("UP"); vpnActive = true },
+            stopTunnel = { events.add("DOWN"); vpnActive = false },
+            hasMatchingWifiSubnet = { true },
+            hasActiveVpn = { vpnActive },
+            awaitWifiDirect = { _, _ -> events.add("LAN timeout"); false },
+            isReachable = { _, _ -> error("should restore before default route") },
+            awaitReachable = { _, _ -> events.add("VPN reachable"); true },
+        )
+        assertEquals("ok", retry.connect(connection()) { events.add("SMBJ"); "ok" })
+        assertEquals(listOf("DOWN", "LAN timeout", "UP", "VPN reachable", "SMBJ"), events)
+    }
+
+    @Test
+    fun `ignored DOWN does not start a different VPN and preserves the original route`() {
+        val events = mutableListOf<String>()
+        val retry = SmbWireGuardRetry(
+            startTunnel = { error("must not turn on WireGuard when another VPN remains") },
+            stopTunnel = { events.add("DOWN attempted") },
+            hasMatchingWifiSubnet = { true },
+            hasActiveVpn = { true },
+            awaitWifiDirect = { _, _ -> events.add("LAN failed"); false },
+            isReachable = { _, _ -> events.add("original route works"); true },
+            awaitReachable = { _, _ -> error("no UP retry") },
+        )
+        assertEquals("ok", retry.connect(connection()) { events.add("SMBJ"); "ok" })
+        assertEquals(listOf("DOWN attempted", "LAN failed", "original route works", "SMBJ"), events)
+    }
+
+    @Test
+    fun `failed DOWN permission is not masked and does not restart tunnel`() {
+        var attempts = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = { error("unexpected UP") },
+            stopTunnel = { attempts++; throw SecurityException("permission missing") },
+            hasMatchingWifiSubnet = { true },
+            hasActiveVpn = { true },
+            awaitWifiDirect = { _, _ -> error("no LAN wait") },
+            isReachable = { _, _ -> true },
+            awaitReachable = { _, _ -> error("no retry") },
+        )
+        assertEquals("ok", retry.connect(connection()) { "ok" })
+        assertEquals(1, attempts)
+    }
+
+    @Test
+    fun `VPN restoration error never sends SMB credentials`() {
+        var vpnActive = true
+        var smbOpens = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = { throw SecurityException("control revoked") },
+            stopTunnel = { vpnActive = false },
+            hasMatchingWifiSubnet = { true },
+            hasActiveVpn = { vpnActive },
+            awaitWifiDirect = { _, _ -> false },
+            isReachable = { _, _ -> error("no default route") },
+            awaitReachable = { _, _ -> error("should not poll") },
+        )
+        assertThrows(SecurityException::class.java) {
+            retry.connect(connection()) { smbOpens++; "wrong" }
+        }
+        assertEquals(0, smbOpens)
+    }
+
+    @Test
+    fun `concurrent SMB connects cannot bring VPN UP during a LAN cutover`() {
+        val vpnActive = AtomicBoolean(true)
+        val inLanWait = CountDownLatch(1)
+        val allowWifi = CountDownLatch(1)
+        val operations = CopyOnWriteArrayList<String>()
+        val failure = AtomicReference<Throwable?>(null)
+        val retry = SmbWireGuardRetry(
+            stopTunnel = { operations.add("DOWN") },
+            startTunnel = { operations.add("UP") },
+            localReachable = { _, _ -> !vpnActive.get() },
+            hasMatchingWifiSubnet = { true },
+            hasActiveVpn = { vpnActive.get() },
+            awaitWifiDirect = { _, _ ->
+                inLanWait.countDown()
+                val released = allowWifi.await(3, TimeUnit.SECONDS)
+                vpnActive.set(false)
+                released
+            },
+            isReachable = { _, _ -> false },
+            awaitReachable = { _, _ -> true },
+        )
+        val first = Thread {
+            try { retry.connect(connection()) { "ok" } } catch (e: Throwable) { failure.set(e) }
+        }
+        val second = Thread {
+            try { retry.connect(connection()) { "ok" } } catch (e: Throwable) { failure.set(e) }
+        }
+        first.start()
+        assertTrue(inLanWait.await(3, TimeUnit.SECONDS))
+        second.start()
+        Thread.sleep(100)
+        allowWifi.countDown()
+        first.join(3000)
+        second.join(3000)
+        assertEquals(null, failure.get())
+        assertEquals(listOf("DOWN"), operations.toList())
     }
 
     @Test
