@@ -1,6 +1,5 @@
 package app.local1st.files.core.fs
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -43,18 +42,21 @@ internal class SmbWireGuardAndroid(private val context: Context) {
     }
 }
 
-/** Reachability (not the broadcast delivery) is the only signal to attempt an SMB retry. */
+/** Single TCP probe used to distinguish a dead host from SMB negotiation failures. */
+internal fun isSmbPortReachable(host: String, port: Int): Boolean = try {
+    Socket().use { socket ->
+        socket.connect(InetSocketAddress(host, port), 700)
+        true
+    }
+} catch (_: IOException) {
+    false
+}
+
+/** Reachability (not broadcast delivery) is the only signal to retry an SMB connection. */
 internal fun awaitSmbPort(host: String, port: Int): Boolean {
     val deadline = System.nanoTime() + 8_000_000_000L
     do {
-        try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), 700)
-                return true
-            }
-        } catch (_: IOException) {
-            // VPN routing and DNS might still be coming up.
-        }
+        if (isSmbPortReachable(host, port)) return true
         if (Thread.currentThread().isInterrupted) return false
         val remainingMs = (deadline - System.nanoTime()) / 1_000_000L
         if (remainingMs <= 0L) return false
