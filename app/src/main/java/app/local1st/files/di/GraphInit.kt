@@ -17,7 +17,7 @@ import app.local1st.files.core.search.DefaultSearchEngine
 fun initGraph(graph: Graph) {
     graph.fsRegistry.register(LocalFileSystem(graph.legacySaf))
     graph.fsRegistry.register(ArchiveFileSystem())
-    graph.fsRegistry.register(SmbTreeFileSystem(graph.smbConnections))
+    graph.fsRegistry.register(SmbTreeFileSystem(graph.smbConnections, graph.smbWireGuard))
 
     graph.roots = DefaultRootsRepository(
         Graph.appContext,
