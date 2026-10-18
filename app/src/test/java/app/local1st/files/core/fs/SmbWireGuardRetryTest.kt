@@ -30,6 +30,22 @@ class SmbWireGuardRetryTest {
     }
 
     @Test
+    fun `reachable port with protocol failure never activates VPN`() {
+        var starts = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = { starts++ },
+            isReachable = { _, _ -> true },
+            awaitReachable = { _, _ -> error("VPN must not be started") },
+        )
+        val negotiationFailure = IOException("SMB protocol mismatch")
+        val thrown = assertThrows(IOException::class.java) {
+            retry.connect(connection()) { throw negotiationFailure }
+        }
+        assertSame(negotiationFailure, thrown)
+        assertEquals(0, starts)
+    }
+
+    @Test
     fun `unconfigured connection never activates VPN`() {
         var starts = 0
         val retry = SmbWireGuardRetry(
