@@ -105,7 +105,7 @@ class SmbConnectionConfigTest {
                 sharePath = "files",
                 username = "",
                 domain = "",
-                wireGuardTunnel = "bad\\nname",
+                wireGuardTunnel = "bad\nname",
             )
         }
     }
