@@ -1,4 +1,4 @@
-# SMB と WireGuard のオンデマンド連携（Issues #227 / #229 / #231）
+# SMB と WireGuard のオンデマンド連携（Issues #227 / #229 / #231 / #233）
 
 ## 目的と対象
 
@@ -22,8 +22,13 @@
 4. 送信成功だけではトンネルが ON になったと断定できない。最大約 8 秒、指定 SMB ホスト:ポートへの TCP 到達性を短周期で確認し、到達した場合だけ SMBJ 接続を**1 回**実行する。認証失敗はそのまま通知する。
 5. 並列操作では同一トンネルへの短時間の多重起動要求を抑制する。ネットワーク全断、アプリ未インストール、許可未付与、トンネル名不一致、WireGuard 側リモート制御 OFF、ルート未設定では、原因を案内して失敗終了する。再試行ループは禁止する。
 6. **SMB接続先を選択して一覧を取得する時点で**宅内判定する（`SmbTreeFileSystem.list` → `SmbFileSystem.withShare` → `SmbWireGuardRetry.connect`）。連携ONの接続について、Android `ConnectivityManager` が列挙する `TRANSPORT_WIFI` かつ `NET_CAPABILITY_NOT_VPN` の物理 Wi-Fi と、`LinkProperties.linkAddresses` の IP アドレス・プレフィックスを確認する。NASの固定IP（または物理Wi-Fi側DNSで解決したIP）がWi-Fi IPと**同じサブネット**に入るかを IPv4/IPv6 別に比較する。固定 `/24` を仮定せず Androidの実際のプレフィックス長（例：`/23`）を使う。
-7. **同一IPレンジの場合のみ**、Wi-Fi `Network.socketFactory` にバインドしたTCPソケットでNASの指定ポート（通常445）に最大600msの接続確認を行う。到達できた場合だけ、公式 WireGuard アプリの `com.wireguard.android.model.TunnelManager$IntentReceiver` を明示的な宛先として、指定したトンネルへ `SET_TUNNEL_DOWN` を送信する。TCP接続失敗・レンジ不一致・物理Wi-FiなしならDOWNは送らず、通常のVPNルート判定へ進む。DOWN送信が失敗しても SMB 接続は阻害しない。短時間の重複DOWNを抑制する。
-8. 自動 OFF は XFiles から当該 SMB 接続を開く時だけ実施する。XFiles の終了・SMB 切断・背景の回線変更だけでは OFF しない。関係のない WireGuard トンネルや他社 VPN を停止しない。OFF 要求が非同期で処理されるため、直後の SMB 接続に失敗しても**同一接続試行中にUPし直さない**（切替の反復を防止）。
+7. **同一IPレンジの場合のみ**、物理Wi-Fi `Network.socketFactory` にバインドしたTCP接続を試す。成功なら指定トンネルへDOWNを送る。ただしAndroidはVPNの作成元が `VpnService.Builder.allowBypass()` を許可しなければVPN中の物理Wi-Fi直接TCPを禁止する。公式WireGuard GoBackendはこの許可を設定していないため、**宅内でもこの最初の検査が失敗する場合がある**。これはVPN外部から解決できないプラットフォーム上の制約。
+8. 改善措置（Issue #233）：**VPN接続中で、物理Wi-Fi側のIP/実プレフィックスとNASのIPレンジが一致する場合**に限り、上記物理TCP不達なら選択したWireGuardトンネルへDOWNを一度要求する。一時切断するため、初回プローブの成功前にDOWN要求を出すケースがある。指定したポートへのWi-Fi経由の到達性を短時間（最大約3.5秒）待ち、成功した場合のみSMBJで認証する。失敗時にはVPN接続が消えていることを確認できた場合に限り、設定したトンネルのUPを再要求してNASへのアクセスを復旧する。VPNがまだ生きている場合は、別VPNへの意図しない切替を防ぐためUPを強制しない。UP/DOWN抑制と単一SMB操作中の無限ループ禁止を維持する。
+9. 切断要求が拒否されても、SMB閲覧は既存のルートで試みる。**同一IPレンジの外出先Wi-Fiでも短時間のトンネル切断が発生し得る**ため、切替リスクを利用者に明示する。WireGuardの停止ブロードキャストにはACKがなく、配信成功だけで停止は保証できない。物理Wi-Fiが存在しない、実IPレンジ不一致、現在VPNが検出されない場合には初回不達だけを理由に試験的DOWNを行わない。
+10. 診断：SMB設定ダイアログに「VPN/LAN 診断」を設け、Wi-FiのサブネットとNAS IPレンジの一致・VPN検出・Wi-Fi直接TCP到達をテキストで表示する。Wi-Fi直接TCPが不可ならVPN側の迂回禁止やLockdownの可能性を示す。診断ボタン自体はVPNの状態を変更しない。アプリの `XFilesWireGuard` ログでもUP/DOWN要求と到達確認失敗を調査できる。
+11. 自動 OFF は XFiles から当該 SMB 接続を開く時だけ実施する。XFiles の終了・SMB 切断・背景の回線変更だけでは OFF しない。関係のない WireGuard トンネルを意図的に変更しない。停止要求を送った接続試行では、SMBのエラーだけを理由にUPへ戻さない（**宅内Wi-Fi到達に失敗した際の状態復旧だけ例外**）。
+
+
 
 ## 保存と移行
 
@@ -36,7 +41,7 @@
 
 - Android OS でユーザーの操作なしに初めて VPN を構成・承認することはできない。別の常時接続 VPN がすでに有効な場合の切替は保証しない。
 - WireGuard のブロードキャスト制御には応答 ACK がないので、失敗理由の完全な判別はできない。DOWN 通知も実際の停止確認ではない。
-- VPN 使用中の物理 Wi-Fi への個別ソケット経路は Android の制約（VPN lockdown / OS 設定）で利用できない場合がある。その場合は安全側で OFF しない。
+- VPN使用中の物理Wi-Fi直接TCPは `allowBypass` 未設定でも失敗する。その際はIPレンジ一致＋現在VPN有効という複合条件下で一時DOWN→Wi-Fi確認を試みる。VPNロックダウンではDOWNやTCP確認・再UPが不安定になる可能性があり、実機で保証できない。
 - IPアドレスとTCPポートの一致はNASの本人性の証明にはならない。外出先Wi-Fiで同じアドレス帯・同じIP・ポートの別サービスが応答すると、誤って指定トンネルへDOWN要求する可能性がある。IPレンジ一致とVPN非経由の物理Wi-Fi TCP到達を両方必要条件とするが、厳密な識別にはSSID等の家庭固有情報やSMB認証が必要で、現時点では対象外。
 - SMBJ の接続・認証・転送失敗を根拠に VPN を自動切替しない。接続開始前の TCP preflight が失敗したときだけ UP 対象。
 - WireGuard の停止要求にACKはない。端末のVPN常時接続・ロックダウン構成、Android権限、端末ごとの省電力制限で受信できないことがある。原因の診断には端末ログと公式アプリの状態を確認する。
@@ -68,5 +73,10 @@
 | split tunnel 等でデフォルト回線がVPN以外 | 物理 Wi-Fi から NAS 到達時には指定トンネルのDOWN要求 |
 | 自宅のNASがWi-Fiと異なるサブネット | 指定レンジ一致方式ではDOWNしない（仕様上の制限） |
 | 連携なしSMB | 余分なTCP preflightやWireGuard操作なし |
+
+| VPNがallowBypassを認めない・同一LANレンジ | 一時DOWN→Wi-Fi TCP確認→成功ならSMBJ、失敗ならVPN状態を見て復旧 |
+| 外出先Wi-Fiが偶然同じLAN帯 | 一時VPN断が起こり得るが、TCP不達時にはSMB認証せず復旧 |
+| 違うVPNが動作している場合 | 別VPNが残っている状態では強制的なWireGuard UPを行わない |
+| 「VPN/LAN 診断」 | 情報を表示するが、診断だけではVPNをON/OFFしない |
 
 開発手順: この資料を先に確定 → 失敗系を含むユニットテストを先に追加（TDD） → 必要最小限の実装 → CI と実機確認。
