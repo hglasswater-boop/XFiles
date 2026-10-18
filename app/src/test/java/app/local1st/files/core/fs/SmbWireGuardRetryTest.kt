@@ -56,6 +56,23 @@ class SmbWireGuardRetryTest {
     }
 
     @Test
+    fun `local tunnel shutdown never rebounds with an immediate UP request`() {
+        val operations = mutableListOf<String>()
+        val retry = SmbWireGuardRetry(
+            startTunnel = { operations.add("up") },
+            stopTunnel = { operations.add("down") },
+            localReachable = { _, _ -> true },
+            awaitReachable = { _, _ -> error("no VPN start") },
+        )
+        val failedConnection = IOException("VPN network routing is changing")
+        val thrown = assertThrows(IOException::class.java) {
+            retry.connect(connection()) { throw failedConnection }
+        }
+        assertSame(failedConnection, thrown)
+        assertEquals(listOf("down"), operations)
+    }
+
+    @Test
     fun `off is never requested without VPN-independent Wi-Fi reachability`() {
         var stops = 0
         val retry = SmbWireGuardRetry(
