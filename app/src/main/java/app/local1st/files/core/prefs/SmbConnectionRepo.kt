@@ -69,7 +69,7 @@ fun smbConnectionFromInput(
     require(parts.isNotEmpty()) { "Share is required" }
     require(parts.none { it == "." || it == ".." }) { "Share path cannot contain . or .." }
     val normalizedTunnel = wireGuardTunnel.trim()
-    require(normalizedTunnel.none(Char::isISOControl)) { "Invalid WireGuard tunnel name" }
+    require(normalizedTunnel.none { it.code < 0x20 || it.code == 0x7f }) { "Invalid WireGuard tunnel name" }
 
     val normalizedShare = parts.first()
     val normalizedBasePath = parts.drop(1).joinToString("/")
