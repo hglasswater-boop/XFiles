@@ -7,6 +7,7 @@ import app.local1st.files.core.fs.LegacySafAccess
 import app.local1st.files.core.fs.SmbWireGuardAndroid
 import app.local1st.files.core.fs.SmbWireGuardRetry
 import app.local1st.files.core.fs.awaitSmbPort
+import app.local1st.files.core.fs.isSmbPortReachable
 import app.local1st.files.core.fs.RootsRepository
 import app.local1st.files.core.ops.OperationEngine
 import app.local1st.files.core.prefs.Favorite
@@ -45,7 +46,11 @@ object Graph {
     val folderSorts: FolderSortRepo by lazy { FolderSortRepo(appContext) }
     val smbConnections: SmbConnectionRepo by lazy { SmbConnectionRepo(appContext) }
     val smbWireGuard: SmbWireGuardRetry by lazy {
-        SmbWireGuardRetry(SmbWireGuardAndroid(appContext)::startTunnel, ::awaitSmbPort)
+        SmbWireGuardRetry(
+            startTunnel = SmbWireGuardAndroid(appContext)::startTunnel,
+            awaitReachable = ::awaitSmbPort,
+            isReachable = ::isSmbPortReachable,
+        )
     }
     /** Starts with Application.onCreate so the render snapshot can beat Compose's first draw. */
     private lateinit var startupSession: Deferred<SessionState>
