@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Network
 import android.util.Log
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -109,6 +110,112 @@ internal fun isSmbReachableOnPhysicalWifi(context: Context, host: String, port: 
     }.onFailure {
         Log.w(SmbWireGuardAndroid.LOG_TAG, "Physical Wi-Fi route check failed", it)
     }.getOrDefault(false)
+
+
+/**
+ * Prefix-only eligibility for the cutover fallback. No network sockets are opened here;
+ * the physical Wi-Fi TCP check occurs after the temporary DOWN request.
+ */
+internal fun isNasInPhysicalWifiSubnet(context: Context, host: String): Boolean =
+    runCatching { scanPhysicalWifiSubnet(context, host).matches.isNotEmpty() }
+        .getOrDefault(false)
+
+/** Any active VPN is a conservative proxy; Android does not expose another app's tunnel name. */
+internal fun hasActiveVpnNetwork(context: Context): Boolean = runCatching {
+    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        ?: return@runCatching false
+    manager.allNetworks.any { network ->
+        manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }
+}.getOrDefault(false)
+
+/** Wait for a Wi-Fi-only path after requesting VPN DOWN, never authenticate during this phase. */
+internal fun awaitPhysicalWifiSmb(context: Context, host: String, port: Int): Boolean {
+    val deadline = System.nanoTime() + 3_500_000_000L
+    do {
+        if (isSmbReachableOnPhysicalWifi(context, host, port)) return true
+        if (Thread.currentThread().isInterrupted) return false
+        val remainingMs = (deadline - System.nanoTime()) / 1_000_000L
+        if (remainingMs <= 0) return false
+        try {
+            Thread.sleep(minOf(250L, remainingMs))
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+    } while (System.nanoTime() < deadline)
+    return false
+}
+
+private data class WifiNasMatch(val network: Network, val addresses: List<java.net.InetAddress>)
+
+private data class WifiSubnetScan(
+    val wifiPrefixes: List<String>,
+    val nasAddresses: List<String>,
+    val matches: List<WifiNasMatch>,
+)
+
+private fun scanPhysicalWifiSubnet(context: Context, host: String): WifiSubnetScan {
+    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        ?: return WifiSubnetScan(emptyList(), emptyList(), emptyList())
+    val wifiPrefixes = mutableListOf<String>()
+    val nasAddresses = mutableListOf<String>()
+    val matches = mutableListOf<WifiNasMatch>()
+    for (network in manager.allNetworks) {
+        val caps = manager.getNetworkCapabilities(network) ?: continue
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue
+        val ipPrefixes = manager.getLinkProperties(network)?.linkAddresses
+            ?.map { it.address to it.prefixLength }.orEmpty()
+        wifiPrefixes.addAll(ipPrefixes.map { (address, prefix) -> "${address.hostAddress}/$prefix" })
+        val resolved = runCatching { network.getAllByName(host).toList() }
+            .onFailure { Log.w(SmbWireGuardAndroid.LOG_TAG, "Wi-Fi DNS failed for LAN probe", it) }
+            .getOrDefault(emptyList())
+        nasAddresses.addAll(resolved.mapNotNull { it.hostAddress })
+        val eligible = matchingWifiSubnetAddresses(resolved, ipPrefixes)
+        if (eligible.isNotEmpty()) matches += WifiNasMatch(network, eligible)
+    }
+    return WifiSubnetScan(wifiPrefixes, nasAddresses, matches)
+}
+
+/**
+ * Read-only troubleshooting information in the SMB settings dialog.
+ * Does not send UP/DOWN commands or attempt SMB authentication.
+ */
+internal fun diagnosePhysicalWifiSmb(context: Context, host: String, port: Int): String {
+    val result = runCatching {
+        val scan = scanPhysicalWifiSubnet(context, host)
+        val activeVpn = hasActiveVpnNetwork(context)
+        val reachable = if (scan.matches.isNotEmpty()) {
+            scan.matches.any { match ->
+                match.addresses.any { addr ->
+                    runCatching {
+                        match.network.socketFactory.createSocket().use { socket ->
+                            socket.connect(InetSocketAddress(addr, port), 600)
+                            true
+                        }
+                    }.getOrDefault(false)
+                }
+            }
+        } else false
+        val controlGranted = context.checkSelfPermission(SmbWireGuardAndroid.PERMISSION) ==
+            PackageManager.PERMISSION_GRANTED
+        listOf(
+            "Wi-Fi IP: " + scan.wifiPrefixes.ifEmpty { listOf("取得できません") }.joinToString(", "),
+            "NAS IP: " + scan.nasAddresses.ifEmpty { listOf("Wi-Fi経由で名前解決できません") }.joinToString(", "),
+            "同一IPレンジ: " + if (scan.matches.isNotEmpty()) "はい" else "いいえ",
+            "VPN接続: " + if (activeVpn) "検出" else "未検出",
+            "Wi-Fi直接TCP: " + if (reachable) "到達可能" else "到達できません",
+            "WireGuard操作権限: " + if (controlGranted) "許可済み" else "未許可",
+            if (activeVpn && scan.matches.isNotEmpty() && !reachable)
+                "VPNによる直接通信禁止の可能性があります。SMB接続時に一時切断して検証します。"
+            else if (scan.matches.isEmpty())
+                "同じWi-Fiアドレス帯にNASが見つからないため、自動OFFを行いません。"
+            else "切断要求の受信にはWireGuard側のリモート操作ONが必要です。",
+        ).joinToString("\n")
+    }
+    return result.getOrElse { "VPN/LAN診断に失敗: ${it.message ?: it.javaClass.simpleName}" }
+}
 
 /** Single TCP probe used to distinguish a dead host from SMB negotiation failures. */
 internal fun isSmbPortReachable(host: String, port: Int): Boolean = try {
