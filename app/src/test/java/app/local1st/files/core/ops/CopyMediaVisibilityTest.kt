@@ -2,7 +2,6 @@ package app.local1st.files.core.ops
 
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.FsRegistry
-import app.local1st.files.core.fs.LocalFileSystem
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XFileSystem
 import app.local1st.files.core.fs.XId
@@ -113,7 +112,7 @@ class CopyMediaVisibilityTest {
 
     private fun engine(nas: XFileSystem, indexer: LocalMediaIndexer): DefaultOperationEngine {
         val registry = FsRegistry().apply {
-            register(LocalFileSystem())
+            register(FakeLocalFileSystem())
             register(nas)
         }
         return DefaultOperationEngine(
@@ -138,6 +137,48 @@ class CopyMediaVisibilityTest {
         isDir = true,
         kind = EntryKind.DIR,
     )
+
+    /** Pure JVM fake: Android's MimeTypeMap is not available to local unit tests. */
+    private class FakeLocalFileSystem : XFileSystem {
+        override val scheme = XId.SCHEME_FILE
+
+        override fun list(dir: XEntry): List<XEntry> =
+            File(dir.path).listFiles().orEmpty().map(::entry)
+
+        override fun stat(id: String): XEntry? =
+            File(id.substringAfter("://")).takeIf { it.exists() }?.let(::entry)
+
+        override fun openIn(entry: XEntry): InputStream = File(entry.path).inputStream()
+
+        override fun openOut(parentDir: XEntry, name: String): OutputStream =
+            File(parentDir.path, name).outputStream()
+
+        override fun createFile(parentDir: XEntry, name: String): XEntry =
+            entry(File(parentDir.path, name).apply { createNewFile() })
+
+        override fun mkdir(parentDir: XEntry, name: String): XEntry =
+            entry(File(parentDir.path, name).apply { mkdirs() })
+
+        override fun delete(entry: XEntry) {
+            File(entry.path).deleteRecursively()
+        }
+
+        override fun rename(entry: XEntry, newName: String): XEntry {
+            val dst = File(File(entry.path).parentFile, newName)
+            check(File(entry.path).renameTo(dst))
+            return entry(dst)
+        }
+
+        override fun canWrite(entry: XEntry): Boolean = true
+
+        private fun entry(file: File) = XEntry(
+            id = XId.file(file.absolutePath),
+            name = file.name,
+            isDir = file.isDirectory,
+            size = file.length(),
+            kind = if (file.isDirectory) EntryKind.DIR else EntryKind.FILE,
+        )
+    }
 
     private class FakeNasFileSystem(
         private val source: () -> InputStream,
