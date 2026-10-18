@@ -25,6 +25,7 @@ data class SmbConnectionConfig(
     val username: String = "",
     val domain: String = "",
     val port: Int = 445,
+    val wireGuardTunnel: String = "",
 ) {
     /** User-facing `share/path` form. */
     val sharePath: String
@@ -55,6 +56,7 @@ fun smbConnectionFromInput(
     username: String,
     domain: String,
     port: Int = 445,
+    wireGuardTunnel: String = "",
 ): SmbConnectionConfig {
     val normalizedHost = host.trim()
     val normalizedPath = sharePath
@@ -66,6 +68,8 @@ fun smbConnectionFromInput(
     require(normalizedHost.isNotBlank()) { "Host is required" }
     require(parts.isNotEmpty()) { "Share is required" }
     require(parts.none { it == "." || it == ".." }) { "Share path cannot contain . or .." }
+    val normalizedTunnel = wireGuardTunnel.trim()
+    require(normalizedTunnel.none(Char::isISOControl)) { "Invalid WireGuard tunnel name" }
 
     val normalizedShare = parts.first()
     val normalizedBasePath = parts.drop(1).joinToString("/")
@@ -78,6 +82,7 @@ fun smbConnectionFromInput(
         username = username.trim(),
         domain = domain.trim(),
         port = port.coerceIn(1, 65535),
+        wireGuardTunnel = normalizedTunnel,
     )
 }
 
@@ -131,6 +136,7 @@ class SmbConnectionRepo(context: Context) {
         password: String,
         domain: String,
         port: Int = 445,
+        wireGuardTunnel: String = "",
     ): SmbConnectionConfig {
         val config = smbConnectionFromInput(
             id = UUID.randomUUID().toString(),
@@ -140,6 +146,7 @@ class SmbConnectionRepo(context: Context) {
             username = username,
             domain = domain,
             port = port,
+            wireGuardTunnel = wireGuardTunnel,
         )
         secrets.put(config.id, password)
         val updated = _connections.value + config
@@ -167,6 +174,7 @@ class SmbConnectionRepo(context: Context) {
             password = password(source.id),
             domain = source.domain,
             port = source.port,
+            wireGuardTunnel = source.wireGuardTunnel,
         )
     }
 
@@ -183,8 +191,9 @@ class SmbConnectionRepo(context: Context) {
         password: String?,
         domain: String,
         port: Int = 445,
+        wireGuardTunnel: String? = null,
     ): SmbConnectionConfig {
-        require(find(id) != null) { "SMB connection not found" }
+        val previous = find(id) ?: error("SMB connection not found")
         val config = smbConnectionFromInput(
             id = id,
             name = name,
@@ -193,6 +202,7 @@ class SmbConnectionRepo(context: Context) {
             username = username,
             domain = domain,
             port = port,
+            wireGuardTunnel = wireGuardTunnel ?: previous.wireGuardTunnel,
         )
         if (password != null) secrets.put(id, password)
         persist(_connections.value.map { if (it.id == id) config else it })
@@ -248,7 +258,8 @@ class SmbConnectionRepo(context: Context) {
                     .put("basePath", item.basePath)
                     .put("username", item.username)
                     .put("domain", item.domain)
-                    .put("port", item.port),
+                    .put("port", item.port)
+                    .put("wireGuardTunnel", item.wireGuardTunnel),
             )
         }
         prefs.edit().putString(KEY_CONNECTIONS, array.toString()).apply()
@@ -284,6 +295,7 @@ class SmbConnectionRepo(context: Context) {
                         username = item.optString("username"),
                         domain = item.optString("domain"),
                         port = item.optInt("port", 445),
+                        wireGuardTunnel = item.optString("wireGuardTunnel"),
                     )
                 }.getOrNull() ?: continue
                 add(config)
