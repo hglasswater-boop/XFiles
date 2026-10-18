@@ -32,7 +32,7 @@ class CopyMediaVisibilityTest {
             assertEquals("finished", File(path).readText())
             scans += path
         }
-        val engine = engine(FakeNasFileSystem { ByteArrayInputStream("finished".toByteArray()) }, indexer)
+        val engine = engine(FakeNasFileSystem(source = { ByteArrayInputStream("finished".toByteArray()) }), indexer)
         val running = engine.submit(FileOp.Copy(listOf(nasFile()), localDir(targetDir)))
 
         withTimeout(5_000) { running.progress.first { it.state == OpState.DONE } }
@@ -95,7 +95,7 @@ class CopyMediaVisibilityTest {
         val source = File(sourceDir, "photo.png").apply { writeText("finished") }
         val scanned = mutableListOf<String>()
         val indexer = LocalMediaIndexer(listOf(temporaryFolder.root)) { scanned += it }
-        val engine = engine(FakeNasFileSystem { ByteArrayInputStream(byteArrayOf()) }, indexer)
+        val engine = engine(FakeNasFileSystem(source = { ByteArrayInputStream(byteArrayOf()) }), indexer)
         val running = engine.submit(
             FileOp.Copy(
                 sources = listOf(XEntry(id = XId.file(source.path), name = source.name, isDir = false)),
