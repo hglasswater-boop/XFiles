@@ -2,6 +2,7 @@ package app.local1st.files.di
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import app.local1st.files.core.fs.FsRegistry
 import app.local1st.files.core.fs.LegacySafAccess
 import app.local1st.files.core.fs.SmbWireGuardAndroid
@@ -50,7 +51,15 @@ object Graph {
         val controller = SmbWireGuardAndroid(appContext)
         SmbWireGuardRetry(
             startTunnel = controller::startTunnel,
-            stopTunnel = controller::stopTunnel,
+            stopTunnel = { tunnel ->
+                try {
+                    controller.stopTunnel(tunnel)
+                } catch (error: Exception) {
+                    // Retry intentionally allows LAN SMB even if an external app denies DOWN.
+                    Log.w(SmbWireGuardAndroid.LOG_TAG, "WireGuard DOWN request failed", error)
+                    throw error
+                }
+            },
             localReachable = { host, port -> isSmbReachableOnPhysicalWifi(appContext, host, port) },
             awaitReachable = ::awaitSmbPort,
             isReachable = ::isSmbPortReachable,
