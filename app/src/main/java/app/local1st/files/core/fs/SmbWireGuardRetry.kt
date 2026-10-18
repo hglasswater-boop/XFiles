@@ -25,7 +25,16 @@ class SmbWireGuardRetry(
     fun <T> connect(config: SmbConnectionConfig, openTcp: () -> T): T {
         val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank)
             ?: return openTcp() // Existing opt-out SMB connections incur no extra probes.
+        // A tunnel transition includes the Wi-Fi confirmation wait. Serialize it with
+        // other SMB opens so a concurrent connection cannot undo a pending DOWN with UP.
+        return synchronized(requestLock) { connectWithTunnel(config, tunnel, openTcp) }
+    }
 
+    private fun <T> connectWithTunnel(
+        config: SmbConnectionConfig,
+        tunnel: String,
+        openTcp: () -> T,
+    ): T {
         // Physical Wi-Fi reachability does not depend on Android's default VPN route.
         if (runCatching { localReachable(config.host, config.port) }.getOrDefault(false)) {
             synchronized(requestLock) {
