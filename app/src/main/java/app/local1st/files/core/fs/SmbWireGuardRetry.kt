@@ -7,7 +7,7 @@ import java.io.IOException
  * Retries the TCP connection only, never the SMB authentication or an in-progress file operation.
  * In particular, callers must wrap only SMBClient.connect(...) in [connect].
  */
-internal class SmbWireGuardRetry(
+class SmbWireGuardRetry(
     private val startTunnel: (String) -> Unit,
     private val awaitReachable: (String, Int) -> Boolean,
     private val nowMillis: () -> Long = System::currentTimeMillis,
