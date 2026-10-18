@@ -13,7 +13,8 @@ import app.local1st.files.core.prefs.SmbConnectionRepo
  */
 class SmbTreeFileSystem(
     private val connections: SmbConnectionRepo,
-) : SmbFileSystem(connections) {
+    wireGuard: SmbWireGuardRetry? = null,
+) : SmbFileSystem(connections, wireGuard) {
 
     override fun list(dir: XEntry): List<XEntry> =
         if (dir.id == ROOT_ID) {
