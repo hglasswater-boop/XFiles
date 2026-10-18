@@ -12,7 +12,7 @@ XFiles streams NAS and archive files into local files with `LocalFileSystem.open
 - When an operation successfully renames a local file or directory without copying bytes, request indexing of affected eligible destination files too. A source-file scan can be requested for moved files to allow stale MediaStore entries to be reconciled.
 - Only request scans for recognizable image, video, and audio filenames on public/shared external storage volumes. Keep MIME/extension classification consistent with `FileTypes`.
 - Never request scans for files that are absent, incomplete, hidden, under a `.nomedia` ancestor, inside Android/data or Android/obb, or outside known shared storage roots. Do not index archive-only or SMB destinations.
-- No scanning on failure or cancellation. Notification is best effort; inability to notify MediaStore must **not** turn a fully successful transfer into a failed copy or trigger source deletion/transfer retry.
+- Do not scan partial files on failed writes or cancellations. A fully written destination may be scanned even if a later unrelated step (such as deleting the move source) fails. Notification is best effort; inability to notify MediaStore must **not** turn a fully successful transfer into a failed copy or trigger source deletion/transfer retry.
 - On supported Android versions (minSdk 26), scan calls are asynchronous: copy completion requests indexing; it does **not** promise that Gallery refreshes synchronously or overrides Samsung Gallery's own filters. Gallery may exclude particular folders/content by its own policy.
 - Preserve original file bytes, original destination choice, and normal conflict/cancellation behavior. No new broad media permissions or full-storage scan.
 
