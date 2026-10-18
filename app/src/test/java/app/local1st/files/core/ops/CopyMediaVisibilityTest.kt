@@ -143,10 +143,10 @@ class CopyMediaVisibilityTest {
         override val scheme = XId.SCHEME_FILE
 
         override fun list(dir: XEntry): List<XEntry> =
-            File(dir.path).listFiles().orEmpty().map(::entry)
+            File(dir.path).listFiles().orEmpty().map(::toEntry)
 
         override fun stat(id: String): XEntry? =
-            File(id.substringAfter("://")).takeIf { it.exists() }?.let(::entry)
+            File(id.substringAfter("://")).takeIf { it.exists() }?.let(::toEntry)
 
         override fun openIn(entry: XEntry): InputStream = File(entry.path).inputStream()
 
@@ -154,10 +154,10 @@ class CopyMediaVisibilityTest {
             File(parentDir.path, name).outputStream()
 
         override fun createFile(parentDir: XEntry, name: String): XEntry =
-            entry(File(parentDir.path, name).apply { createNewFile() })
+            toEntry(File(parentDir.path, name).apply { createNewFile() })
 
         override fun mkdir(parentDir: XEntry, name: String): XEntry =
-            entry(File(parentDir.path, name).apply { mkdirs() })
+            toEntry(File(parentDir.path, name).apply { mkdirs() })
 
         override fun delete(entry: XEntry) {
             File(entry.path).deleteRecursively()
@@ -166,12 +166,12 @@ class CopyMediaVisibilityTest {
         override fun rename(entry: XEntry, newName: String): XEntry {
             val dst = File(File(entry.path).parentFile, newName)
             check(File(entry.path).renameTo(dst))
-            return entry(dst)
+            return toEntry(dst)
         }
 
         override fun canWrite(entry: XEntry): Boolean = true
 
-        private fun entry(file: File) = XEntry(
+        private fun toEntry(file: File) = XEntry(
             id = XId.file(file.absolutePath),
             name = file.name,
             isDir = file.isDirectory,
