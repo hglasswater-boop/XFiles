@@ -2,6 +2,11 @@ package app.local1st.files.core.fs
 
 import app.local1st.files.core.prefs.SmbConnectionConfig
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -340,6 +345,45 @@ class SmbWireGuardRetryTest {
             retry.connect(connection()) { smbOpens++; "wrong" }
         }
         assertEquals(0, smbOpens)
+    }
+
+    @Test
+    fun `concurrent SMB connects cannot bring VPN UP during a LAN cutover`() {
+        val vpnActive = AtomicBoolean(true)
+        val inLanWait = CountDownLatch(1)
+        val allowWifi = CountDownLatch(1)
+        val operations = CopyOnWriteArrayList<String>()
+        val failure = AtomicReference<Throwable?>(null)
+        val retry = SmbWireGuardRetry(
+            stopTunnel = { operations.add("DOWN") },
+            startTunnel = { operations.add("UP") },
+            localReachable = { _, _ -> !vpnActive.get() },
+            hasMatchingWifiSubnet = { true },
+            hasActiveVpn = { vpnActive.get() },
+            awaitWifiDirect = { _, _ ->
+                inLanWait.countDown()
+                val released = allowWifi.await(3, TimeUnit.SECONDS)
+                vpnActive.set(false)
+                released
+            },
+            isReachable = { _, _ -> false },
+            awaitReachable = { _, _ -> true },
+        )
+        val first = Thread {
+            try { retry.connect(connection()) { "ok" } } catch (e: Throwable) { failure.set(e) }
+        }
+        val second = Thread {
+            try { retry.connect(connection()) { "ok" } } catch (e: Throwable) { failure.set(e) }
+        }
+        first.start()
+        assertTrue(inLanWait.await(3, TimeUnit.SECONDS))
+        second.start()
+        Thread.sleep(100)
+        allowWifi.countDown()
+        first.join(3000)
+        second.join(3000)
+        assertEquals(null, failure.get())
+        assertEquals(listOf("DOWN"), operations.toList())
     }
 
     @Test
