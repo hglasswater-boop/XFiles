@@ -12,11 +12,26 @@ class SmbWireGuardRetry(
     private val awaitReachable: (String, Int) -> Boolean,
     private val isReachable: (String, Int) -> Boolean = { _, _ -> false },
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val stopTunnel: (String) -> Unit = {},
+    private val localReachable: (String, Int) -> Boolean = { _, _ -> false },
 ) {
     private val requestLock = Any()
     private val previousStarts = mutableMapOf<String, Long>()
+    private val previousStops = mutableMapOf<String, Long>()
 
     fun <T> connect(config: SmbConnectionConfig, openTcp: () -> T): T {
+        val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank)
+        if (tunnel != null && runCatching { localReachable(config.host, config.port) }.getOrDefault(false)) {
+            synchronized(requestLock) {
+                val now = nowMillis()
+                val previous = previousStops[tunnel]
+                if (previous == null || now < previous || now - previous >= REQUEST_COOLDOWN_MS) {
+                    // A failed DOWN request must never prevent access to the NAS over local Wi-Fi.
+                    runCatching { stopTunnel(tunnel) }
+                    previousStops[tunnel] = now
+                }
+            }
+        }
         try {
             return openTcp()
         } catch (tcpFailure: IOException) {
