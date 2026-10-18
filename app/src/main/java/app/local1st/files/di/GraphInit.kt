@@ -1,11 +1,14 @@
 package app.local1st.files.di
 
+import android.media.MediaScannerConnection
+import android.os.Environment
 import app.local1st.files.core.fs.ArchiveFileSystem
 import app.local1st.files.core.fs.DefaultRootsRepository
 import app.local1st.files.core.fs.LocalFileSystem
 import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.ops.DefaultOperationEngine
 import app.local1st.files.core.ops.ForegroundOperationEngine
+import app.local1st.files.core.ops.LocalMediaIndexer
 import app.local1st.files.core.ops.OpsService
 import app.local1st.files.core.ops.SmbTransferJobService
 import app.local1st.files.core.search.DefaultSearchEngine
@@ -22,7 +25,20 @@ fun initGraph(graph: Graph) {
         statById = { id -> Graph.fsRegistry.forId(id).stat(id) },
         smbConnections = graph.smbConnections,
     )
-    val operationEngine = DefaultOperationEngine(Graph.appScope, graph.fsRegistry, Graph.appContext.cacheDir)
+    // Include mounted secondary volumes via Android's app-specific directory paths.
+    val sharedRoots = listOf(Environment.getExternalStorageDirectory()) +
+        Graph.appContext.getExternalFilesDirs(null).mapNotNull {
+            it?.parentFile?.parentFile?.parentFile?.parentFile
+        }
+    val mediaIndexer = LocalMediaIndexer(sharedRoots) { path ->
+        MediaScannerConnection.scanFile(Graph.appContext, arrayOf(path), null, null)
+    }
+    val operationEngine = DefaultOperationEngine(
+        Graph.appScope,
+        graph.fsRegistry,
+        Graph.appContext.cacheDir,
+        mediaIndexer,
+    )
     graph.opEngine = ForegroundOperationEngine(
         delegate = operationEngine,
         scope = Graph.appScope,

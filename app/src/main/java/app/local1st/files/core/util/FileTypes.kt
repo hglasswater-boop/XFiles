@@ -40,6 +40,12 @@ object FileTypes {
         "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
     )
 
+    /** File types Android galleries / media apps may discover after a completed copy. */
+    fun isMediaFileName(name: String): Boolean {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext in imageExtensions || ext in videoExtensions || ext in audioExtensions
+    }
+
     fun mimeOf(name: String): String? {
         val ext = name.substringAfterLast('.', "").lowercase()
         if (ext.isEmpty()) return null
