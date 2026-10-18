@@ -4,8 +4,8 @@ import app.local1st.files.core.prefs.SmbConnectionConfig
 import java.io.IOException
 
 /**
- * Retries the TCP connection only, never the SMB authentication or an in-progress file operation.
- * In particular, callers must wrap only SMBClient.connect(...) in [connect].
+ * Route selection happens before SMBJ: avoid waiting for an OS-level TCP timeout
+ * before sending a WireGuard UP request. Authentication/file I/O are never retried.
  */
 class SmbWireGuardRetry(
     private val startTunnel: (String) -> Unit,
@@ -21,45 +21,44 @@ class SmbWireGuardRetry(
 
     fun <T> connect(config: SmbConnectionConfig, openTcp: () -> T): T {
         val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank)
-        val onHomeLan = tunnel != null &&
-            runCatching { localReachable(config.host, config.port) }.getOrDefault(false)
-        if (onHomeLan && tunnel != null) {
+            ?: return openTcp() // Existing opt-out SMB connections incur no extra probes.
+
+        // Physical Wi-Fi reachability does not depend on Android's default VPN route.
+        if (runCatching { localReachable(config.host, config.port) }.getOrDefault(false)) {
             synchronized(requestLock) {
                 val now = nowMillis()
                 val previous = previousStops[tunnel]
                 if (previous == null || now < previous || now - previous >= REQUEST_COOLDOWN_MS) {
-                    // A failed DOWN request must never prevent access to the NAS over local Wi-Fi.
+                    // DOWN is idempotent. A denied request must not block direct LAN access.
                     runCatching { stopTunnel(tunnel) }
                     previousStops[tunnel] = now
                 }
             }
-        }
-        try {
+            // Do not rebound into an immediate UP request if the SMB connect fails.
             return openTcp()
-        } catch (tcpFailure: IOException) {
-            // A home-LAN DOWN broadcast is asynchronous. Never undo it with an UP request.
-            if (onHomeLan) throw tcpFailure
-            val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank) ?: throw tcpFailure
-            if (isReachable(config.host, config.port)) throw tcpFailure
-            synchronized(requestLock) {
-                val now = nowMillis()
-                val previous = previousStarts[tunnel]
-                if (previous == null || now < previous || now - previous >= REQUEST_COOLDOWN_MS) {
-                    // A failed request should remain retryable after the user fixes permissions.
-                    startTunnel(tunnel)
-                    previousStarts[tunnel] = now
-                }
-                if (!awaitReachable(config.host, config.port)) {
-                    throw IOException(
-                        "WireGuard '" + tunnel + "' 起動後も " + config.host + ":" + config.port
-                            + " に接続できません。WireGuardのトンネル名、リモート操作許可、AllowedIPsを確認してください。",
-                        tcpFailure,
-                    )
-                }
+        }
+
+        // Fast probe: if port 445 is already reachable (LAN or existing VPN),
+        // SMBJ owns any subsequent protocol/authentication error.
+        if (isReachable(config.host, config.port)) return openTcp()
+
+        synchronized(requestLock) {
+            val now = nowMillis()
+            val previous = previousStarts[tunnel]
+            if (previous == null || now < previous || now - previous >= REQUEST_COOLDOWN_MS) {
+                startTunnel(tunnel)
+                previousStarts[tunnel] = now
             }
-            // Do not catch this attempt: a second failure must not cause an infinite loop.
-            return openTcp()
         }
+
+        if (!awaitReachable(config.host, config.port)) {
+            throw IOException(
+                "WireGuard '" + tunnel + "' 起動後も " + config.host + ":" + config.port
+                    + " に接続できません。トンネル名、リモート操作許可、AllowedIPsを確認してください。",
+            )
+        }
+        // One SMBJ connect only; do not repeat authentication or file operations.
+        return openTcp()
     }
 
     private companion object {

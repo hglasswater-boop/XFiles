@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import java.io.IOException
-import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -52,32 +51,27 @@ internal class SmbWireGuardAndroid(private val context: Context) {
 
 
 /**
- * Checks NAS reachability on a physically bound Wi-Fi socket, never via an active VPN.
- * Only a confirmed VPN + physical Wi-Fi + local subnet + reachable SMB port authorizes DOWN.
- * Do not stop a tunnel when any part of this check is unknown.
+ * A TCP socket explicitly bound to a non-VPN Wi-Fi network proves the NAS port can be
+ * reached without using the tunnel. Android's default network may be Wi-Fi even when a
+ * split-tunnel VPN is active, so do not gate this check on activeNetwork being VPN.
+ *
+ * Do not require the NAS to be in the phone's Wi-Fi subnet: home routers can route to
+ * another local VLAN. If Android's lockdown policy denies this socket, return false.
  */
 internal fun isSmbReachableOnPhysicalWifi(context: Context, host: String, port: Int): Boolean =
     runCatching {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return@runCatching false
-        val defaultNetwork = manager.activeNetwork ?: return@runCatching false
-        val defaultCaps = manager.getNetworkCapabilities(defaultNetwork)
-            ?: return@runCatching false
-        if (!defaultCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return@runCatching false
 
         manager.allNetworks.any { network ->
-            val capabilities = manager.getNetworkCapabilities(network)
-            if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true ||
+            val capabilities = manager.getNetworkCapabilities(network) ?: return@any false
+            if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
                 !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
                 return@any false
             }
-            val addresses = manager.getLinkProperties(network)?.linkAddresses ?: return@any false
+
             val targets = runCatching { network.getAllByName(host) }.getOrDefault(emptyArray())
             targets.any { target ->
-                // A remotely routed NAS is not proof that the phone is on the home LAN.
-                if (addresses.none { isAddressInSubnet(target, it.address, it.prefixLength) }) {
-                    return@any false
-                }
                 runCatching {
                     network.socketFactory.createSocket().use { socket ->
                         socket.connect(InetSocketAddress(target, port), 600)
@@ -87,21 +81,6 @@ internal fun isSmbReachableOnPhysicalWifi(context: Context, host: String, port: 
             }
         }
     }.getOrDefault(false)
-
-/** Pure comparison of a destination to a Wi-Fi link's IP prefix. */
-internal fun isAddressInSubnet(target: InetAddress, local: InetAddress, prefixLength: Int): Boolean {
-    val t = target.address
-    val l = local.address
-    if (t.size != l.size || prefixLength <= 0 || prefixLength > t.size * 8) return false
-    for (index in 0 until prefixLength / 8) {
-        if (t[index] != l[index]) return false
-    }
-    val bits = prefixLength % 8
-    if (bits == 0) return true
-    val mask = 0xff shl (8 - bits)
-    return (t[prefixLength / 8].toInt() and mask) ==
-        (l[prefixLength / 8].toInt() and mask)
-}
 
 /** Single TCP probe used to distinguish a dead host from SMB negotiation failures. */
 internal fun isSmbPortReachable(host: String, port: Int): Boolean = try {
