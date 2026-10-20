@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
@@ -20,7 +21,6 @@ import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -50,9 +50,11 @@ class CastStoryboardStripInteractionTest {
     @Test
     fun verticalThumbnailSeeksBeforeRequestingDismissal() {
         val events = mutableListOf<String>()
-        renderStoryboard(verticalColumns = 1,
+        renderStoryboard(
+            verticalColumns = 1,
             onSeek = { events += "seek:$it" },
-            onThumbnailSelected = { events += "dismiss" })
+            onThumbnailSelected = { events += "dismiss" },
+        )
 
         compose.onNodeWithContentDescription(formatVideoDuration(timestamp)).performClick()
 
@@ -65,9 +67,11 @@ class CastStoryboardStripInteractionTest {
     fun horizontalThumbnailSeeksWithoutRequestingDismissal() {
         var seekMs = -1L
         var dismissed = false
-        renderStoryboard(verticalColumns = null,
+        renderStoryboard(
+            verticalColumns = null,
             onSeek = { seekMs = it },
-            onThumbnailSelected = { dismissed = true })
+            onThumbnailSelected = { dismissed = true },
+        )
 
         compose.onNodeWithContentDescription(formatVideoDuration(timestamp)).performClick()
 
@@ -85,7 +89,7 @@ class CastStoryboardStripInteractionTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         compose.onNodeWithContentDescription(context.getString(R.string.player_vertical_storyboard))
             .performClick()
-        compose.onNodeWithContentDescription(formatVideoDuration(timestamp)).performClick()
+        compose.onAllNodesWithContentDescription(formatVideoDuration(timestamp)).onLast().performClick()
 
         compose.runOnIdle { assertEquals(timestamp, seekMs) }
         compose.onNodeWithContentDescription(context.getString(R.string.close))
