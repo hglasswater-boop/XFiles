@@ -5,7 +5,6 @@ import android.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -89,7 +88,7 @@ class CastStoryboardStripInteractionTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         compose.onNodeWithContentDescription(context.getString(R.string.player_vertical_storyboard))
             .performClick()
-        compose.onAllNodesWithContentDescription(formatVideoDuration(timestamp)).onLast().performClick()
+        compose.onAllNodesWithContentDescription(formatVideoDuration(timestamp))[1].performClick()
 
         compose.runOnIdle { assertEquals(timestamp, seekMs) }
         compose.onNodeWithContentDescription(context.getString(R.string.close))
