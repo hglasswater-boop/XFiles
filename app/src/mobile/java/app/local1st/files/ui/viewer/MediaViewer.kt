@@ -357,7 +357,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                             onClose = onClose,
                             videoBottomInset = videoBottomInset,
                             topBarActions = {
-                                if (!landscapeStoryboardVisible && playerOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                                if (!landscapeStoryboardVisible) {
                                     TooltipIconButton(
                                         stringResource(R.string.player_vertical_storyboard),
                                         Icons.Outlined.ViewAgenda,
