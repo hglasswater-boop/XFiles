@@ -43,6 +43,7 @@ internal fun LocalVideoPlayerLayout(
     storyboardBottomClearance: Dp,
     finePreviewVisible: Boolean,
     onDismissFinePreview: () -> Unit,
+    landscapeStoryboardVisible: Boolean = true,
     modifier: Modifier = Modifier,
     videoContent: @Composable (videoBottomInset: Dp) -> Unit,
     storyboardContent: @Composable (verticalColumns: Int?) -> Unit,
@@ -77,7 +78,7 @@ internal fun LocalVideoPlayerLayout(
                 }
             }
 
-            if (landscape) {
+            if (landscape && landscapeStoryboardVisible) {
                 Surface(
                     color = Color.Black.copy(alpha = 0.9f),
                     modifier = Modifier.width(PLAYER_STORYBOARD_SIDEBAR_WIDTH).fillMaxHeight(),

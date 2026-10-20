@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -278,6 +279,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             var finePreviewDismissSignal by remember(currentEntry.id) {
                 mutableIntStateOf(0)
             }
+            var landscapeStoryboardVisible by remember(currentEntry.id, playerOrientation) {
+                mutableStateOf(true)
+            }
             val storyboardHeight by animateDpAsState(
                 targetValue = if (finePreviewVisible) storyboardExpandedHeight else storyboardCollapsedHeight,
                 animationSpec = spring(dampingRatio = 0.8f, stiffness = 360f),
@@ -324,6 +328,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 storyboardHeight = storyboardHeight,
                 storyboardBottomClearance = storyboardBottomClearance,
                 finePreviewVisible = finePreviewVisible,
+                landscapeStoryboardVisible = landscapeStoryboardVisible,
                 onDismissFinePreview = {
                     finePreviewDismissSignal += 1
                     finePreviewVisible = false
@@ -352,6 +357,13 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                             onClose = onClose,
                             videoBottomInset = videoBottomInset,
                             topBarActions = {
+                                if (!landscapeStoryboardVisible) {
+                                    TooltipIconButton(
+                                        stringResource(R.string.player_vertical_storyboard),
+                                        Icons.Outlined.ViewAgenda,
+                                        onClick = { landscapeStoryboardVisible = true },
+                                    )
+                                }
                                 VideoCastButton()
                             },
                             controlsTopContent = {
@@ -372,6 +384,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                         player = localPlayer,
                         entry = currentEntry,
                         verticalColumns = verticalColumns,
+                        onVerticalThumbnailSelected = { landscapeStoryboardVisible = false },
                         onFinePreviewVisibilityChanged = { visible ->
                             finePreviewVisible = visible
                         },
@@ -400,6 +413,7 @@ private fun LocalVideoStoryboard(
     player: Player,
     entry: XEntry,
     verticalColumns: Int?,
+    onVerticalThumbnailSelected: () -> Unit,
     onFinePreviewVisibilityChanged: (Boolean) -> Unit,
     finePreviewDismissSignal: Int,
 ) {
@@ -418,6 +432,7 @@ private fun LocalVideoStoryboard(
         positionMs = positionMs,
         onSeek = { targetMs -> player.seekTo(targetMs) },
         verticalColumns = verticalColumns,
+        onThumbnailSelected = onVerticalThumbnailSelected,
         showJumpToCurrent = true,
         onFinePreviewVisibilityChanged = onFinePreviewVisibilityChanged,
         finePreviewDismissSignal = finePreviewDismissSignal,
