@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -21,6 +22,8 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -58,6 +61,48 @@ class LocalVideoPlayerLayoutTest {
         assertEquals(300f, bounds.video.height, 1f)
         assertEquals(1, bounds.verticalColumns)
         assertTrue("storyboard should be to the right", bounds.storyboard.left >= bounds.video.right)
+    }
+
+    @Test
+    fun landscapeFrameSelectionHidesSidebarAndRestoresFullVideoWidthUntilReopened() {
+        var visible by mutableStateOf(true)
+        var seekMs by mutableLongStateOf(-1L)
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(Modifier.requiredSize(600.dp, 300.dp).testTag("container")) {
+                    LocalVideoPlayerLayout(
+                        inPictureInPicture = false,
+                        storyboardHeight = 126.dp,
+                        storyboardBottomClearance = 40.dp,
+                        finePreviewVisible = false,
+                        onDismissFinePreview = {},
+                        landscapeStoryboardVisible = visible,
+                        videoContent = { inset ->
+                            Box(Modifier.fillMaxSize().padding(bottom = inset).testTag("video"))
+                        },
+                        storyboardContent = {
+                            Box(
+                                Modifier.fillMaxSize().clickable {
+                                    seekMs = 12_000L
+                                    visible = false
+                                }.testTag("frame"),
+                            )
+                        },
+                    )
+                }
+            }
+        }
+
+        val container = compose.onNodeWithTag("container").bounds()
+        assertEquals(472f, compose.onNodeWithTag("video").bounds().relativeTo(container).width, 1f)
+        compose.onNodeWithTag("frame").performClick()
+        compose.runOnIdle { assertEquals(12_000L, seekMs) }
+        compose.onNodeWithTag("frame").assertDoesNotExist()
+        assertEquals(600f, compose.onNodeWithTag("video").bounds().relativeTo(container).width, 1f)
+
+        compose.runOnIdle { visible = true }
+        compose.onNodeWithTag("frame").assertExists()
+        assertEquals(472f, compose.onNodeWithTag("video").bounds().relativeTo(container).width, 1f)
     }
 
     @Test
