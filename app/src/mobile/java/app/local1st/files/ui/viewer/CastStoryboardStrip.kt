@@ -106,6 +106,7 @@ internal fun CastStoryboardStrip(
     positionMs: Long,
     onSeek: (Long) -> Unit,
     verticalColumns: Int?,
+    onThumbnailSelected: () -> Unit = {},
     showJumpToCurrent: Boolean = true,
     onFinePreviewVisibilityChanged: (Boolean) -> Unit = {},
     finePreviewDismissSignal: Int = 0,
@@ -376,6 +377,7 @@ internal fun CastStoryboardStrip(
                                         onClick = {
                                             onSeek(frame.timeMs)
                                             hideFinePreview()
+                                            onThumbnailSelected()
                                         },
                                         onLongClick = { showFinePreview(frame.index) },
                                     ),
@@ -629,6 +631,7 @@ internal fun CastStoryboardStrip(
                         positionMs = positionMs,
                         onSeek = onSeek,
                         verticalColumns = 2,
+                        onThumbnailSelected = { verticalStoryboardVisible = false },
                         showJumpToCurrent = true,
                         sharedResult = sharedReadyState.result,
                         sharedComplete = sharedReadyState.complete,
