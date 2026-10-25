@@ -73,7 +73,7 @@ jobs:
           name: XFiles-${{ steps.build_number.outputs.value }}-play-bundle
           path: app/build/outputs/bundle/mobileRelease/app-mobile-release.aab
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
 
       - name: Retire legacy Nightly release and tag
         env:
