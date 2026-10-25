@@ -119,7 +119,7 @@ jobs:
             ${{ steps.apk_name.outputs.mobile_name }}
             ${{ steps.apk_name.outputs.tv_name }}
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
           compression-level: 0
 
       - name: Publish debug-latest release
@@ -252,4 +252,4 @@ jobs:
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
