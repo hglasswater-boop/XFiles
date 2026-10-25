@@ -140,5 +140,5 @@ jobs:
             ${{ steps.apk_name.outputs.mobile_name }}
             ${{ steps.apk_name.outputs.tv_name }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           compression-level: 0
