@@ -113,4 +113,14 @@ grep -Fq 'nativeSetRandomLength' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
     fail "JNI v8 random truncate declaration missing"
 
+# llvm-nm exports must be fully captured before grep -q under pipefail; piping them
+# directly can SIGPIPE the producer and report a false missing-symbol failure.
+for CHECK_SCRIPT in "$BUILD_SCRIPT" "$PREVIEW_WORKFLOW"; do
+    grep -Fq 'SYMBOLS=$("$LLVM_NM" -D "$SO")' "$CHECK_SCRIPT" ||
+        fail "JNI export checks must capture the complete llvm-nm output before matching"
+    if grep -Fq '"$LLVM_NM" -D "$SO" | grep -q' "$CHECK_SCRIPT"; then
+        fail "JNI export checks still use an unsafe pipefail/grep -q pipeline"
+    fi
+done
+
 echo "Rust SMB pin contract OK: $PIN"
