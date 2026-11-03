@@ -166,11 +166,19 @@ open class SmbFileSystem(
         requireSafeEntryName(name)
         val childId = XId.child(parentDir, name)
         val target = target(childId)
-        openFile(
-            target = target,
-            access = EnumSet.of(AccessMask.GENERIC_WRITE),
-            disposition = SMB2CreateDisposition.FILE_CREATE,
-        ).use { }
+        SmbCreateFileBackend.create(
+            config = target.connection,
+            path = target.path,
+            password = { connections.password(target.connection.id) },
+            prepareNetwork = { wireGuard?.prepare(target.connection) },
+            smbj = {
+                openFile(
+                    target = target,
+                    access = EnumSet.of(AccessMask.GENERIC_WRITE),
+                    disposition = SMB2CreateDisposition.FILE_CREATE,
+                ).use { }
+            },
+        )
         return stat(childId) ?: XEntry(
             id = childId,
             name = name,
