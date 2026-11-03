@@ -96,9 +96,13 @@ class SmbReadInputStreamTest {
     private fun fake(
         read: (Long, ByteArray, Int, Int) -> Int,
         close: () -> Unit = {},
-    ) = object : SmbRandomAccessHandle {
-        override fun read(position: Long, buffer: ByteArray, offset: Int, length: Int): Int =
-            read(position, buffer, offset, length)
-        override fun close() = close()
+    ): SmbRandomAccessHandle {
+        val onRead = read
+        val onClose = close
+        return object : SmbRandomAccessHandle {
+            override fun read(position: Long, buffer: ByteArray, offset: Int, length: Int): Int =
+                onRead(position, buffer, offset, length)
+            override fun close() = onClose()
+        }
     }
 }
