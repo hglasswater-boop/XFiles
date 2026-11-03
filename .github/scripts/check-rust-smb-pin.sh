@@ -27,7 +27,8 @@ if grep -Eq '[0-9a-f]{40}' "$PREVIEW_WORKFLOW"; then
     fail "preview workflow contains an independent 40-character SHA"
 fi
 
-grep -Fq "smb-io-rs revision: `$PIN`" "$STATUS_DOC" || fail "status document does not match the shared pin"
+EXPECTED_STATUS_LINE=$(printf 'smb-io-rs revision: `%s`' "$PIN")
+grep -Fq "$EXPECTED_STATUS_LINE" "$STATUS_DOC" || fail "status document does not match the shared pin"
 
 # Until the XFiles operation entry points are actually migrated, document the JNI gap and
 # do not mistake merged Rust engine functionality for an app-side migration completion.
