@@ -35,7 +35,9 @@ grep -Fq 'XFiles runtime scope: migration is not complete' "$STATUS_DOC" ||
     fail "status document does not describe the outstanding app-side migration"
 grep -Fq 'XFiles Android integration and device/NAS validation for this new pin: **pending**' "$STATUS_DOC" ||
     fail "Phase 9 candidate lacks the XFiles validation gate"
-grep -Fq '| `mkdir` / `rename` / `delete` / `moveWithinShare` | SMBJ |' "$STATUS_DOC" ||
-    fail "status document must not claim filesystem mutations are Rust-backed before JNI routing"
+grep -Fq '| `mkdir` | Diagnostic-only `rust`: planned JNI Phase 9 path; `auto` and `smbj`: SMBJ |' "$STATUS_DOC" ||
+    fail "status document must restrict Rust mkdir to explicit diagnostic builds"
+grep -Fq '| `rename` / `delete` / `moveWithinShare` | SMBJ |' "$STATUS_DOC" ||
+    fail "status document must not claim other filesystem mutations are Rust-backed"
 
 echo "Rust SMB pin contract OK: $PIN"
