@@ -30,7 +30,7 @@ class SmbCapacityBackendTest {
             .array()
         for (bad in listOf(
             valid.copyOfRange(0, 19),
-            valid + 0,
+            valid + 0.toByte(),
             valid.clone().also { it[0] = 0 },
             valid.clone().also { ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN).putLong(4, -1L) },
             valid.clone().also { ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN).putLong(12, -1L) },
