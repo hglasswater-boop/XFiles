@@ -72,7 +72,7 @@ class DocumentationConsistencyTest {
             File(repo, "version.properties").inputStream().use { load(it) }
         }.getProperty("versionName").orEmpty()
         assertTrue("Stable SMB version must follow expected pattern",
-            Regex("""\\d+\\.\\d+\\.\\d+-smb""").matches(versionName))
+            Regex("""\d+\.\d+\.\d+-smb""").matches(versionName))
         val notes = File(repo, "docs/releases/$versionName.md")
         assertTrue("Missing release notes for $versionName", notes.isFile)
         assertTrue("Release notes must mention $versionName", notes.readText().contains(versionName))
