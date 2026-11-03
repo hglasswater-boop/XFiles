@@ -10,7 +10,7 @@ internal class RustSmbUnavailableException(
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 4
+    private const val EXPECTED_API_VERSION = 5
 
     @Volatile
     private var loaded = false
@@ -84,6 +84,24 @@ internal object RustSmbNative {
         domain: String,
         workstation: String,
     )
+
+    /** Opens a share-relative directory cursor (empty path means the share root). */
+    external fun nativeOpenDirectory(
+        host: String,
+        port: Int,
+        share: String,
+        path: String,
+        username: String,
+        password: String,
+        domain: String,
+        workstation: String,
+    ): Long
+
+    /** Exactly one QUERY_DIRECTORY response, encoded as an XFL1 page; zero-count means EOF. */
+    external fun nativeReadDirectoryPage(handle: Long): ByteArray
+
+    /** Always close the native directory cursor after reading, including on failure. */
+    external fun nativeCloseDirectory(handle: Long)
 
     external fun nativeLen(handle: Long): Long
 

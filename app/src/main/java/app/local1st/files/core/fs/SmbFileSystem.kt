@@ -31,35 +31,59 @@ open class SmbFileSystem(
     override fun list(dir: XEntry): List<XEntry> {
         if (dir.id == ROOT_ID) return connections.connections.value.map(::connectionEntry)
         val target = target(dir.id)
-        return withShare(target.connection) { share ->
-            share.list(toSmbPath(target.path))
-                .asSequence()
-                .filterNot { it.fileName == "." || it.fileName == ".." }
-                .map { info ->
-                    val isDir = EnumWithValue.EnumUtils.isSet(
-                        info.fileAttributes,
-                        FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
-                    )
-                    val hidden = EnumWithValue.EnumUtils.isSet(
-                        info.fileAttributes,
-                        FileAttributes.FILE_ATTRIBUTE_HIDDEN,
-                    )
-                    XEntry(
-                        id = XId.child(dir, info.fileName),
-                        name = info.fileName,
-                        isDir = isDir,
-                        size = if (isDir) -1L else info.endOfFile,
-                        mtime = info.lastWriteTime.toEpochMillis(),
-                        creationTime = info.creationTime.toEpochMillis(),
-                        mime = if (isDir) null else FileTypes.mimeOf(info.fileName),
-                        hidden = hidden || info.fileName.startsWith('.'),
-                        canRead = true,
-                        canWrite = true,
-                        kind = if (isDir) EntryKind.DIR else EntryKind.FILE,
-                    )
+        return SmbDirectoryBackend.list(
+            config = target.connection,
+            path = target.path,
+            password = { connections.password(target.connection.id) },
+            prepareNetwork = { wireGuard?.prepare(target.connection) },
+            map = { info ->
+                val isDir = info.directory
+                XEntry(
+                    id = XId.child(dir, info.name),
+                    name = info.name,
+                    isDir = isDir,
+                    size = if (isDir) -1L else info.size,
+                    mtime = info.modifiedMillis,
+                    creationTime = info.createdMillis,
+                    mime = if (isDir) null else FileTypes.mimeOf(info.name),
+                    hidden = info.hidden || info.name.startsWith('.'),
+                    canRead = true,
+                    canWrite = true,
+                    kind = if (isDir) EntryKind.DIR else EntryKind.FILE,
+                )
+            },
+            smbj = {
+                withShare(target.connection) { share ->
+                    share.list(toSmbPath(target.path))
+                        .asSequence()
+                        .filterNot { it.fileName == "." || it.fileName == ".." }
+                        .map { info ->
+                            val isDir = EnumWithValue.EnumUtils.isSet(
+                                info.fileAttributes,
+                                FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
+                            )
+                            val hidden = EnumWithValue.EnumUtils.isSet(
+                                info.fileAttributes,
+                                FileAttributes.FILE_ATTRIBUTE_HIDDEN,
+                            )
+                            XEntry(
+                                id = XId.child(dir, info.fileName),
+                                name = info.fileName,
+                                isDir = isDir,
+                                size = if (isDir) -1L else info.endOfFile,
+                                mtime = info.lastWriteTime.toEpochMillis(),
+                                creationTime = info.creationTime.toEpochMillis(),
+                                mime = if (isDir) null else FileTypes.mimeOf(info.fileName),
+                                hidden = hidden || info.fileName.startsWith('.'),
+                                canRead = true,
+                                canWrite = true,
+                                kind = if (isDir) EntryKind.DIR else EntryKind.FILE,
+                            )
+                        }
+                        .toList()
                 }
-                .toList()
-        }
+            },
+        )
     }
 
     override fun stat(id: String): XEntry? {

@@ -36,21 +36,23 @@ grep -Fq 'XFiles runtime scope: migration is not complete' "$STATUS_DOC" ||
     fail "status document does not describe the outstanding app-side migration"
 grep -Fq 'real NAS and WireGuard integration remain pending' "$STATUS_DOC" ||
     fail "Rust SMB status must preserve NAS/VPN validation as pending"
-grep -Fq '| `mkdir` | Rust JNI v4 in `rust` and Rust-first `auto`;' "$STATUS_DOC" ||
+grep -Fq '| `mkdir` | Rust JNI v5 in `rust` and Rust-first `auto`;' "$STATUS_DOC" ||
     fail "status document must describe progressive Rust-first mkdir"
-grep -Fq '| `rename` / `moveWithinShare` | Rust-first `auto` with JNI v4' "$STATUS_DOC" ||
+grep -Fq '| `rename` / `moveWithinShare` | Rust-first `auto` with JNI v5' "$STATUS_DOC" ||
     fail "status document must describe JNI v4 rename migration"
+grep -Fq '| `SmbFileSystem.list` / `stat` | Rust-first `auto` using paged JNI v5;' "$STATUS_DOC" ||
+    fail "status document must describe paged Rust-first list/stat"
 grep -Fq '| `delete` | SMBJ |' "$STATUS_DOC" ||
     fail "delete must remain SMBJ until recursive and read-only compatibility is verified"
 
 
 # One version and one engine SHA must advance together; all packaged ABI checks include mkdir.
-grep -Fq 'private const val EXPECTED_API_VERSION = 4' \
+grep -Fq 'private const val EXPECTED_API_VERSION = 5' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
-    fail "Kotlin JNI API is not v4"
+    fail "Kotlin JNI API is not v5"
 grep -Fq 'nativeMkdir' "$BUILD_SCRIPT" || fail "Android build script does not verify mkdir JNI"
 grep -Fq 'nativeMkdir' "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify mkdir JNI"
-for METHOD in nativeRename nativeDeleteFile; do
+for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory; do
     grep -Fq "$METHOD" "$BUILD_SCRIPT" || fail "Android build script does not verify $METHOD"
     grep -Fq "$METHOD" "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify $METHOD"
 done
@@ -66,5 +68,15 @@ grep -Fq 'prepareNetwork()' \
 grep -Fq 'prepareNetwork()' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbRenameBackend.kt" ||
     fail "Rust rename must prepare VPN/LAN route before JNI mutation"
+
+grep -Fq 'fun <T> collectPages(' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbDirectoryBackend.kt" ||
+    fail "directory listing must use page-wise native reads"
+grep -Fq 'return resource.use {' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbDirectoryBackend.kt" ||
+    fail "directory cursor must close even after an error"
+grep -Fq 'SmbDirectoryBackend.list(' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt" ||
+    fail "SMB filesystem does not route list/stat to the Rust page adapter"
 
 echo "Rust SMB pin contract OK: $PIN"
