@@ -4,19 +4,42 @@
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
 
-The approved engine baseline is:
+The Phase 9 engine candidate is:
 
-- smb-io-rs revision: `47de6020c11ba5614db28dc25ecb480b8d9a95bf`
-- roadmap state: Phase 8 WRITE complete; Phase 9 rename/delete/mkdir next
-- validation at the Phase 8 completion revision: Rust CI, Phase 8 WRITE Integration, Samba Integration, Phase 6 Query Integration, Phase 7 Parallel READ, Broker Reconnect, Durable Reconnect, and Android JNI all green
+- smb-io-rs revision: `513677ecc9f919670f9624d542dff977712a40b6`
+- engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Phase 10 reconnect/durable-handle work remains outstanding
+- Phase 9 validation at the merged PR head: Rust CI, Phase 9 File Management Integration, Samba Integration, Phase 6 Query Integration, Phase 7 Parallel READ, Phase 8 WRITE Integration, Broker Reconnect, Durable Reconnect, and Android JNI all succeeded
+- XFiles Android integration and device/NAS validation for this new pin: **pending**. A successful Rust-side workflow is not evidence that XFiles has migrated file-management calls.
 
-## XFiles runtime scope
+## XFiles runtime scope: migration is not complete
 
-Updating the engine revision does not by itself migrate every XFiles SMB operation to Rust.
+The currently exposed `RustSmbNative` JNI API is video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The Rust SMB engine implements filesystem mutations, but the XFiles Kotlin filesystem entry points do **not** yet route those mutations to Rust.
 
-The current XFiles production migration seam continues to use Rust for the existing seekable/random-access path used by local SMB media playback, thumbnails, storyboards, and related positional reads. SMBJ remains available for filesystem operations that have not yet crossed the migration gate.
+| XFiles operation | Current runtime implementation | Rust migration gate |
+| --- | --- | --- |
+| Seekable reads for playback, thumbnails, storyboards | Rust via `SmbRandomAccessBackends` in auto/rust mode, with SMBJ fallback for missing/incompatible JNI in auto mode | Preserve playback, seek and cancellation behavior |
+| `SmbFileSystem.list` / `stat` / `storageSpace` / `directorySize` | SMBJ | Add filesystem JNI DTOs, test path and metadata parity |
+| `openIn` / `openOut` / `createFile` | SMBJ | Add streaming/writable Rust handles, validate resource lifetime and truncation/create semantics |
+| `SmbRandomAccessOutputFile` | SMBJ | Add Rust `read_at`, `write_at`, truncate, flush and close boundary with durability/error tests |
+| `mkdir` / `rename` / `delete` / `moveWithinShare` | SMBJ | Wire Phase 9 APIs through thin JNI, protect server-side errors and mutation safety |
+| Cross-share copy/move | Android-side streaming fallback | Keep source on failure, clean partial destination; optimize separately under #237 |
 
-Phase 8 WRITE capability in `smb-io-rs` is therefore a prerequisite for later XFiles write-path migration, not an instruction to switch `openOut`, copy, rename, delete, or mkdir in this revision-pin change.
+**Safety requirements for the next patches**
+
+1. Keep the backend selection inside an internal adapter; do not scatter Rust/SMBJ checks across UI callers.
+2. Do not silently retry a write, rename or delete after an ambiguous disconnect; never report success before the server operation is verified.
+3. Preserve `XFileSystem.delete` semantics for directories (recursive at the application API) versus the Rust Phase 9 primitive, which deletes only an **empty** directory. A direct one-for-one swap would be incorrect.
+4. Preserve saved-share `basePath`, path validation, authentication/anonymous semantics, and the WireGuard connection decision.
+5. A same-server cross-share move is not automatically an atomic rename. Keep streaming fallback and source-protection semantics until #237 is separately implemented and tested.
+6. Keep SMBJ available as a rollback path until Rust filesystem, writing, reconnect, security, and device/NAS quality gates pass. The native library's current version gate (`EXPECTED_API_VERSION = 2`) proves only the read-oriented JNI contract.
+
+## Open tracking
+
+- XFiles #239: overarching Rust migration; **must remain open until all quality gates and user verification**.
+- XFiles #196: SMB delete failure and `STATUS_CANNOT_DELETE` behavior.
+- XFiles #237: same-server cross-share transfers.
+- smb-io-rs #22: Phase 9 tracking remains open despite merged implementation.
+- smb-io-rs #23 / #28: Phase 10 and whole-engine roadmap.
 
 ## Revision ownership
 
@@ -34,10 +57,8 @@ Rules:
 4. Workflow files and build scripts must not carry an independent fallback SHA.
 5. An explicit `RUST_SMB_REF` environment override remains a build-input override for diagnostics; it is not another repository default.
 
-This keeps normal Debug CI, emulator CI, release builds that use the shared build script, and Rust SMB Preview aligned to one committed engine revision.
-
 ## Promotion rule
 
-A newer `smb-io-rs` revision may replace the pin only after the required Rust-side phase gates are green. XFiles then validates the pinned revision through its own Android JNI build, Mobile/TV build, unit tests, lint, emulator smoke tests, and Rust SMB Preview as applicable.
+The engine revision can be promoted only after its required Rust-side phase gates are green. XFiles must then validate the pinned revision through Android JNI build/symbol verification, Mobile/TV build, unit tests, lint, emulator smoke tests, and Rust SMB Preview as applicable.
 
-The pin must not be advanced merely because a Rust branch contains newer code.
+No file-management operation may be described as Rust-backed in XFiles until its JNI boundary, Kotlin routing, and app-side tests are delivered. Do not remove SMBJ merely because engine PR #32 has merged. This document and #239 remain the record of unchecked quality gates.
