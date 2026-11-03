@@ -2,7 +2,6 @@ package app.local1st.files.core.fs
 
 import app.local1st.files.BuildConfig
 import app.local1st.files.core.fs.rust.RustSmbNative
-import app.local1st.files.core.fs.rust.RustSmbUnavailableException
 import app.local1st.files.core.prefs.SmbConnectionConfig
 
 /** One backend boundary for mkdir. Auto mode prefers Rust; SMBJ remains a pre-mutation fallback. */
@@ -12,27 +11,7 @@ internal object SmbMkdirBackend {
         ensureRustAvailable: () -> Unit,
         rust: () -> Unit,
         smbj: () -> Unit,
-    ) {
-        if (mode == "smbj") {
-            smbj()
-            return
-        }
-        if (mode == "rust") {
-            ensureRustAvailable()
-            rust()
-            return
-        }
-
-        // Only a missing/incompatible JNI library permits auto fallback. Do not catch failures
-        // from the actual mkdir, because its result may be ambiguous after a disconnect.
-        try {
-            ensureRustAvailable()
-        } catch (_: RustSmbUnavailableException) {
-            smbj()
-            return
-        }
-        rust()
-    }
+    ) = SmbMutationRouting.route(mode, ensureRustAvailable, rust, smbj)
 
     fun create(
         config: SmbConnectionConfig,

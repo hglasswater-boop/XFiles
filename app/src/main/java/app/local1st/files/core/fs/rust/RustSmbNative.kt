@@ -10,7 +10,7 @@ internal class RustSmbUnavailableException(
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 3
+    private const val EXPECTED_API_VERSION = 4
 
     @Volatile
     private var loaded = false
@@ -50,6 +50,31 @@ internal object RustSmbNative {
 
     /** One-shot mkdir. Never retry a failed/ambiguous mutation through SMBJ. */
     external fun nativeMkdir(
+        host: String,
+        port: Int,
+        share: String,
+        path: String,
+        username: String,
+        password: String,
+        domain: String,
+        workstation: String,
+    )
+
+    /** One same-share rename (no overwrite). An ambiguous network failure is not replayed. */
+    external fun nativeRename(
+        host: String,
+        port: Int,
+        share: String,
+        source: String,
+        destination: String,
+        username: String,
+        password: String,
+        domain: String,
+        workstation: String,
+    )
+
+    /** One regular-file deletion only; XFiles does not route its delete operation here yet. */
+    external fun nativeDeleteFile(
         host: String,
         port: Int,
         share: String,
