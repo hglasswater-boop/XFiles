@@ -20,7 +20,7 @@ The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpen
 | Seekable reads for playback, thumbnails, storyboards | Rust via `SmbRandomAccessBackends` in auto/rust mode, with SMBJ fallback for missing/incompatible JNI in auto mode | Preserve playback, seek and cancellation behavior |
 | `SmbFileSystem.list` / `stat` | Rust-first `auto` using paged JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Validate full XEntry metadata, many-page scans and NAS/WireGuard parity (Issue #244) |
 | `storageSpace` / `directorySize` | SMBJ | Rust filesystem queries and recursive size handling are separate migration gates |
-| `openIn` | SMBJ on main at #252 start | #252: route Rust read-only positional handle via sequential `InputStream` for auto/rust; preserve SMBJ for explicit smbj and auto JNI-incompatible fallback; test EOF, close, WireGuard, cancellation and throughput |
+| `openIn` | **#252 branch candidate:** Rust-first `auto`/strict `rust` via a bounded positional `InputStream`; explicit `smbj` and missing/incompatible JNI fallback retain existing SMBJ stream | Unit tests added; branch CI, device/NAS + WireGuard correctness, cancellation and throughput still pending (Issue #252) |
 | `openOut` | SMBJ in `auto`/`smbj`; native JNI v8 retains explicit diagnostic `rust` | Preserve OVERWRITE_IF, explicit FLUSH/CLOSE, no retries; real NAS speed vs SMBJ pipeline and WireGuard gate before auto |
 | `createFile` | Rust-first `auto` using JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Exclusive FILE_CREATE and no-overwrite/no-replay verified on Rust Samba; XFiles CI/NAS pending (#245) |
 | `SmbRandomAccessOutputFile` | SMBJ in `auto`/`smbj`; JNI v8 **only in explicit diagnostic `rust`** | FILE_OPEN no-truncate, EOF cache, 1 MiB chunks, ClipForge partial cleanup and error parity; NAS/WireGuard/throughput gate before auto |
@@ -112,7 +112,7 @@ The Rust `smb-io-rs` PR #44 merged the mandatory-signed SMB2 FLUSH codec and cli
 
 ## Next operation slice: `openIn` Rust read-only streaming (XFiles #252)
 
-Design and acceptance contract **before implementation**:
+Design and acceptance contract (documented before implementation). The #252 branch now contains the adapter and unit tests; **CI and real-device parity remain unverified**:
 
 - On `auto`, prefer the already pinned read-only Rust `nativeOpenVideo` / `nativeReadAt` / `nativeClose` handle for `XFileSystem.openIn`. `rust` must be strict. Explicit `smbj` preserves the established SMBJ input stream; no Rust preflight or secret transfer. A missing/incompatible native library can select SMBJ in `auto` only **before opening Rust**. Authentication, transport, or SMB protocol errors after Rust is selected propagate without SMBJ replay.
 - Reuse one authenticated Rust SMB handle for sequential reads. Convert positional read responses to `InputStream` semantics: `-1` only at EOF, `0` for zero-length valid requests, positive byte counts for data, and progress the logical offset by exactly the bytes returned. Neither a short read nor EOF is a reason to repeat/restart the open or copy.
