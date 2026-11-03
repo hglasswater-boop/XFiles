@@ -82,7 +82,10 @@ internal object SmbDirectoryBackend {
             while (true) {
                 val page = RustDirectoryPage.decode(read(handle))
                 if (page.isEmpty()) break
-                page.forEach { output.add(map(it)) }
+                page
+                    .asSequence()
+                    .filterNot { it.name == "." || it.name == ".." }
+                    .forEach { output.add(map(it)) }
             }
             output
         }
