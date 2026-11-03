@@ -104,29 +104,36 @@ open class SmbFileSystem(
 
     override fun openIn(entry: XEntry): InputStream {
         val target = target(entry.id)
-        val handle = openFile(
-            target = target,
-            access = EnumSet.of(AccessMask.GENERIC_READ),
-            disposition = SMB2CreateDisposition.FILE_OPEN,
-        )
-        val stream = try {
-            handle.file.inputStream
-        } catch (error: Throwable) {
-            handle.close()
-            throw error
-        }
-        return object : FilterInputStream(stream) {
-            private var closed = false
-            override fun close() {
-                if (closed) return
-                closed = true
-                try {
-                    super.close()
-                } finally {
+        return SmbReadBackend.open(
+            id = entry.id,
+            connections = connections,
+            prepareNetwork = { wireGuard?.prepare(target.connection) },
+            smbj = {
+                val handle = openFile(
+                    target = target,
+                    access = EnumSet.of(AccessMask.GENERIC_READ),
+                    disposition = SMB2CreateDisposition.FILE_OPEN,
+                )
+                val stream = try {
+                    handle.file.inputStream
+                } catch (error: Throwable) {
                     handle.close()
+                    throw error
                 }
-            }
-        }
+                object : FilterInputStream(stream) {
+                    private var closed = false
+                    override fun close() {
+                        if (closed) return
+                        closed = true
+                        try {
+                            super.close()
+                        } finally {
+                            handle.close()
+                        }
+                    }
+                }
+            },
+        )
     }
 
     override fun openOut(parentDir: XEntry, name: String): OutputStream {
