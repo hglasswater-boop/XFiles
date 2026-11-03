@@ -19,7 +19,7 @@ The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpen
 | --- | --- | --- |
 | Seekable reads for playback, thumbnails, storyboards | Rust via `SmbRandomAccessBackends` in auto/rust mode, with SMBJ fallback for missing/incompatible JNI in auto mode | Preserve playback, seek and cancellation behavior |
 | `SmbFileSystem.list` / `stat` | Rust-first `auto` using paged JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Validate full XEntry metadata, many-page scans and NAS/WireGuard parity (Issue #244) |
-| `storageSpace` / `directorySize` | SMBJ | Rust filesystem queries and recursive size handling are separate migration gates |
+| `storageSpace` / `directorySize` | **#256 branch candidate:** Rust-first `auto` through JNI v9 signed `FileFsFullSizeInformation` and recursive paged size; `smbj` or JNI-unavailable auto use existing SMBJ | Rust engine/signed Samba CI passed; XFiles Android CI & physical NAS correctness, quotas/WireGuard/throughput pending (#256) |
 | `openIn` | **Merged PR #253:** Rust-first `auto`/strict `rust` through bounded positional `InputStream`; explicit `smbj` and JNI-unavailable auto fallback retain SMBJ | Debug CI, Rust Preview and pin checks passed; **real NAS + WireGuard correctness, cancellation and throughput remain pending** (#252) |
 | `openOut` | SMBJ in `auto`/`smbj`; native JNI v8 retains explicit diagnostic `rust` | Preserve OVERWRITE_IF, explicit FLUSH/CLOSE, no retries; real NAS speed vs SMBJ pipeline and WireGuard gate before auto |
 | `createFile` | Rust-first `auto` using JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Exclusive FILE_CREATE and no-overwrite/no-replay verified on Rust Samba; XFiles CI/NAS pending (#245) |
@@ -121,7 +121,9 @@ Design and acceptance contract (documented before implementation). PR #253 is me
 - Unit/TDD: sequential/multi-chunk/single-byte reads, short read/EOF, zero-length and invalid range, `skip` and `available`, idempotent close, error propagation, strict/auto/smbj routing and VPN preflight. Mobile+TV, lint/unit/emulator, and Rust Preview/Pin Contract CI must pass. Real NAS copies (large and tiny files), SMB signing, WireGuard switching, cancellation/disconnect and SMBJ-vs-Rust throughput must be checked before claiming parity.
 - **Issue #252 and overarching #239 stay OPEN** until all CI and device acceptance gates are met. Rust `openIn` alone does not complete `openOut`, random edit auto, deletion, storage-space queries or cross-share moves.
 
-## Capacity migration contract: `storageSpace` and `directorySize` (XFiles #256 / smb-io-rs #49)
+## Capacity migration integration: `storageSpace` and `directorySize` (XFiles #256 / smb-io-rs #49)
+
+Rust engine PR #50 merged into `smb-io-rs/main` as `2b9e0cee184596ae221157a0fb640119f57124c5`. Its signed Samba query + recursive size integration, Rust fmt/test/clippy, and Android JNI build all passed. The XFiles #256 branch pins this commit and bumps JNI to v9 with `SmbCapacityBackend`; this is a **branch candidate** until XFiles CI passes and the PR is merged. **Physical NAS, quotas, WireGuard and throughput still unverified.**
 
 **Design documented before tests or code.** The present pinned JNI v8 has no filesystem capacity/query or recursive size JNI; keep normal `auto` on SMBJ until a tested JNI v9 engine revision is merged, pinned and routed.
 
