@@ -10,7 +10,7 @@ internal class RustSmbUnavailableException(
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 5
+    private const val EXPECTED_API_VERSION = 6
 
     @Volatile
     private var loaded = false
@@ -102,6 +102,18 @@ internal object RustSmbNative {
 
     /** Always close the native directory cursor after reading, including on failure. */
     external fun nativeCloseDirectory(handle: Long)
+
+    /** Create exactly one new empty file. Never overwrite or retry an ambiguous CREATE. */
+    external fun nativeCreateFile(
+        host: String,
+        port: Int,
+        share: String,
+        path: String,
+        username: String,
+        password: String,
+        domain: String,
+        workstation: String,
+    )
 
     external fun nativeLen(handle: Long): Long
 
