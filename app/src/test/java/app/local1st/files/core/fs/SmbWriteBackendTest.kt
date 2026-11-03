@@ -2,7 +2,6 @@ package app.local1st.files.core.fs
 
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.io.OutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
