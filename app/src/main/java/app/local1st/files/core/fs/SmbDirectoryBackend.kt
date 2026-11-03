@@ -74,8 +74,9 @@ internal object SmbDirectoryBackend {
         map: (RustDirectoryEntry) -> T,
     ): List<T> {
         val handle = open()
+        val closeCursor = close
         val resource = object : AutoCloseable {
-            override fun close() = close(handle)
+            override fun close() = closeCursor(handle)
         }
         return resource.use {
             val output = ArrayList<T>()
