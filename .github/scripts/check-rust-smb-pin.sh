@@ -47,12 +47,12 @@ grep -Fq '| `delete` | SMBJ |' "$STATUS_DOC" ||
 
 
 # One version and one engine SHA must advance together; all packaged ABI checks include mkdir.
-grep -Fq 'private const val EXPECTED_API_VERSION = 5' \
+grep -Fq 'private const val EXPECTED_API_VERSION = 6' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
-    fail "Kotlin JNI API is not v5"
+    fail "Kotlin JNI API is not v6"
 grep -Fq 'nativeMkdir' "$BUILD_SCRIPT" || fail "Android build script does not verify mkdir JNI"
 grep -Fq 'nativeMkdir' "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify mkdir JNI"
-for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory; do
+for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory nativeCreateFile; do
     grep -Fq "$METHOD" "$BUILD_SCRIPT" || fail "Android build script does not verify $METHOD"
     grep -Fq "$METHOD" "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify $METHOD"
 done
@@ -78,5 +78,12 @@ grep -Fq 'return resource.use {' \
 grep -Fq 'SmbDirectoryBackend.list(' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt" ||
     fail "SMB filesystem does not route list/stat to the Rust page adapter"
+
+grep -Fq 'SmbCreateFileBackend.create(' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt" ||
+    fail "SMB createFile must use the one-shot Rust mutation adapter"
+grep -Fq 'nativeCreateFile' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
+    fail "Kotlin JNI v6 must declare exclusive createFile"
 
 echo "Rust SMB pin contract OK: $PIN"
