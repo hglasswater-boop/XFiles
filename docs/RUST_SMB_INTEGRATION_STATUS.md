@@ -6,7 +6,7 @@ XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-r
 
 The XFiles main baseline after merged PR #253 (Android JNI v8) is:
 
-- smb-io-rs revision: `2a079c8fb3d1fc37237cbde96717c4a11a7440a6`
+- smb-io-rs revision: `2b9e0cee184596ae221157a0fb640119f57124c5`
 - engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Android JNI v3 nativeMkdir merged in PR #34 and JNI v4 rename/deleteFile merged in PR #36; PR #44 signed FLUSH and PR #45 writable JNI v7 are merged; Phase 10 reconnect/durable-handle work remains outstanding
 - Phase 9 validation at the merged PR head: Rust CI, Phase 9 File Management Integration, Samba Integration, Phase 6 Query Integration, Phase 7 Parallel READ, Phase 8 WRITE Integration, Broker Reconnect, Durable Reconnect, and Android JNI all succeeded
 - XFiles PR #249 Debug CI (Mobile/TV, unit, lint, emulator), Rust SMB Preview and pin contract succeeded for JNI v6 exclusive createFile; **real NAS and WireGuard integration remain pending**. XFiles PR #251 Debug CI (Mobile/TV APK, unit tests, release lint, emulator), Rust SMB Preview and Rust Pin Contract succeeded at head `b7db7a795a002cc03d48c2936a7fa2a7e5114a22`; #251 merged into main as `e610a6f97541d906c86070150feb47561ceb9530`. XFiles PR #253 (`SmbFileSystem.openIn` Rust-first streaming) passed Debug CI (Mobile/TV APKs, unit tests, release lint, emulator), Rust SMB Preview, and Rust Pin Contract at head `4baadd35863b46be874156fdbdba8fcf47b81332`; merged into main as `f482b9759f5c1fb1b4e6908ce90110428a6caebc`. Physical NAS and WireGuard performance/correctness are still unverified; this is not full filesystem parity.
