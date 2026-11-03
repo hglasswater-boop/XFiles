@@ -4,16 +4,16 @@
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
 
-The Phase 9 engine candidate is:
+The Phase 9 + Android JNI v3 integration candidate is:
 
-- smb-io-rs revision: `513677ecc9f919670f9624d542dff977712a40b6`
-- engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Phase 10 reconnect/durable-handle work remains outstanding
+- smb-io-rs revision: `bb8106f736709d0008d5a53b6321293b1c439903`
+- engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Android JNI v3 nativeMkdir merged in PR #34; Phase 10 reconnect/durable-handle work remains outstanding
 - Phase 9 validation at the merged PR head: Rust CI, Phase 9 File Management Integration, Samba Integration, Phase 6 Query Integration, Phase 7 Parallel READ, Phase 8 WRITE Integration, Broker Reconnect, Durable Reconnect, and Android JNI all succeeded
 - XFiles Android integration and device/NAS validation for this new pin: **pending**. A successful Rust-side workflow is not evidence that XFiles has migrated file-management calls.
 
 ## XFiles runtime scope: migration is not complete
 
-The currently deployed `RustSmbNative` JNI API (version 2) is video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The Rust SMB engine implements filesystem mutations, but current XFiles Kotlin filesystem calls remain SMBJ. This branch introduces the **diagnostic-only** mkdir experiment described below; it is not production parity.
+The previous `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The Rust SMB engine now exposes a v3 JNI mkdir entry point. The XFiles integration branch routes only strict `rust` diagnostic mkdir through it; `auto` and `smbj` stay on SMBJ. This remains unverified in XFiles CI/NAS and is **not** production parity.
 
 | XFiles operation | Current runtime implementation | Rust migration gate |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ The currently deployed `RustSmbNative` JNI API (version 2) is video-oriented: `n
 | `SmbFileSystem.list` / `stat` / `storageSpace` / `directorySize` | SMBJ | Add filesystem JNI DTOs, test path and metadata parity |
 | `openIn` / `openOut` / `createFile` | SMBJ | Add streaming/writable Rust handles, validate resource lifetime and truncation/create semantics |
 | `SmbRandomAccessOutputFile` | SMBJ | Add Rust `read_at`, `write_at`, truncate, flush and close boundary with durability/error tests |
-| `mkdir` | Diagnostic-only `rust`: planned JNI Phase 9 path; `auto` and `smbj`: SMBJ | Test native API v3, errors, WireGuard and NAS before normal rollout |
+| `mkdir` | Diagnostic-only `rust`: native JNI v3; `auto` and `smbj`: SMBJ | Verify XFiles CI, errors, WireGuard and NAS before normal rollout |
 | `rename` / `delete` / `moveWithinShare` | SMBJ | Route via Rust later, retaining recursive directory and collision semantics |
 | Cross-share copy/move | Android-side streaming fallback | Keep source on failure, clean partial destination; optimize separately under #237 |
 
@@ -32,16 +32,16 @@ The currently deployed `RustSmbNative` JNI API (version 2) is video-oriented: `n
 3. Preserve `XFileSystem.delete` semantics for directories (recursive at the application API) versus the Rust Phase 9 primitive, which deletes only an **empty** directory. A direct one-for-one swap would be incorrect.
 4. Preserve saved-share `basePath`, path validation, authentication/anonymous semantics, and the WireGuard connection decision.
 5. A same-server cross-share move is not automatically an atomic rename. Keep streaming fallback and source-protection semantics until #237 is separately implemented and tested.
-6. Keep SMBJ available as a rollback path until Rust filesystem, writing, reconnect, security, and device/NAS quality gates pass. The native library's current version gate (`EXPECTED_API_VERSION = 2`) proves only the read-oriented JNI contract.
+6. Keep SMBJ available as a rollback path until Rust filesystem, writing, reconnect, security, and device/NAS quality gates pass. The v3 native library gate (`EXPECTED_API_VERSION = 3`) now covers the new JNI method but does not prove filesystem interoperability.
 
 ## Diagnostic mkdir migration — planned and not production-ready
 
-- Upstream: smb-io-rs #33 / PR #34 provides a one-operation `nativeMkdir` JNI method. That Rust code is not yet approved by XFiles until Rust CI and Android JNI checks pass.
+- Upstream: smb-io-rs #33 / PR #34 provides a one-operation `nativeMkdir` JNI method, merged at `bb8106f7`. Rust CI, Phase 9 Samba, other regression gates and Android JNI builds passed. The XFiles integration has not yet passed its own CI/real NAS gates.
 - App adapter: centralize the backend switch so only explicit `rust` diagnostic builds call `nativeMkdir`. `auto` and `smbj` keep SMBJ and are not allowed to retry a failed Rust mutation.
 - Callers retain share-relative paths including saved `basePath`, Unicode names, and anonymous/domain credentials. The Rust request must validate unsafe paths before connecting.
 - Do not call existing `SmbWireGuardRetry.connect` with mkdir as its callback: retrying after an ambiguous result could create duplicate side effects.
 - `stat` after mkdir still uses SMBJ until separately migrated. Success of this slice does not remove SMBJ dependencies.
-- Native API must move from v2 to v3 in the same PR that advances the Rust engine pin, otherwise normal auto-mode Rust reads would regress to SMBJ due to version mismatch.
+- Native API moves from v2 to v3 in the same XFiles PR that advances the Rust engine pin. Do not merge the Kotlin API bump separately, or auto-mode Rust reads would regress to SMBJ due to version mismatch.
 - Before switching `auto` to Rust: implement safe VPN connection preparation, real NAS tests, shared session reuse, and correctness/throughput comparisons. **Keep #239 open**.
 
 ## Open tracking
