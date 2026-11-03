@@ -83,6 +83,10 @@ Rust PR #42 merged the exclusive JNI v6 `nativeCreateFile` at `2d860724` after R
 - The upstream CREATE collision/no-overwrite and JNI ABI gates and XFiles Kotlin/Mobile/TV/emulator/Preview gates succeeded for PR #249. The remaining CREATE gate is physical NAS/WireGuard and regression feedback; separate `openOut` diagnostic work is tracked below.
 - Keep #245 and parent #239 Open through device parity and full WRITE migration; do not mark the issue done when one PR merges.
 
+## JNI export verification and pipefail safety
+
+XFiles must verify each required JNI symbol on all three Android ABI libraries against the same pinned Rust commit. A direct `llvm-nm | grep -q` pipeline under shell `set -o pipefail` is unsafe: `grep -q` may exit as soon as it finds a symbol, causing the still-writing `llvm-nm` to receive SIGPIPE and the pipeline to report failure despite an exported symbol. Read the complete `llvm-nm -D` output once **per ABI**, then perform the fixed-string required symbol checks on the captured text. Apply the same rule to both CI APK builds and the Rust SMB Preview; absence of any single required JNI entry point must still fail the build.
+
 ## Existing-file random editing diagnostic: JNI v8 (XFiles #245 / Rust #46)
 
 Rust PR #47 merged signed SMB2 FILE_END_OF_FILE_INFORMATION at `96c3f63`; Rust PR #48 merged JNI v8 (`2a079c8fb3d1fc37237cbde96717c4a11a7440a6`) after Rust CI, mandatory-signing Samba same-handle shrink/extend/readback, Phase6/7/8/9 and Android JNI all 3 ABIs succeeded.
