@@ -1,5 +1,6 @@
 package app.local1st.files.core.fs
 
+import app.local1st.files.core.fs.rust.RustSmbUnavailableException
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -8,43 +9,101 @@ import org.junit.Test
 
 class SmbMkdirBackendTest {
     @Test
-    fun strictRustRoutesOnlyToNative() {
-        var rustCalls = 0
-        var smbjCalls = 0
-
-        SmbMkdirBackend.route("rust", rust = { rustCalls++ }, smbj = { smbjCalls++ })
-
-        assertEquals(1, rustCalls)
-        assertEquals(0, smbjCalls)
+    fun autoUsesRustAfterNativeCompatibilityCheck() {
+        val events = mutableListOf<String>()
+        SmbMkdirBackend.route(
+            mode = "auto",
+            ensureRustAvailable = { events += "native" },
+            rust = { events += "rust mkdir" },
+            smbj = { events += "smbj mkdir" },
+        )
+        assertEquals(listOf("native", "rust mkdir"), events)
     }
 
     @Test
-    fun autoAndExplicitSmbjDoNotUseUnverifiedNativeMutation() {
-        for (mode in listOf("auto", "smbj")) {
-            var rustCalls = 0
-            var smbjCalls = 0
-
-            SmbMkdirBackend.route(mode, rust = { rustCalls++ }, smbj = { smbjCalls++ })
-
-            assertEquals(0, rustCalls)
-            assertEquals(1, smbjCalls)
-        }
+    fun autoFallsBackOnlyWhenNativeIsUnavailableBeforeMutation() {
+        val events = mutableListOf<String>()
+        SmbMkdirBackend.route(
+            mode = "auto",
+            ensureRustAvailable = {
+                events += "native unavailable"
+                throw RustSmbUnavailableException("missing JNI")
+            },
+            rust = { events += "rust mkdir" },
+            smbj = { events += "smbj mkdir" },
+        )
+        assertEquals(listOf("native unavailable", "smbj mkdir"), events)
     }
 
     @Test
-    fun failedNativeMutationNeverRetriesThroughSmbj() {
+    fun autoDoesNotRepeatAmbiguousRustMutationWithSmbj() {
         val failure = IOException("mutation outcome unknown")
-        var fallbackCalls = 0
-
+        val events = mutableListOf<String>()
         val actual = assertThrows(IOException::class.java) {
             SmbMkdirBackend.route(
-                "rust",
-                rust = { throw failure },
-                smbj = { fallbackCalls++ },
+                mode = "auto",
+                ensureRustAvailable = { events += "native" },
+                rust = { events += "rust mkdir"; throw failure },
+                smbj = { events += "smbj mkdir" },
             )
         }
-
         assertSame(failure, actual)
-        assertEquals(0, fallbackCalls)
+        assertEquals(listOf("native", "rust mkdir"), events)
+    }
+
+    @Test
+    fun autoDoesNotFallbackForNonAvailabilityErrorsInNativeCheck() {
+        val failure = IOException("bad configuration")
+        var calls = 0
+        val actual = assertThrows(IOException::class.java) {
+            SmbMkdirBackend.route(
+                mode = "auto",
+                ensureRustAvailable = { throw failure },
+                rust = { calls++ },
+                smbj = { calls++ },
+            )
+        }
+        assertSame(failure, actual)
+        assertEquals(0, calls)
+    }
+
+    @Test
+    fun explicitSmbjNeverLoadsNativeOrPreparesRustConnection() {
+        val events = mutableListOf<String>()
+        SmbMkdirBackend.route(
+            mode = "smbj",
+            ensureRustAvailable = { events += "native" },
+            rust = { events += "rust mkdir" },
+            smbj = { events += "smbj mkdir" },
+        )
+        assertEquals(listOf("smbj mkdir"), events)
+    }
+
+    @Test
+    fun strictRustNeverFallsBackWhenNativeMissing() {
+        val failure = RustSmbUnavailableException("missing JNI")
+        val events = mutableListOf<String>()
+        val actual = assertThrows(RustSmbUnavailableException::class.java) {
+            SmbMkdirBackend.route(
+                mode = "rust",
+                ensureRustAvailable = { throw failure },
+                rust = { events += "rust mkdir" },
+                smbj = { events += "smbj mkdir" },
+            )
+        }
+        assertSame(failure, actual)
+        assertEquals(emptyList<String>(), events)
+    }
+
+    @Test
+    fun strictRustLoadsBeforeExecutingTheMutation() {
+        val events = mutableListOf<String>()
+        SmbMkdirBackend.route(
+            mode = "rust",
+            ensureRustAvailable = { events += "native" },
+            rust = { events += "rust mkdir" },
+            smbj = { events += "smbj mkdir" },
+        )
+        assertEquals(listOf("native", "rust mkdir"), events)
     }
 }
