@@ -132,34 +132,42 @@ open class SmbFileSystem(
     override fun openOut(parentDir: XEntry, name: String): OutputStream {
         requireSafeEntryName(name)
         val target = target(XId.child(parentDir, name))
-        val handle = openFile(
-            target = target,
-            access = EnumSet.of(AccessMask.GENERIC_WRITE),
-            disposition = SMB2CreateDisposition.FILE_OVERWRITE_IF,
-        )
-        val stream = try {
-            PipelinedAsyncOutputStream(
-                chunkSize = SMB_COPY_CHUNK_SIZE,
-                maxInFlight = SMB_COPY_MAX_IN_FLIGHT,
-            ) { buffer, position, length ->
-                handle.file.writeAsync(buffer, position, 0, length)
-            }
-        } catch (error: Throwable) {
-            handle.close()
-            throw error
-        }
-        return object : FilterOutputStream(stream) {
-            private var closed = false
-            override fun close() {
-                if (closed) return
-                closed = true
-                try {
-                    super.close()
-                } finally {
+        return SmbWriteBackend.open(
+            config = target.connection,
+            path = target.path,
+            password = { connections.password(target.connection.id) },
+            prepareNetwork = { wireGuard?.prepare(target.connection) },
+            smbj = {
+                val handle = openFile(
+                    target = target,
+                    access = EnumSet.of(AccessMask.GENERIC_WRITE),
+                    disposition = SMB2CreateDisposition.FILE_OVERWRITE_IF,
+                )
+                val stream = try {
+                    PipelinedAsyncOutputStream(
+                        chunkSize = SMB_COPY_CHUNK_SIZE,
+                        maxInFlight = SMB_COPY_MAX_IN_FLIGHT,
+                    ) { buffer, position, length ->
+                        handle.file.writeAsync(buffer, position, 0, length)
+                    }
+                } catch (error: Throwable) {
                     handle.close()
+                    throw error
                 }
-            }
-        }
+                object : FilterOutputStream(stream) {
+                    private var closed = false
+                    override fun close() {
+                        if (closed) return
+                        closed = true
+                        try {
+                            super.close()
+                        } finally {
+                            handle.close()
+                        }
+                    }
+                }
+            },
+        )
     }
 
     override fun createFile(parentDir: XEntry, name: String): XEntry {

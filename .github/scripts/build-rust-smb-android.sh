@@ -78,7 +78,7 @@ for ABI in arm64-v8a armeabi-v7a x86_64; do
             echo "Rust SMB mkdir JNI symbol verification failed: $SO" >&2
             exit 1
         }
-    for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory nativeCreateFile; do
+    for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory nativeCreateFile nativeOpenWritable nativeWriteAt nativeFlushWritable nativeCloseWritable; do
         "$LLVM_NM" -D "$SO" | grep -q "Java_app_local1st_files_core_fs_rust_RustSmbNative_$METHOD" || {
             echo "Rust SMB $METHOD JNI symbol verification failed: $SO" >&2
             exit 1
