@@ -36,23 +36,23 @@ grep -Fq 'XFiles runtime scope: migration is not complete' "$STATUS_DOC" ||
     fail "status document does not describe the outstanding app-side migration"
 grep -Fq 'real NAS and WireGuard integration remain pending' "$STATUS_DOC" ||
     fail "Rust SMB status must preserve NAS/VPN validation as pending"
-grep -Fq '| `mkdir` | Rust JNI v5 in `rust` and Rust-first `auto`;' "$STATUS_DOC" ||
+grep -Fq '| `mkdir` | Rust JNI v7 in `rust` and Rust-first `auto`;' "$STATUS_DOC" ||
     fail "status document must describe progressive Rust-first mkdir"
-grep -Fq '| `rename` / `moveWithinShare` | Rust-first `auto` with JNI v5' "$STATUS_DOC" ||
+grep -Fq '| `rename` / `moveWithinShare` | Rust-first `auto` with JNI v7' "$STATUS_DOC" ||
     fail "status document must describe JNI v4 rename migration"
-grep -Fq '| `SmbFileSystem.list` / `stat` | Rust-first `auto` using paged JNI v5;' "$STATUS_DOC" ||
+grep -Fq '| `SmbFileSystem.list` / `stat` | Rust-first `auto` using paged JNI v7;' "$STATUS_DOC" ||
     fail "status document must describe paged Rust-first list/stat"
 grep -Fq '| `delete` | SMBJ |' "$STATUS_DOC" ||
     fail "delete must remain SMBJ until recursive and read-only compatibility is verified"
 
 
 # One version and one engine SHA must advance together; all packaged ABI checks include mkdir.
-grep -Fq 'private const val EXPECTED_API_VERSION = 6' \
+grep -Fq 'private const val EXPECTED_API_VERSION = 7' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
-    fail "Kotlin JNI API is not v6"
+    fail "Kotlin JNI API is not v7"
 grep -Fq 'nativeMkdir' "$BUILD_SCRIPT" || fail "Android build script does not verify mkdir JNI"
 grep -Fq 'nativeMkdir' "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify mkdir JNI"
-for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory nativeCreateFile; do
+for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory nativeCreateFile nativeOpenWritable nativeWriteAt nativeFlushWritable nativeCloseWritable; do
     grep -Fq "$METHOD" "$BUILD_SCRIPT" || fail "Android build script does not verify $METHOD"
     grep -Fq "$METHOD" "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify $METHOD"
 done
@@ -84,6 +84,18 @@ grep -Fq 'SmbCreateFileBackend.create(' \
     fail "SMB createFile must use the one-shot Rust mutation adapter"
 grep -Fq 'nativeCreateFile' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
-    fail "Kotlin JNI v6 must declare exclusive createFile"
+    fail "Kotlin JNI v7 must preserve exclusive createFile"
+
+grep -Fq '| `openOut` | SMBJ in `auto`/`smbj`; native JNI v7 only for explicit diagnostic `rust`' "$STATUS_DOC" ||
+    fail "output streaming must remain SMBJ in production auto until throughput parity"
+grep -Fq 'if (mode != "rust") return smbj()' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbWriteBackend.kt" ||
+    fail "production auto must preserve the SMBJ pipelined output backend"
+grep -Fq 'SmbWriteBackend.open(' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt" ||
+    fail "openOut must use the mode-gated writable adapter"
+grep -Fq 'flushNative(handle)' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbOutputStream.kt" ||
+    fail "writable stream close must flush before releasing the handle"
 
 echo "Rust SMB pin contract OK: $PIN"
