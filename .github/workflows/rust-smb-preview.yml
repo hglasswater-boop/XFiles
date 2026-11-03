@@ -10,6 +10,9 @@ on:
       - 'app/src/main/java/app/local1st/files/core/fs/RustSmbRandomAccessBackend.kt'
       - 'app/src/main/java/app/local1st/files/core/fs/SmbRandomAccessBackend.kt'
       - 'app/src/main/java/app/local1st/files/core/fs/SmbRandomAccessFile.kt'
+      - 'app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt'
+      - 'app/src/main/java/app/local1st/files/core/fs/SmbReadBackend.kt'
+      - 'app/src/main/java/app/local1st/files/core/fs/SmbReadInputStream.kt'
       - 'app/src/main/java/app/local1st/files/core/fs/rust/**'
       - 'app/src/main/java/app/local1st/files/ui/viewer/SmbDataSource.kt'
 
