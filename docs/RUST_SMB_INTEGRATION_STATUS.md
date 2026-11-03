@@ -82,6 +82,18 @@ Rust engine PR #42 merged JNI v6 `nativeCreateFile` at `2d860724` after Rust CI,
 - Upstream gate: create-only Rust CI, signed Samba collision/no-overwrite verification, all Android JNI ABI symbol checks. App gate: Kotlin adapter and tests, correct pin/JNI version, Mobile/TV, emulator, Preview, and physical NAS/WireGuard.
 - Keep #245 and parent #239 Open through device parity and full WRITE migration; do not mark the issue done when one PR merges.
 
+## Next WRITE slice: native diagnostic openOut (XFiles #245 / Rust #43)
+
+The Rust `smb-io-rs` PR #44 merged the mandatory-signed SMB2 FLUSH codec and client at `e87f8c633c4444db70901914630306516675ffc3`. PR #45 (JNI v7) is in progress and will expose stateful `nativeOpenWritable/nativeWriteAt/nativeFlushWritable/nativeCloseWritable`. This XFiles branch is a **diagnostic integration only** until upstream CI, native pin, XFiles CI and real NAS/WireGuard and speed measurements pass.
+
+- `SmbFileSystem.openOut` explicitly uses `FILE_OVERWRITE_IF`: it creates a new regular file or **truncates an existing file**, then returns a streaming `OutputStream`. It does **not** use createFile's exclusive `FILE_CREATE` disposition. A network disconnect during the open/truncate or WRITE can have an ambiguous result; do **not** retry it through SMBJ or repeat bytes automatically.
+- In this slice **explicit `rust`** uses a signed persistent native writable handle. `auto` and explicit `smbj` continue using existing SMBJ pipelined async output; no premature speed regression in regular builds. Rust path prepares WireGuard LAN/tunnel route *before* opening/truncating a file. Saved `basePath` and credentials are share-relative and preserved.
+- JNI writes are broken into at most 1MiB pieces, with exact buffer offset/length validation. Each Java write is positional; Kotlin increments the offset only after the native call confirms full chunk acceptance. Any failed or short write poisons the stream: subsequent write/flush is rejected, and close still releases the remote handle. The writer does not replay an ambiguous WRITE, and unconfirmed content must not be presented as successfully persisted.
+- `flush()` is an explicit SMB2 FLUSH over the **same** open server handle. `close()` must flush if no previous failure, and must always attempt native CLOSE even if FLUSH fails; errors are surfaced, with a suppressed CLOSE error if necessary. Close must be idempotent on the Kotlin object and write-after-close must fail.
+- Unit tests must cover valid/invalid ranges, zero-byte and multi-chunk writes, position, flush+close ordering, close-after-write-error, error suppression, explicit `rust` vs `auto`/`smbj`, route preflight and no fallback after Rust begins.
+- Rust signed Samba test must verify `OVERWRITE_IF` truncates an existing larger file, multi-MiB writes, explicit flush, exact readback, invalid post-close handle. JNI symbol/version and all three ABI tests, Mobile/TV/lint/unit/emulator and Rust Preview must pass before merging diagnostic XFiles code.
+- **Production auto promotion remains blocked** pending real NAS throughput vs the existing SMBJ pipeline (1MiB chunks, 8 writes in flight), WireGuard handoff and user-visible write/error parity. `SmbRandomAccessOutputFile` read/write/truncate and recursive deletion remain SMBJ. Parent #239 and write #245 remain **Open**.
+
 ## Open tracking
 
 - XFiles #239: overarching Rust migration; **must remain open until all quality gates and user verification**.
