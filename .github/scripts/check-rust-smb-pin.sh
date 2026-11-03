@@ -54,5 +54,8 @@ grep -Fq 'catch (_: RustSmbUnavailableException)' \
 grep -Fq 'wireGuard?.prepare(target.connection)' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt" ||
     fail "Rust mkdir must prepare VPN/LAN before mutation"
+grep -Fq 'prepareNetwork()' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbMkdirBackend.kt" ||
+    fail "Rust mkdir route must complete the network preflight before issuing JNI mutation"
 
 echo "Rust SMB pin contract OK: $PIN"
