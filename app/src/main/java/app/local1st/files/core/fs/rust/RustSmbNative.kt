@@ -10,7 +10,7 @@ internal class RustSmbUnavailableException(
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 2
+    private const val EXPECTED_API_VERSION = 3
 
     @Volatile
     private var loaded = false
@@ -47,6 +47,18 @@ internal object RustSmbNative {
         domain: String,
         workstation: String,
     ): Long
+
+    /** One-shot mkdir. Never retry a failed/ambiguous mutation through SMBJ. */
+    external fun nativeMkdir(
+        host: String,
+        port: Int,
+        share: String,
+        path: String,
+        username: String,
+        password: String,
+        domain: String,
+        workstation: String,
+    )
 
     external fun nativeLen(handle: Long): Long
 
