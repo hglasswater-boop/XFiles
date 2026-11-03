@@ -45,19 +45,19 @@ The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpen
 - Saved `basePath` is included in the Rust share-relative path. A blank username uses anonymous authentication, avoiding an unnecessary password transfer to JNI.
 - When a saved connection enables WireGuard, XFiles performs the existing non-mutating network selection/probe and optional tunnel UP/DOWN **before** issuing native mkdir. A temporary TCP probe is never the mkdir operation. An unsuccessful probe cannot be confused with a failed mutation or retried as one.
 - The selected WireGuard policy is still bounded and may have its documented LAN/VPN cutover caveats; preserve the same selection used for SMBJ. `SmbWireGuardRetry.prepare` is a preflight-only adapter and does not run SMB authentication/mutation.
-- After a successful native mkdir, the existing `stat` still uses SMBJ. This can cause a second connection/preflight but must not redo the mutation. Later list/stat migration will remove the extra client session.
-- `rename`, `delete`, `createFile`, `openOut`, recursive directory deletion, cross-share moves, and random-access writing stay on SMBJ until independently implemented and tested.
+- After a successful native mkdir, `stat` uses the Rust-first paged directory listing (merged via XFiles PR #248). It can require a separate authenticated session/preflight but does not replay mkdir.
+- `rename` and exclusive `createFile` have also been promoted Rust-first in `auto` (XFiles PRs #247 and #249). Recursive deletion, cross-share moves, `openIn`, storage-space queries and random-access writing remain SMBJ; `openOut` uses the new JNI v7 writer **only in explicit diagnostic `rust`**, while normal `auto` stays SMBJ until throughput/NAS validation.
 - Promote in small PRs; CI gates precede main merge. User NAS and WireGuard findings are captured as follow-up fixes. **Issue #242 and overarching #239 remain open** pending real-device verification, parity and full migration quality gates.
 
 ## Next operation slice: rename and file-only delete JNI v4 (Issue #246)
 
-- Rust engine PR #36 was merged at `36f7aeff`; it adds one-shot `nativeRename` and `nativeDeleteFile` on top of Phase 9. Rust CI, Samba, Phase 9 and Android JNI (3 ABIs) passed. This XFiles branch promotes the pin and expected JNI version together; Android CI and real NAS tests remain pending.
+- Rust engine PR #36 merged at `36f7aeff` with one-shot `nativeRename` and `nativeDeleteFile`. XFiles PR #247 merged Rust-first `rename` / `moveWithinShare` after green CI; current JNI v7 retains those methods. Real NAS/WireGuard parity remains pending.
 - The first XFiles callers are `SmbFileSystem.rename` and same-share `moveWithinShare`, with **no overwrite**: both paths are in the same connected share and include the stored `basePath`; an SMB name collision propagates to the caller.
 - `auto` may switch to SMBJ only on missing/incompatible JNI **before** the rename starts. Once Rust has been called, any network/protocol/status error is propagated, never replayed by SMBJ.
 - `smbj` preserves existing behavior and does not run Rust preflight. `rust` uses native JNI without fallback. Rust rename calls preflight `wireGuard?.prepare(config)` before mutation.
 - Existing `SmbFileSystem.delete` stays on SMBJ, even after Rust `nativeDeleteFile` exists: the app currently clears read-only attributes on `STATUS_CANNOT_DELETE`, and deletes directories **recursively**, whereas the upstream Phase 9 primitives do neither. Track compatibility under #196 and #246 before promoting deletion.
 - JNI API version, library pin, symbol checks (all 3 ABIs), and Kotlin declaration must move together in one XFiles PR.
-- The rename rollout is incremental, not a claim that complete Rust SMB operation parity has been reached. Read/list, create, write, recursive delete and cross-share transfers remain separately tracked under #244, #245, #237 and #239.
+- The rename rollout is incremental, not a claim of complete Rust SMB parity. Rust-first list/stat and exclusive file creation are now in main, while `openIn`, production `openOut`, random-access write/truncate, storage space, recursive delete and cross-share transfers remain separately tracked under #244, #245, #237 and #239.
 - Rust CI/Samba, XFiles Mobile/TV, unit/lint/emulator/Preview and NAS/WireGuard real-device tests are required. **Issue #246 and parent #239 stay Open** through real-NAS validation.
 
 ## Rust read-only directory listing: paged JNI (Issue #244)
@@ -70,17 +70,17 @@ Rust `smb-io-rs` #39 / PR #40 is **merged** at `f76b8274`, after all Rust/Samba/
 - An SMB error mid-scan is a failure, never mistaken for EOF; show the user an error instead of claiming a partial list is complete. In auto mode, fallback to SMBJ only if JNI is missing/incompatible **before** opening Rust; explicit Rust never masks failures.
 - Filter `.`/`..`; preserve `hidden` (SMB attribute or dotfile), `isDir` (0x10), `size` (directory -1), `mtime` / `creationTime`, file MIME, `basePath`, stored anonymous/NTLM credentials, WireGuard preflight and correct XId children.
 - Current `XFileSystem.list` returns a full `List<XEntry>` and therefore still allocates memory proportional to the actual folder size, just like the existing SMBJ path. The native JNI response itself no longer has a fixed whole-folder ceiling. Progressive UI virtualization is a separate performance optimization if real large NAS directories require it.
-- Rust and Android CI, real signing-required Samba with 1,200 files over multiple pages, Mobile/TV/unit/emulator, NAS/WireGuard and error handling must pass before production auto migration. Keep #244 / parent #239 **Open** through real-device validation.
+- Rust and XFiles CI (including signing-required Samba 1,200-entry multi-page test, Mobile/TV/unit/emulator) passed before the existing auto migration. Physical NAS/WireGuard and large-directory UI behavior remain pending; keep #244 / parent #239 **Open**.
 
 ## Exclusive new-file creation: next Rust JNI v6 slice (XFiles #245, Rust #41)
 
-Rust engine PR #42 merged JNI v6 `nativeCreateFile` at `2d860724` after Rust CI, mandatory-signing Samba, Phase9, all Android JNI ABIs and regressions passed. This XFiles #245 branch pins that commit and routes **only** `createFile` through Rust-first `auto`. XFiles app CI and real NAS/WireGuard parity remain pending.
+Rust PR #42 merged the exclusive JNI v6 `nativeCreateFile` at `2d860724` after Rust/Samba/Android CI. XFiles PR #249 promoted **only** `createFile` to Rust-first `auto` after successful Mobile/TV, unit/lint/emulator and Preview checks. The current JNI v7 continues supporting it; physical NAS/WireGuard parity is still pending.
 
 - `createFile` uses SMB2 `FILE_CREATE`, creating **one empty regular file only if its name does not exist**. It must never use `OPEN_IF` or `OVERWRITE_IF`, and a collision must not overwrite existing data. Parent directories must already exist. The app retains safe-name validation and the configured share-relative `basePath`.
 - Backend selection matches existing mkdir/rename mutation policy: `auto` uses Rust first, with SMBJ fallback solely on `RustSmbUnavailableException` from checking the loaded native version **before** calling the remote operation; strict `rust` has no fallback, explicit `smbj` does not touch Rust.
 - WireGuard LAN/tunnel route preparation occurs before the native SMB session. If Rust CREATE was invoked and a network error occurs, its success is ambiguous: never retry it through SMBJ or report creation success. A successful create may use the already migrated Rust `stat` to build its `XEntry`.
 - `openOut` differs: it uses `FILE_OVERWRITE_IF` and streams bytes. Random-access write also requires independent write-at/seek/truncate/flush/close semantics and is **not** covered by this createFile slice. Track them in #245; avoid implying complete write migration.
-- Upstream gate: create-only Rust CI, signed Samba collision/no-overwrite verification, all Android JNI ABI symbol checks. App gate: Kotlin adapter and tests, correct pin/JNI version, Mobile/TV, emulator, Preview, and physical NAS/WireGuard.
+- The upstream CREATE collision/no-overwrite and JNI ABI gates and XFiles Kotlin/Mobile/TV/emulator/Preview gates succeeded for PR #249. The remaining CREATE gate is physical NAS/WireGuard and regression feedback; separate `openOut` diagnostic work is tracked below.
 - Keep #245 and parent #239 Open through device parity and full WRITE migration; do not mark the issue done when one PR merges.
 
 ## Next WRITE slice: native diagnostic openOut (XFiles #245 / Rust #43)
