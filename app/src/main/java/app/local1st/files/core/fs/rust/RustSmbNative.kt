@@ -10,7 +10,7 @@ internal class RustSmbUnavailableException(
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 7
+    private const val EXPECTED_API_VERSION = 8
 
     @Volatile
     private var loaded = false
@@ -141,6 +141,44 @@ internal object RustSmbNative {
 
     /** Releases the writable handle even after an earlier WRITE/FLUSH error. */
     external fun nativeCloseWritable(handle: Long)
+
+    /** FILE_OPEN existing regular file; must never truncate or create an absent destination. */
+    external fun nativeOpenRandom(
+        host: String,
+        port: Int,
+        share: String,
+        path: String,
+        username: String,
+        password: String,
+        domain: String,
+        workstation: String,
+    ): Long
+
+    /** 1MiB maximum per call; -1 at EOF. */
+    external fun nativeReadRandomAt(
+        handle: Long,
+        position: Long,
+        destination: ByteArray,
+        destinationOffset: Int,
+        length: Int,
+    ): Int
+
+    /** Positional non-replayed WRITE on the same FILE_OPEN handle. */
+    external fun nativeWriteRandomAt(
+        handle: Long,
+        position: Long,
+        source: ByteArray,
+        sourceOffset: Int,
+        length: Int,
+    ): Int
+
+    /** Signed SET_INFO EOF resize, 0 <= length <= Java Long MAX. */
+    external fun nativeSetRandomLength(handle: Long, length: Long)
+
+    external fun nativeFlushRandom(handle: Long)
+
+    /** Release even when a prior read/write/truncate/flush failed. */
+    external fun nativeCloseRandom(handle: Long)
 
     external fun nativeLen(handle: Long): Long
 

@@ -81,18 +81,25 @@ jobs:
           for ABI in arm64-v8a armeabi-v7a x86_64; do
             SO="$GITHUB_WORKSPACE/app/src/main/jniLibs/$ABI/libsmb_io_android.so"
             test -f "$SO"
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativePrefetch'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeMkdir'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeRename'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeDeleteFile'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeOpenDirectory'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeReadDirectoryPage'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeCloseDirectory'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeCreateFile'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeOpenWritable'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeWriteAt'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeFlushWritable'
-            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeCloseWritable'
+            SYMBOLS=$("$LLVM_NM" -D "$SO")
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativePrefetch' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeMkdir' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeRename' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeDeleteFile' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeOpenDirectory' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeReadDirectoryPage' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeCloseDirectory' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeCreateFile' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeOpenWritable' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeWriteAt' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeFlushWritable' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeCloseWritable' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeOpenRandom' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeReadRandomAt' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeWriteRandomAt' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeSetRandomLength' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeFlushRandom' <<< "$SYMBOLS"
+            grep -Fq 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeCloseRandom' <<< "$SYMBOLS"
           done
 
       - name: Compute Android build number
