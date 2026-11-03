@@ -4,7 +4,7 @@
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
 
-The proposed XFiles integration engine (Phase 9 + paginated Android JNI v5) is:
+The currently integrated XFiles engine (Phase 9 + paginated Android JNI v5) is:
 
 - smb-io-rs revision: `f76b8274f27815bd6bc39d2201c7bca0dd23917d`
 - engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Android JNI v3 nativeMkdir merged in PR #34 and JNI v4 rename/deleteFile merged in PR #36; Phase 10 reconnect/durable-handle work remains outstanding
@@ -60,7 +60,7 @@ The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpen
 
 ## Rust read-only directory listing: paged JNI (Issue #244)
 
-Rust `smb-io-rs` #39 / PR #40 is **merged** at `f76b8274`, after all Rust/Samba/Android JNI CI passed. This XFiles branch now pins API v5 and routes `list/stat` through the cursor-based API in `auto`. App-side Android CI and real NAS/WireGuard parity remain pending; prior XFiles main used SMBJ.
+Rust `smb-io-rs` #39 / PR #40 is **merged** at `f76b8274`, after all Rust/Samba/Android JNI CI passed. XFiles PR #248 merged API v5 and Rust-first `list/stat` into main after Debug CI, Mobile/TV, unit, lint, emulator, and Preview success. Real NAS/WireGuard parity remains pending.
 
 - Kotlin calls `nativeOpenDirectory` exactly once, then `nativeReadDirectoryPage` until an XFL1 page with zero entries signals EOF, and always calls `nativeCloseDirectory` in `finally`.
 - Rust keeps the same authenticated share connection and remote QUERY_DIRECTORY cursor open across pages. It returns *one* server page each time; 16 MiB is an upper bound **per page, not per folder**. No artificial total-file count or total-folder-byte limit.
@@ -69,6 +69,17 @@ Rust `smb-io-rs` #39 / PR #40 is **merged** at `f76b8274`, after all Rust/Samba/
 - Filter `.`/`..`; preserve `hidden` (SMB attribute or dotfile), `isDir` (0x10), `size` (directory -1), `mtime` / `creationTime`, file MIME, `basePath`, stored anonymous/NTLM credentials, WireGuard preflight and correct XId children.
 - Current `XFileSystem.list` returns a full `List<XEntry>` and therefore still allocates memory proportional to the actual folder size, just like the existing SMBJ path. The native JNI response itself no longer has a fixed whole-folder ceiling. Progressive UI virtualization is a separate performance optimization if real large NAS directories require it.
 - Rust and Android CI, real signing-required Samba with 1,200 files over multiple pages, Mobile/TV/unit/emulator, NAS/WireGuard and error handling must pass before production auto migration. Keep #244 / parent #239 **Open** through real-device validation.
+
+## Exclusive new-file creation: next Rust JNI v6 slice (XFiles #245, Rust #41)
+
+The Rust engine PR #42 introduces a new one-shot `nativeCreateFile` method on JNI v6. It implements `SmbFileSystem.createFile` only. The engine is **not pinned/promoted by XFiles yet**; until Rust CI/Samba/Android JNI passes and XFiles commits the new pin/version together, normal builds use existing SMBJ for new-file creation.
+
+- `createFile` uses SMB2 `FILE_CREATE`, creating **one empty regular file only if its name does not exist**. It must never use `OPEN_IF` or `OVERWRITE_IF`, and a collision must not overwrite existing data. Parent directories must already exist. The app retains safe-name validation and the configured share-relative `basePath`.
+- Backend selection matches existing mkdir/rename mutation policy: `auto` uses Rust first, with SMBJ fallback solely on `RustSmbUnavailableException` from checking the loaded native version **before** calling the remote operation; strict `rust` has no fallback, explicit `smbj` does not touch Rust.
+- WireGuard LAN/tunnel route preparation occurs before the native SMB session. If Rust CREATE was invoked and a network error occurs, its success is ambiguous: never retry it through SMBJ or report creation success. A successful create may use the already migrated Rust `stat` to build its `XEntry`.
+- `openOut` differs: it uses `FILE_OVERWRITE_IF` and streams bytes. Random-access write also requires independent write-at/seek/truncate/flush/close semantics and is **not** covered by this createFile slice. Track them in #245; avoid implying complete write migration.
+- Upstream gate: create-only Rust CI, signed Samba collision/no-overwrite verification, all Android JNI ABI symbol checks. App gate: Kotlin adapter and tests, correct pin/JNI version, Mobile/TV, emulator, Preview, and physical NAS/WireGuard.
+- Keep #245 and parent #239 Open through device parity and full WRITE migration; do not mark the issue done when one PR merges.
 
 ## Open tracking
 
