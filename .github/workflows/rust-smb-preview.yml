@@ -82,6 +82,7 @@ jobs:
             SO="$GITHUB_WORKSPACE/app/src/main/jniLibs/$ABI/libsmb_io_android.so"
             test -f "$SO"
             "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativePrefetch'
+            "$LLVM_NM" -D "$SO" | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeMkdir'
           done
 
       - name: Compute Android build number
