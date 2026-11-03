@@ -73,6 +73,11 @@ for ABI in arm64-v8a armeabi-v7a x86_64; do
             echo "Rust SMB JNI symbol verification failed: $SO" >&2
             exit 1
         }
+    "$LLVM_NM" -D "$SO" \
+        | grep -q 'Java_app_local1st_files_core_fs_rust_RustSmbNative_nativeMkdir' || {
+            echo "Rust SMB mkdir JNI symbol verification failed: $SO" >&2
+            exit 1
+        }
 done
 
 echo "Rust SMB JNI libraries staged from $ENGINE_REF"
