@@ -115,6 +115,33 @@ internal object RustSmbNative {
         workstation: String,
     )
 
+    /** Explicit diagnostic OVERWRITE_IF output; do not use in production auto until speed gate. */
+    external fun nativeOpenWritable(
+        host: String,
+        port: Int,
+        share: String,
+        path: String,
+        username: String,
+        password: String,
+        domain: String,
+        workstation: String,
+    ): Long
+
+    /** Bounded positional WRITE on the same native file handle, maximum 1MiB per call. */
+    external fun nativeWriteAt(
+        handle: Long,
+        position: Long,
+        source: ByteArray,
+        sourceOffset: Int,
+        length: Int,
+    ): Int
+
+    /** Signed SMB FLUSH; caller must still close the native handle in finally. */
+    external fun nativeFlushWritable(handle: Long)
+
+    /** Releases the writable handle even after an earlier WRITE/FLUSH error. */
+    external fun nativeCloseWritable(handle: Long)
+
     external fun nativeLen(handle: Long): Long
 
     external fun nativeReadAt(
