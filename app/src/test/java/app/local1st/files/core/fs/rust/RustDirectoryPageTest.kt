@@ -1,7 +1,5 @@
 package app.local1st.files.core.fs.rust
 
-import java.io.ByteArrayOutputStream
-import java.io.DataOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -21,7 +19,7 @@ class RustDirectoryPageTest {
         val parsed = RustDirectoryPage.decode(data)
         assertEquals(2, parsed.size)
         assertEquals("映画 01.mkv", parsed[0].name)
-        assertEquals(1234567, parsed[0].size)
+        assertEquals(1234567L, parsed[0].size)
         assertEquals(1000L, parsed[0].modifiedMillis)
         assertTrue(parsed[0].hidden)
         assertFalse(parsed[0].directory)
@@ -69,7 +67,7 @@ class RustDirectoryPageTest {
         val buffer = ByteBuffer.allocate(8 + records.sumOf { it.size }).order(ByteOrder.LITTLE_ENDIAN)
         buffer.put(byteArrayOf('X'.code.toByte(), 'F'.code.toByte(), 'L'.code.toByte(), '1'.code.toByte()))
         buffer.putInt(records.size)
-        records.forEach(buffer::put)
+        records.forEach { buffer.put(it) }
         return buffer.array()
     }
 
