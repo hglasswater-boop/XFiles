@@ -27,6 +27,15 @@ if grep -Eq '[0-9a-f]{40}' "$PREVIEW_WORKFLOW"; then
     fail "preview workflow contains an independent 40-character SHA"
 fi
 
-grep -Fq "smb-io-rs revision: \`$PIN\`" "$STATUS_DOC" || fail "status document does not match the shared pin"
+grep -Fq "smb-io-rs revision: `$PIN`" "$STATUS_DOC" || fail "status document does not match the shared pin"
+
+# Until the XFiles operation entry points are actually migrated, document the JNI gap and
+# do not mistake merged Rust engine functionality for an app-side migration completion.
+grep -Fq 'XFiles runtime scope: migration is not complete' "$STATUS_DOC" ||
+    fail "status document does not describe the outstanding app-side migration"
+grep -Fq 'XFiles Android integration and device/NAS validation for this new pin: **pending**' "$STATUS_DOC" ||
+    fail "Phase 9 candidate lacks the XFiles validation gate"
+grep -Fq '| `mkdir` / `rename` / `delete` / `moveWithinShare` | SMBJ |' "$STATUS_DOC" ||
+    fail "status document must not claim filesystem mutations are Rust-backed before JNI routing"
 
 echo "Rust SMB pin contract OK: $PIN"
