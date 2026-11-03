@@ -30,6 +30,15 @@
 
 
 
+## Rust SMBの段階移行（Issue #242）
+
+- 通常の `auto` バックエンドでは、Rust JNI v3を利用できる場合に限り、**mkdir**もRustを優先する。未移行のSMB操作は引き続きSMBJ。
+- Rustのmkdir前にも、これまでSMBJ接続前に行っていた物理Wi-Fi/サブネット確認・WireGuard UP/DOWN・TCP到達待機を同じ `SmbWireGuardRetry` で**先に実行する**。これはread-onlyなネットワーク準備で、SMB mkdir本体をコールバック内に置かない。
+- `SmbWireGuardRetry.prepare(config)` はTCPルート選択のみを実行し、SMB認証やファイル作成は行わない。失敗時にRust mkdirを起動しない。
+- `auto` がSMBJへ切り替えてよいのは、Rust JNIが未ロード/非互換であるとmkdir前に判明したときだけ。Rust mkdirの実行後にIOExceptionが発生しても再度SMBJ mkdirしない。
+- 明示 `smbj` モードでは従来の `withShare` 経路を維持し、ネットワーク準備を二重実行しない。`rust` モードではライブラリがない場合も失敗を明示し、暗黙のSMBJ代替はしない。
+- 実NAS/宅内外/WireGuard実機検証は#242に残す。未検証を完了扱いしない。
+
 ## 保存と移行
 
 - `SmbConnectionConfig.wireGuardTunnel` をローカルの SMB 定義に平文の「トンネル名」として保存する。VPN 秘密鍵は扱わない。

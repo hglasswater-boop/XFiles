@@ -34,10 +34,10 @@ grep -Fq "$EXPECTED_STATUS_LINE" "$STATUS_DOC" || fail "status document does not
 # do not mistake merged Rust engine functionality for an app-side migration completion.
 grep -Fq 'XFiles runtime scope: migration is not complete' "$STATUS_DOC" ||
     fail "status document does not describe the outstanding app-side migration"
-grep -Fq 'XFiles Android integration and device/NAS validation for this new pin: **pending**' "$STATUS_DOC" ||
-    fail "Phase 9 candidate lacks the XFiles validation gate"
-grep -Fq '| `mkdir` | Diagnostic-only `rust`: native JNI v3; `auto` and `smbj`: SMBJ |' "$STATUS_DOC" ||
-    fail "status document must restrict Rust mkdir to explicit diagnostic builds"
+grep -Fq 'real NAS and WireGuard integration remain pending' "$STATUS_DOC" ||
+    fail "Rust SMB status must preserve NAS/VPN validation as pending"
+grep -Fq '| `mkdir` | Rust JNI v3 in `rust` and Rust-first `auto`;' "$STATUS_DOC" ||
+    fail "status document must describe progressive Rust-first mkdir"
 grep -Fq '| `rename` / `delete` / `moveWithinShare` | SMBJ |' "$STATUS_DOC" ||
     fail "status document must not claim other filesystem mutations are Rust-backed"
 
@@ -48,8 +48,14 @@ grep -Fq 'private const val EXPECTED_API_VERSION = 3' \
     fail "Kotlin JNI API is not v3"
 grep -Fq 'nativeMkdir' "$BUILD_SCRIPT" || fail "Android build script does not verify mkdir JNI"
 grep -Fq 'nativeMkdir' "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify mkdir JNI"
-grep -Fq 'if (mode == "rust") rust() else smbj()' \
+grep -Fq 'catch (_: RustSmbUnavailableException)' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbMkdirBackend.kt" ||
-    fail "mkdir backend must stay restricted to strict diagnostic Rust mode"
+    fail "auto mkdir may fall back only before mutation when native is unavailable"
+grep -Fq 'wireGuard?.prepare(target.connection)' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbFileSystem.kt" ||
+    fail "Rust mkdir must prepare VPN/LAN before mutation"
+grep -Fq 'prepareNetwork()' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbMkdirBackend.kt" ||
+    fail "Rust mkdir route must complete the network preflight before issuing JNI mutation"
 
 echo "Rust SMB pin contract OK: $PIN"

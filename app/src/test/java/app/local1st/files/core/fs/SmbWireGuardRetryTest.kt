@@ -403,4 +403,44 @@ class SmbWireGuardRetryTest {
         assertTrue(failure.message!!.contains("permission"))
         assertEquals(0, opens)
     }
+
+    @Test
+    fun `preparing the route does not execute any SMB operation`() {
+        val events = mutableListOf<String>()
+        val retry = SmbWireGuardRetry(
+            startTunnel = { events += "UP" },
+            isReachable = { _, _ -> events += "TCP probe"; false },
+            awaitReachable = { _, _ -> events += "reachable"; true },
+        )
+        retry.prepare(connection())
+        events += "native mkdir"
+
+        assertEquals(listOf("TCP probe", "UP", "reachable", "native mkdir"), events)
+    }
+
+    @Test
+    fun `preparation fails before caller can issue mutation`() {
+        var mutationCalls = 0
+        val retry = SmbWireGuardRetry(
+            startTunnel = {},
+            isReachable = { _, _ -> false },
+            awaitReachable = { _, _ -> false },
+        )
+        assertThrows(IOException::class.java) {
+            retry.prepare(connection())
+            mutationCalls++
+        }
+        assertEquals(0, mutationCalls)
+    }
+
+    @Test
+    fun `preparing connections without WireGuard performs no probes`() {
+        val retry = SmbWireGuardRetry(
+            startTunnel = { error("no VPN") },
+            localReachable = { _, _ -> error("no Wi-Fi probe") },
+            isReachable = { _, _ -> error("no TCP probe") },
+            awaitReachable = { _, _ -> error("no wait") },
+        )
+        retry.prepare(connection(""))
+    }
 }

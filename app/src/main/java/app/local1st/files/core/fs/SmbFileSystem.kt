@@ -164,6 +164,7 @@ open class SmbFileSystem(
             config = target.connection,
             path = target.path,
             password = { connections.password(target.connection.id) },
+            prepareNetwork = { wireGuard?.prepare(target.connection) },
             smbj = { withShare(target.connection) { it.mkdir(toSmbPath(target.path)) } },
         )
         return stat(childId) ?: XEntry(
