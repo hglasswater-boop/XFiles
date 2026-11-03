@@ -4,12 +4,12 @@
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
 
-The Phase 9 + Android JNI v3 integration candidate is:
+The pinned Phase 9 + Android JNI v3 engine is:
 
 - smb-io-rs revision: `bb8106f736709d0008d5a53b6321293b1c439903`
 - engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Android JNI v3 nativeMkdir merged in PR #34; Phase 10 reconnect/durable-handle work remains outstanding
 - Phase 9 validation at the merged PR head: Rust CI, Phase 9 File Management Integration, Samba Integration, Phase 6 Query Integration, Phase 7 Parallel READ, Phase 8 WRITE Integration, Broker Reconnect, Durable Reconnect, and Android JNI all succeeded
-- XFiles Android integration and device/NAS validation for this new pin: **pending**. A successful Rust-side workflow is not evidence that XFiles has migrated file-management calls.
+- XFiles PR #241 Android Debug CI (Mobile/TV, unit, lint, emulator) and Rust SMB Preview were successful; **real NAS and WireGuard integration remain pending**. The CI green result is not full Rust filesystem parity.
 
 ## XFiles runtime scope: migration is not complete
 
