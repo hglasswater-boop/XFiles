@@ -35,9 +35,20 @@ grep -Fq 'XFiles runtime scope: migration is not complete' "$STATUS_DOC" ||
     fail "status document does not describe the outstanding app-side migration"
 grep -Fq 'XFiles Android integration and device/NAS validation for this new pin: **pending**' "$STATUS_DOC" ||
     fail "Phase 9 candidate lacks the XFiles validation gate"
-grep -Fq '| `mkdir` | Diagnostic-only `rust`: planned JNI Phase 9 path; `auto` and `smbj`: SMBJ |' "$STATUS_DOC" ||
+grep -Fq '| `mkdir` | Diagnostic-only `rust`: native JNI v3; `auto` and `smbj`: SMBJ |' "$STATUS_DOC" ||
     fail "status document must restrict Rust mkdir to explicit diagnostic builds"
 grep -Fq '| `rename` / `delete` / `moveWithinShare` | SMBJ |' "$STATUS_DOC" ||
     fail "status document must not claim other filesystem mutations are Rust-backed"
+
+
+# One version and one engine SHA must advance together; all packaged ABI checks include mkdir.
+grep -Fq 'private const val EXPECTED_API_VERSION = 3' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
+    fail "Kotlin JNI API is not v3"
+grep -Fq 'nativeMkdir' "$BUILD_SCRIPT" || fail "Android build script does not verify mkdir JNI"
+grep -Fq 'nativeMkdir' "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify mkdir JNI"
+grep -Fq 'if (mode == "rust") rust() else smbj()' \
+    "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/SmbMkdirBackend.kt" ||
+    fail "mkdir backend must stay restricted to strict diagnostic Rust mode"
 
 echo "Rust SMB pin contract OK: $PIN"
