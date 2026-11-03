@@ -4,7 +4,7 @@
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
 
-The XFiles main baseline after merged PR #253 (Android JNI v8) is:
+The current pinned Rust engine and historical XFiles JNI migration milestones are:
 
 - smb-io-rs revision: `2b9e0cee184596ae221157a0fb640119f57124c5`
 - engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Android JNI v3 nativeMkdir merged in PR #34 and JNI v4 rename/deleteFile merged in PR #36; PR #44 signed FLUSH and PR #45 writable JNI v7 are merged; Phase 10 reconnect/durable-handle work remains outstanding
@@ -13,13 +13,13 @@ The XFiles main baseline after merged PR #253 (Android JNI v8) is:
 
 ## XFiles runtime scope: migration is not complete
 
-The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The JNI v8 mainline integration retains the v7 video/list/mutations and writable stream API, and adds existing-file, non-truncating signed random-access read/write/setLength/flush/close. XFiles main now promotes **mkdir, rename, list/stat, exclusive createFile and sequential openIn** to Rust-first in `auto`; `openOut` and non-truncating `SmbRandomAccessOutputFile` are diagnostic-only in explicit `rust` mode. An unavailable/incompatible native library may be handled by SMBJ **before any mutation**; an actual Rust SMB error must never trigger a second mkdir through SMBJ. NAS/VPN verification is still required and is **not** a claim of full Rust filesystem parity.
+The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. JNI v8 retained the v7 video/list/mutations and writable stream API and added existing-file, non-truncating signed random-access read/write/setLength/flush/close. JNI v9 adds signed filesystem capacity and recursive directory-size queries, with app routing in PR #257. XFiles progressively promotes **mkdir, rename, list/stat, exclusive createFile, sequential openIn and capacity queries** to Rust-first in `auto`; `openOut` and non-truncating `SmbRandomAccessOutputFile` are diagnostic-only in explicit `rust` mode. An unavailable/incompatible native library may be handled by SMBJ **before any mutation**; an actual Rust SMB error must never trigger a second mkdir through SMBJ. NAS/VPN verification is still required and is **not** a claim of full Rust filesystem parity.
 
 | XFiles operation | Current runtime implementation | Rust migration gate |
 | --- | --- | --- |
 | Seekable reads for playback, thumbnails, storyboards | Rust via `SmbRandomAccessBackends` in auto/rust mode, with SMBJ fallback for missing/incompatible JNI in auto mode | Preserve playback, seek and cancellation behavior |
 | `SmbFileSystem.list` / `stat` | Rust-first `auto` using paged JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Validate full XEntry metadata, many-page scans and NAS/WireGuard parity (Issue #244) |
-| `storageSpace` / `directorySize` | **#256 branch candidate:** Rust-first `auto` through JNI v9 signed `FileFsFullSizeInformation` and recursive paged size; `smbj` or JNI-unavailable auto use existing SMBJ | Rust engine/signed Samba CI passed; XFiles Android CI & physical NAS correctness, quotas/WireGuard/throughput pending (#256) |
+| `storageSpace` / `directorySize` | **PR #257:** Rust-first `auto` using signed JNI v9 `FileFsFullSizeInformation` and recursive paged size; explicit `smbj` or JNI-unavailable auto retain SMBJ | Rust engine/signed Samba CI passed; XFiles CI tracked in PR #257. Physical NAS correctness, quotas, WireGuard and throughput pending (#256) |
 | `openIn` | **Merged PR #253:** Rust-first `auto`/strict `rust` through bounded positional `InputStream`; explicit `smbj` and JNI-unavailable auto fallback retain SMBJ | Debug CI, Rust Preview and pin checks passed; **real NAS + WireGuard correctness, cancellation and throughput remain pending** (#252) |
 | `openOut` | SMBJ in `auto`/`smbj`; native JNI v8 retains explicit diagnostic `rust` | Preserve OVERWRITE_IF, explicit FLUSH/CLOSE, no retries; real NAS speed vs SMBJ pipeline and WireGuard gate before auto |
 | `createFile` | Rust-first `auto` using JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Exclusive FILE_CREATE and no-overwrite/no-replay verified on Rust Samba; XFiles CI/NAS pending (#245) |
@@ -123,7 +123,7 @@ Design and acceptance contract (documented before implementation). PR #253 is me
 
 ## Capacity migration integration: `storageSpace` and `directorySize` (XFiles #256 / smb-io-rs #49)
 
-Rust engine PR #50 merged into `smb-io-rs/main` as `2b9e0cee184596ae221157a0fb640119f57124c5`. Its signed Samba query + recursive size integration, Rust fmt/test/clippy, and Android JNI build all passed. The XFiles #256 branch pins this commit and bumps JNI to v9 with `SmbCapacityBackend`; this is a **branch candidate** until XFiles CI passes and the PR is merged. **Physical NAS, quotas, WireGuard and throughput still unverified.**
+Rust engine PR #50 merged into `smb-io-rs/main` as `2b9e0cee184596ae221157a0fb640119f57124c5`. Its signed Samba query + recursive size integration, Rust fmt/test/clippy, and Android JNI build all passed. XFiles PR #257 pins this commit and integrates JNI v9 with `SmbCapacityBackend`. App CI and merge are separate review gates; **physical NAS, quotas, WireGuard and throughput remain unverified even after merge.**
 
 **Design documented before tests or code.** The present pinned JNI v8 has no filesystem capacity/query or recursive size JNI; keep normal `auto` on SMBJ until a tested JNI v9 engine revision is merged, pinned and routed.
 
