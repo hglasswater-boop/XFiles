@@ -1,7 +1,6 @@
 package app.local1st.files.core.fs.rust
 
 import java.io.IOException
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
