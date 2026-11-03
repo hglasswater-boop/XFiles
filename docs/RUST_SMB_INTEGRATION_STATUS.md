@@ -13,7 +13,7 @@ The Phase 9 engine candidate is:
 
 ## XFiles runtime scope: migration is not complete
 
-The currently exposed `RustSmbNative` JNI API is video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The Rust SMB engine implements filesystem mutations, but the XFiles Kotlin filesystem entry points do **not** yet route those mutations to Rust.
+The currently deployed `RustSmbNative` JNI API (version 2) is video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The Rust SMB engine implements filesystem mutations, but current XFiles Kotlin filesystem calls remain SMBJ. This branch introduces the **diagnostic-only** mkdir experiment described below; it is not production parity.
 
 | XFiles operation | Current runtime implementation | Rust migration gate |
 | --- | --- | --- |
@@ -21,7 +21,8 @@ The currently exposed `RustSmbNative` JNI API is video-oriented: `nativeOpenVide
 | `SmbFileSystem.list` / `stat` / `storageSpace` / `directorySize` | SMBJ | Add filesystem JNI DTOs, test path and metadata parity |
 | `openIn` / `openOut` / `createFile` | SMBJ | Add streaming/writable Rust handles, validate resource lifetime and truncation/create semantics |
 | `SmbRandomAccessOutputFile` | SMBJ | Add Rust `read_at`, `write_at`, truncate, flush and close boundary with durability/error tests |
-| `mkdir` / `rename` / `delete` / `moveWithinShare` | SMBJ | Wire Phase 9 APIs through thin JNI, protect server-side errors and mutation safety |
+| `mkdir` | Diagnostic-only `rust`: planned JNI Phase 9 path; `auto` and `smbj`: SMBJ | Test native API v3, errors, WireGuard and NAS before normal rollout |
+| `rename` / `delete` / `moveWithinShare` | SMBJ | Route via Rust later, retaining recursive directory and collision semantics |
 | Cross-share copy/move | Android-side streaming fallback | Keep source on failure, clean partial destination; optimize separately under #237 |
 
 **Safety requirements for the next patches**
@@ -33,12 +34,23 @@ The currently exposed `RustSmbNative` JNI API is video-oriented: `nativeOpenVide
 5. A same-server cross-share move is not automatically an atomic rename. Keep streaming fallback and source-protection semantics until #237 is separately implemented and tested.
 6. Keep SMBJ available as a rollback path until Rust filesystem, writing, reconnect, security, and device/NAS quality gates pass. The native library's current version gate (`EXPECTED_API_VERSION = 2`) proves only the read-oriented JNI contract.
 
+## Diagnostic mkdir migration — planned and not production-ready
+
+- Upstream: smb-io-rs #33 / PR #34 provides a one-operation `nativeMkdir` JNI method. That Rust code is not yet approved by XFiles until Rust CI and Android JNI checks pass.
+- App adapter: centralize the backend switch so only explicit `rust` diagnostic builds call `nativeMkdir`. `auto` and `smbj` keep SMBJ and are not allowed to retry a failed Rust mutation.
+- Callers retain share-relative paths including saved `basePath`, Unicode names, and anonymous/domain credentials. The Rust request must validate unsafe paths before connecting.
+- Do not call existing `SmbWireGuardRetry.connect` with mkdir as its callback: retrying after an ambiguous result could create duplicate side effects.
+- `stat` after mkdir still uses SMBJ until separately migrated. Success of this slice does not remove SMBJ dependencies.
+- Native API must move from v2 to v3 in the same PR that advances the Rust engine pin, otherwise normal auto-mode Rust reads would regress to SMBJ due to version mismatch.
+- Before switching `auto` to Rust: implement safe VPN connection preparation, real NAS tests, shared session reuse, and correctness/throughput comparisons. **Keep #239 open**.
+
 ## Open tracking
 
 - XFiles #239: overarching Rust migration; **must remain open until all quality gates and user verification**.
 - XFiles #196: SMB delete failure and `STATUS_CANNOT_DELETE` behavior.
 - XFiles #237: same-server cross-share transfers.
 - smb-io-rs #22: Phase 9 tracking remains open despite merged implementation.
+- smb-io-rs #33: initial Android JNI mkdir rollout remains open.
 - smb-io-rs #23 / #28: Phase 10 and whole-engine roadmap.
 
 ## Revision ownership
