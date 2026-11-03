@@ -190,24 +190,9 @@ open class SmbFileSystem(
     override fun rename(entry: XEntry, newName: String): XEntry {
         requireSafeEntryName(newName)
         val target = target(entry.id)
-        val oldPath = toSmbPath(target.path)
         val parentPath = target.path.substringBeforeLast('/', "")
-        val newPath = toSmbPath(if (parentPath.isEmpty()) newName else "$parentPath/$newName")
-        withShare(target.connection) { share ->
-            val options = if (entry.isDir) {
-                EnumSet.of(SMB2CreateOptions.FILE_DIRECTORY_FILE)
-            } else {
-                EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE)
-            }
-            share.open(
-                oldPath,
-                EnumSet.of(AccessMask.DELETE),
-                EnumSet.noneOf(FileAttributes::class.java),
-                SHARE_ACCESS,
-                SMB2CreateDisposition.FILE_OPEN,
-                options,
-            ).use { it.rename(newPath) }
-        }
+        val newPath = if (parentPath.isEmpty()) newName else "$parentPath/$newName"
+        renameOnShare(target.connection, target.path, newPath, entry.isDir)
         val parentId = XId.parent(entry.id) ?: return entry
         val newId = "$parentId/$newName"
         return stat(newId) ?: entry.copy(
@@ -227,23 +212,7 @@ open class SmbFileSystem(
         val destination = target(XId.child(destDir, entry.name))
         if (!sameShare(source.connection, destination.connection)) return false
 
-        val oldPath = toSmbPath(source.path)
-        val newPath = toSmbPath(destination.path)
-        withShare(source.connection) { share ->
-            val options = if (entry.isDir) {
-                EnumSet.of(SMB2CreateOptions.FILE_DIRECTORY_FILE)
-            } else {
-                EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE)
-            }
-            share.open(
-                oldPath,
-                EnumSet.of(AccessMask.DELETE),
-                EnumSet.noneOf(FileAttributes::class.java),
-                SHARE_ACCESS,
-                SMB2CreateDisposition.FILE_OPEN,
-                options,
-            ).use { it.rename(newPath) }
-        }
+        renameOnShare(source.connection, source.path, destination.path, entry.isDir)
         return true
     }
 
@@ -300,6 +269,39 @@ open class SmbFileSystem(
             else -> "${connection.basePath}/$relativePath"
         }
         return Target(connection, path)
+    }
+
+    /** Same-share rename for both UI rename and optimized move; never replay after Rust errors. */
+    private fun renameOnShare(
+        config: SmbConnectionConfig,
+        oldPath: String,
+        newPath: String,
+        directory: Boolean,
+    ) {
+        SmbRenameBackend.rename(
+            config = config,
+            sourcePath = oldPath,
+            destinationPath = newPath,
+            password = { connections.password(config.id) },
+            prepareNetwork = { wireGuard?.prepare(config) },
+            smbj = {
+                withShare(config) { share ->
+                    val options = if (directory) {
+                        EnumSet.of(SMB2CreateOptions.FILE_DIRECTORY_FILE)
+                    } else {
+                        EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE)
+                    }
+                    share.open(
+                        toSmbPath(oldPath),
+                        EnumSet.of(AccessMask.DELETE),
+                        EnumSet.noneOf(FileAttributes::class.java),
+                        SHARE_ACCESS,
+                        SMB2CreateDisposition.FILE_OPEN,
+                        options,
+                    ).use { it.rename(toSmbPath(newPath)) }
+                }
+            },
+        )
     }
 
     private fun sameShare(first: SmbConnectionConfig, second: SmbConnectionConfig): Boolean =
