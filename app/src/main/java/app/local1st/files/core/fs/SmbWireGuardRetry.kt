@@ -22,6 +22,16 @@ class SmbWireGuardRetry(
     private val previousStarts = mutableMapOf<String, Long>()
     private val previousStops = mutableMapOf<String, Long>()
 
+    /**
+     * Prepare the selected route without performing an SMB request.
+     *
+     * Rust mutation callers use this *before* JNI so WireGuard UP/DOWN and the TCP probe
+     * can never result in an implicit second directory-creation attempt.
+     */
+    fun prepare(config: SmbConnectionConfig) {
+        connect(config) { Unit }
+    }
+
     fun <T> connect(config: SmbConnectionConfig, openTcp: () -> T): T {
         val tunnel = config.wireGuardTunnel.takeIf(String::isNotBlank)
             ?: return openTcp() // Existing opt-out SMB connections incur no extra probes.
