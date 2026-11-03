@@ -4,23 +4,23 @@
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
 
-The XFiles #245 diagnostic existing-file edit integration candidate (Android JNI v8) is:
+The XFiles main baseline after merged PR #251 (Android JNI v8) is:
 
 - smb-io-rs revision: `2a079c8fb3d1fc37237cbde96717c4a11a7440a6`
 - engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Android JNI v3 nativeMkdir merged in PR #34 and JNI v4 rename/deleteFile merged in PR #36; PR #44 signed FLUSH and PR #45 writable JNI v7 are merged; Phase 10 reconnect/durable-handle work remains outstanding
 - Phase 9 validation at the merged PR head: Rust CI, Phase 9 File Management Integration, Samba Integration, Phase 6 Query Integration, Phase 7 Parallel READ, Phase 8 WRITE Integration, Broker Reconnect, Durable Reconnect, and Android JNI all succeeded
-- XFiles PR #249 Debug CI (Mobile/TV, unit, lint, emulator), Rust SMB Preview and pin contract succeeded for JNI v6 exclusive createFile; **real NAS and WireGuard integration remain pending**. This v7 diagnostic branch is not yet validated by XFiles CI and does not represent full filesystem parity.
+- XFiles PR #249 Debug CI (Mobile/TV, unit, lint, emulator), Rust SMB Preview and pin contract succeeded for JNI v6 exclusive createFile; **real NAS and WireGuard integration remain pending**. XFiles PR #251 Debug CI (Mobile/TV APK, unit tests, release lint, emulator), Rust SMB Preview and Rust Pin Contract succeeded at head `b7db7a795a002cc03d48c2936a7fa2a7e5114a22`; #251 merged into main as `e610a6f97541d906c86070150feb47561ceb9530`. Physical NAS and WireGuard performance/correctness are still unverified; this is not full filesystem parity.
 
 ## XFiles runtime scope: migration is not complete
 
-The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The JNI v8 integration candidate retains the v7 video/list/mutations and writable stream API, and adds existing-file, non-truncating signed random-access read/write/setLength/flush/close. XFiles main already promotes **mkdir, rename, list/stat and exclusive createFile** to Rust-first in `auto`; this branch adds `openOut` in explicit `rust` diagnostic mode only. An unavailable/incompatible native library may be handled by SMBJ **before any mutation**; an actual Rust SMB error must never trigger a second mkdir through SMBJ. NAS/VPN verification is still required and is **not** a claim of full Rust filesystem parity.
+The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpenVideo`, `nativeLen`, `nativeReadAt`, `nativePrefetch`, `nativeSeek`, and `nativeClose`. The JNI v8 mainline integration retains the v7 video/list/mutations and writable stream API, and adds existing-file, non-truncating signed random-access read/write/setLength/flush/close. XFiles main already promotes **mkdir, rename, list/stat and exclusive createFile** to Rust-first in `auto`; `openOut` and non-truncating `SmbRandomAccessOutputFile` are diagnostic-only in explicit `rust` mode. An unavailable/incompatible native library may be handled by SMBJ **before any mutation**; an actual Rust SMB error must never trigger a second mkdir through SMBJ. NAS/VPN verification is still required and is **not** a claim of full Rust filesystem parity.
 
 | XFiles operation | Current runtime implementation | Rust migration gate |
 | --- | --- | --- |
 | Seekable reads for playback, thumbnails, storyboards | Rust via `SmbRandomAccessBackends` in auto/rust mode, with SMBJ fallback for missing/incompatible JNI in auto mode | Preserve playback, seek and cancellation behavior |
 | `SmbFileSystem.list` / `stat` | Rust-first `auto` using paged JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Validate full XEntry metadata, many-page scans and NAS/WireGuard parity (Issue #244) |
 | `storageSpace` / `directorySize` | SMBJ | Rust filesystem queries and recursive size handling are separate migration gates |
-| `openIn` | SMBJ | Add streaming Rust read and validate read/cancel/error semantics |
+| `openIn` | SMBJ on main at #252 start | #252: route Rust read-only positional handle via sequential `InputStream` for auto/rust; preserve SMBJ for explicit smbj and auto JNI-incompatible fallback; test EOF, close, WireGuard, cancellation and throughput |
 | `openOut` | SMBJ in `auto`/`smbj`; native JNI v8 retains explicit diagnostic `rust` | Preserve OVERWRITE_IF, explicit FLUSH/CLOSE, no retries; real NAS speed vs SMBJ pipeline and WireGuard gate before auto |
 | `createFile` | Rust-first `auto` using JNI v8; `smbj` retains SMBJ; strict `rust` never falls back | Exclusive FILE_CREATE and no-overwrite/no-replay verified on Rust Samba; XFiles CI/NAS pending (#245) |
 | `SmbRandomAccessOutputFile` | SMBJ in `auto`/`smbj`; JNI v8 **only in explicit diagnostic `rust`** | FILE_OPEN no-truncate, EOF cache, 1 MiB chunks, ClipForge partial cleanup and error parity; NAS/WireGuard/throughput gate before auto |
@@ -110,8 +110,20 @@ The Rust `smb-io-rs` PR #44 merged the mandatory-signed SMB2 FLUSH codec and cli
 - Rust signed Samba test must verify `OVERWRITE_IF` truncates an existing larger file, multi-MiB writes, explicit flush, exact readback, invalid post-close handle. JNI symbol/version and all three ABI tests, Mobile/TV/lint/unit/emulator and Rust Preview must pass before merging diagnostic XFiles code.
 - **Production auto promotion remains blocked** pending real NAS throughput vs the existing SMBJ pipeline (1MiB chunks, 8 writes in flight), WireGuard handoff and user-visible write/error parity. `SmbRandomAccessOutputFile` read/write/truncate and recursive deletion remain SMBJ. Parent #239 and write #245 remain **Open**.
 
+## Next operation slice: `openIn` Rust read-only streaming (XFiles #252)
+
+Design and acceptance contract **before implementation**:
+
+- On `auto`, prefer the already pinned read-only Rust `nativeOpenVideo` / `nativeReadAt` / `nativeClose` handle for `XFileSystem.openIn`. `rust` must be strict. Explicit `smbj` preserves the established SMBJ input stream; no Rust preflight or secret transfer. A missing/incompatible native library can select SMBJ in `auto` only **before opening Rust**. Authentication, transport, or SMB protocol errors after Rust is selected propagate without SMBJ replay.
+- Reuse one authenticated Rust SMB handle for sequential reads. Convert positional read responses to `InputStream` semantics: `-1` only at EOF, `0` for zero-length valid requests, positive byte counts for data, and progress the logical offset by exactly the bytes returned. Neither a short read nor EOF is a reason to repeat/restart the open or copy.
+- Bound individual native reads to 1 MiB. Provide buffering for single-byte reads without buffering a whole file; large transfers should avoid allocating buffers proportional to file size. Validate `read(byte[], off, len)`, `skip`, `available`, closed-state and offset overflow. `close()` must be idempotent and release the native handle even on read failure; never convert a protocol exception to a fake EOF.
+- Preserve saved `basePath` and anonymous/NTLM handling, and perform `SmbWireGuardRetry.prepare` before creating a Rust network session (not after any read). SMBJ's existing `wireGuard.connect` behavior remains unchanged. Close on transfer cancellation through the existing `InputStream` lifecycle; do not add automatic retries after a non-replayable read failure.
+- Unit/TDD: sequential/multi-chunk/single-byte reads, short read/EOF, zero-length and invalid range, `skip` and `available`, idempotent close, error propagation, strict/auto/smbj routing and VPN preflight. Mobile+TV, lint/unit/emulator, and Rust Preview/Pin Contract CI must pass. Real NAS copies (large and tiny files), SMB signing, WireGuard switching, cancellation/disconnect and SMBJ-vs-Rust throughput must be checked before claiming parity.
+- **Issue #252 and overarching #239 stay OPEN** until all CI and device acceptance gates are met. Rust `openIn` alone does not complete `openOut`, random edit auto, deletion, storage-space queries or cross-share moves.
+
 ## Open tracking
 
+- XFiles #252: openIn Rust read-only streaming and NAS/WireGuard/cancellation validation.
 - XFiles #239: overarching Rust migration; **must remain open until all quality gates and user verification**.
 - XFiles #196: SMB delete failure and `STATUS_CANNOT_DELETE` behavior.
 - XFiles #237: same-server cross-share transfers.
