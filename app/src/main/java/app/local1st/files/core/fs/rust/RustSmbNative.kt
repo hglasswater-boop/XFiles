@@ -10,7 +10,7 @@ internal class RustSmbUnavailableException(
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 6
+    private const val EXPECTED_API_VERSION = 7
 
     @Volatile
     private var loaded = false
