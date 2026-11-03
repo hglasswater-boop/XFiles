@@ -4,7 +4,7 @@
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
 
-The next XFiles integration pin (Phase 9 + Android JNI v4) is:
+The currently pinned XFiles engine (Phase 9 + Android JNI v4) is:
 
 - smb-io-rs revision: `36f7aeffabae75a813b75892f053eea3635c4b3e`
 - engine roadmap state: Phase 9 rename/delete/mkdir merged in smb-io-rs PR #32; Android JNI v3 nativeMkdir merged in PR #34 and JNI v4 rename/deleteFile merged in PR #36; Phase 10 reconnect/durable-handle work remains outstanding
@@ -56,6 +56,18 @@ The original `RustSmbNative` JNI API (version 2) was video-oriented: `nativeOpen
 - JNI API version, library pin, symbol checks (all 3 ABIs), and Kotlin declaration must move together in one XFiles PR.
 - The rename rollout is incremental, not a claim that complete Rust SMB operation parity has been reached. Read/list, create, write, recursive delete and cross-share transfers remain separately tracked under #244, #245, #237 and #239.
 - Rust CI/Samba, XFiles Mobile/TV, unit/lint/emulator/Preview and NAS/WireGuard real-device tests are required. **Issue #246 and parent #239 stay Open** through real-NAS validation.
+
+## Rust read-only directory listing: paged JNI (Issue #244)
+
+Rust `smb-io-rs` #39 / PR #40 replaces a rejected all-in-one `nativeListDirectory` design with a **cursor-based** API, specifically to avoid failing large folders. Until this Rust PR passes all CI and XFiles pins API v5, production `SmbFileSystem.list/stat` continue using SMBJ.
+
+- Kotlin calls `nativeOpenDirectory` exactly once, then `nativeReadDirectoryPage` until an XFL1 page with zero entries signals EOF, and always calls `nativeCloseDirectory` in `finally`.
+- Rust keeps the same authenticated share connection and remote QUERY_DIRECTORY cursor open across pages. It returns *one* server page each time; 16 MiB is an upper bound **per page, not per folder**. No artificial total-file count or total-folder-byte limit.
+- Page header `XFL1` and count are little-endian; each record uses a UTF-8 byte-length prefix followed by the exact name, raw attributes, u64 length and u64 creation/last-write FILETIME. Reject truncation, unknown version, trailing bytes, malformed UTF-8, Java Long overflow or impossible time conversion. Do **not** map invalid data to fake timestamps.
+- An SMB error mid-scan is a failure, never mistaken for EOF; show the user an error instead of claiming a partial list is complete. In auto mode, fallback to SMBJ only if JNI is missing/incompatible **before** opening Rust; explicit Rust never masks failures.
+- Filter `.`/`..`; preserve `hidden` (SMB attribute or dotfile), `isDir` (0x10), `size` (directory -1), `mtime` / `creationTime`, file MIME, `basePath`, stored anonymous/NTLM credentials, WireGuard preflight and correct XId children.
+- Current `XFileSystem.list` returns a full `List<XEntry>` and therefore still allocates memory proportional to the actual folder size, just like the existing SMBJ path. The native JNI response itself no longer has a fixed whole-folder ceiling. Progressive UI virtualization is a separate performance optimization if real large NAS directories require it.
+- Rust and Android CI, real signing-required Samba with 1,200 files over multiple pages, Mobile/TV/unit/emulator, NAS/WireGuard and error handling must pass before production auto migration. Keep #244 / parent #239 **Open** through real-device validation.
 
 ## Open tracking
 
