@@ -160,7 +160,12 @@ open class SmbFileSystem(
         requireSafeEntryName(name)
         val childId = XId.child(parentDir, name)
         val target = target(childId)
-        withShare(target.connection) { it.mkdir(toSmbPath(target.path)) }
+        SmbMkdirBackend.create(
+            config = target.connection,
+            path = target.path,
+            password = { connections.password(target.connection.id) },
+            smbj = { withShare(target.connection) { it.mkdir(toSmbPath(target.path)) } },
+        )
         return stat(childId) ?: XEntry(
             id = childId,
             name = name,
