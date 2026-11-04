@@ -33,5 +33,16 @@ jobs:
               *) echo "Refusing unexpected asset: $asset_name" >&2; exit 1 ;;
             esac
             echo "Deleting $asset_name ($asset_id)"
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            success=false
+            for attempt in 1 2 3 4 5; do
+              code=$(curl --silent --show-error --output /tmp/delete-response --write-out '%{http_code}' \
+                --request DELETE \
+                --header "Authorization: Bearer $GH_TOKEN" \
+                --header 'Accept: application/vnd.github+json' \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$asset_id")
+              if [ "$code" = '204' ] || [ "$code" = '404' ]; then success=true; break; fi
+              echo "Delete attempt $attempt returned HTTP $code: $(head -c 200 /tmp/delete-response)" >&2
+              sleep "$attempt"
+            done
+            if [ "$success" != true ]; then echo "Unable to delete $asset_name" >&2; exit 1; fi
           done < /tmp/legacy-assets.tsv
