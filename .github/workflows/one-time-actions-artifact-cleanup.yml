@@ -1,0 +1,79 @@
+name: One-time Actions artifact cleanup
+on:
+  push:
+    branches: [chore/prune-actions-artifacts-264]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inventory and delete only Actions artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          repo = 'hglasswater-boop/XFiles'
+          assert os.environ['GITHUB_REPOSITORY'] == repo
+          headers = {
+              'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+              'Accept': 'application/vnd.github+json',
+              'User-Agent': 'XFiles-Actions-artifact-cleanup',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def api(method, path):
+              url = 'https://api.github.com/repos/' + repo + '/' + path
+              for attempt in range(1, 7):
+                  try:
+                      with urlopen(Request(url, headers=headers, method=method), timeout=40) as response:
+                          data = response.read()
+                          return json.loads(data) if data else None
+                  except HTTPError as e:
+                      if method == 'DELETE' and e.code == 404:
+                          return None
+                      if e.code not in (429, 500, 502, 503, 504) or attempt == 6:
+                          raise
+                      print(f'HTTP {e.code}; retry {attempt}: {path}', flush=True)
+                  except (URLError, TimeoutError) as e:
+                      if attempt == 6:
+                          raise
+                      print(f'Transient error; retry {attempt}: {type(e).__name__}', flush=True)
+                  time.sleep(min(attempt * 2, 15))
+
+          artifacts = []
+          page = 1
+          while True:
+              response = api('GET', f'actions/artifacts?per_page=100&page={page}')
+              items = response['artifacts']
+              artifacts.extend(items)
+              if len(items) < 100:
+                  break
+              page += 1
+              if page > 100:
+                  raise RuntimeError('Unexpected artifact pagination; abort')
+
+          size = sum(int(a['size_in_bytes']) for a in artifacts)
+          print(f'Inventory: {len(artifacts)} Actions artifacts; {size:,} bytes', flush=True)
+          for a in artifacts[:20]:
+              print(f"  {a['id']}: {a['name']} ({a['size_in_bytes']:,} bytes)", flush=True)
+          print('Deleting only /actions/artifacts/<id>; no release or cache endpoints', flush=True)
+          deleted = 0
+          for a in artifacts:
+              api('DELETE', f"actions/artifacts/{a['id']}")
+              deleted += 1
+              if deleted % 25 == 0:
+                  print(f'Deleted {deleted}/{len(artifacts)}', flush=True)
+
+          remaining = api('GET', 'actions/artifacts?per_page=100&page=1')
+          print(f"Deleted: {deleted}; remaining: {remaining['total_count']}", flush=True)
+          if remaining['total_count']:
+              raise RuntimeError('Artifacts remain; re-run cleanup after in-flight jobs complete')
+          PY
