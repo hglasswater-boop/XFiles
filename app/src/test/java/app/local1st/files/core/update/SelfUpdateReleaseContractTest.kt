@@ -13,7 +13,7 @@ class SelfUpdateReleaseContractTest {
             assets = listOf(
                 ReleaseAsset("XFiles-1.4.1-smb-b29850001-debug.apk", "mobile-old"),
                 ReleaseAsset("XFiles-1.4.1-smb-b29850002-debug.apk", "mobile-new"),
-                ReleaseAsset("XFiles-TV-1.4.1-smb-b29850003-debug.apk", "tv"),
+                ReleaseAsset("XFiles-unversioned-b29850003-debug.apk", "unversioned"),
                 ReleaseAsset("XFiles-Diagnostic-1.4.1-smb-b29850004-debug.apk", "diagnostic"),
                 ReleaseAsset("XFiles-nightly.apk", "legacy"),
             ),
@@ -32,7 +32,7 @@ class SelfUpdateReleaseContractTest {
     fun normalRejectsMissingOrMalformedPhoneAssets() {
         assertThrows(IllegalArgumentException::class.java) {
             SelfUpdateReleaseContract.resolveNormal(
-                listOf(ReleaseAsset("XFiles-TV-1.4.1-smb-b29850002-debug.apk", "retired-tv")),
+                listOf(ReleaseAsset("XFiles-unversioned-b29850002-debug.apk", "malformed")),
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
@@ -137,7 +137,7 @@ class SelfUpdateReleaseContractTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             SelfUpdateReleaseContract.resolveStable(
-                stableMetadata.copy(assets = listOf(ReleaseAsset("XFiles-TV-1.4.3-smb.apk", "retired-tv"))),
+                stableMetadata.copy(assets = listOf(ReleaseAsset("OtherApp-1.4.3-smb.apk", "other"))),
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
