@@ -110,6 +110,40 @@ class DocumentationConsistencyTest {
     }
 
     @Test
+    fun actionsArtifactsAreShortLivedAndSeparateFromInstallReleases() {
+        val repo = File(requireNotNull(System.getProperty("xfiles.repo")))
+        val buildCi = File(repo, ".github/workflows/personal-fork-ci.yml").readText()
+        val debugRequest = File(repo, ".github/workflows/debug-artifact-request.yml").readText()
+        val rustPreview = File(repo, ".github/workflows/rust-smb-preview.yml").readText()
+        val release = File(repo, ".github/workflows/release.yml").readText()
+        val policy = File(repo, "docs/UPDATE_CHANNELS.md").readText()
+
+        assertTrue(policy.contains("GitHub Actions artifact retention"))
+        assertTrue("No duplicate main debug artifact", buildCi.contains(
+            "- name: Upload signed debug APKs\n        if: github.ref != 'refs/heads/main'"
+        ))
+        assertTrue("Debug artifacts expire in one day",
+            buildCi.contains("retention-days: 1"))
+        assertTrue("Emulator reports only on failure",
+            buildCi.contains("- name: Upload emulator test reports\n        if: failure()"))
+        assertTrue("On-demand debug artifacts expire in one day",
+            debugRequest.contains("retention-days: 1"))
+        assertTrue("Rust preview artifacts expire in one day",
+            rustPreview.contains("retention-days: 1"))
+        assertTrue("Play submission AAB is retained seven days",
+            release.contains("retention-days: 7"))
+        assertTrue("Only new stable versions upload AABs", release.contains(
+            "- name: Upload mobile AAB as build artifact\n        if: steps.decide.outputs.publish == 'true'"
+        ))
+        assertTrue("AAB upload must happen after release decision",
+            release.indexOf("- name: Decide stable release") < release.indexOf("- name: Upload mobile AAB as build artifact"))
+        assertTrue("Rolling update still uses GitHub Releases",
+            buildCi.contains("gh release create debug-latest"))
+        assertTrue("Stable APK remains a GitHub Release asset",
+            release.contains("name: Publish release"))
+    }
+
+    @Test
     fun declaredStableVersionHasMatchingReleaseNotes() {
         val repo = File(requireNotNull(System.getProperty("xfiles.repo")))
         val versionName = Properties().apply {

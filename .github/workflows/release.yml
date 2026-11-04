@@ -67,14 +67,6 @@ jobs:
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease :app:bundleRelease -PbuildNumber=${{ steps.build_number.outputs.value }} --no-daemon
 
-      - name: Upload mobile AAB as build artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: XFiles-${{ steps.build_number.outputs.value }}-play-bundle
-          path: app/build/outputs/bundle/release/app-release.aab
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Retire legacy Nightly release and tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,6 +131,15 @@ jobs:
             fi
             echo RELEASE_NOTES
           } >> "$GITHUB_OUTPUT"
+
+      - name: Upload mobile AAB as build artifact
+        if: steps.decide.outputs.publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: XFiles-${{ steps.build_number.outputs.value }}-play-bundle
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Rename APKs
         if: steps.decide.outputs.publish == 'true'

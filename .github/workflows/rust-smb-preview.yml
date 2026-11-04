@@ -158,5 +158,5 @@ jobs:
           name: XFiles-${{ steps.build_number.outputs.value }}-RustSMB-preview
           path: ${{ steps.apk_name.outputs.mobile_name }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
           compression-level: 0
