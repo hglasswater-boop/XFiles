@@ -43,11 +43,9 @@ jobs:
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "diagnostic=false" >> "$GITHUB_OUTPUT"
             echo "mobile_package=app.local1st.files" >> "$GITHUB_OUTPUT"
-            echo "tv_package=app.local1st.files.tv" >> "$GITHUB_OUTPUT"
           else
             echo "diagnostic=true" >> "$GITHUB_OUTPUT"
             echo "mobile_package=app.local1st.files.diagnostic" >> "$GITHUB_OUTPUT"
-            echo "tv_package=app.local1st.files.tv.diagnostic" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Require stable signing secrets
@@ -76,8 +74,7 @@ jobs:
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           ./gradlew \
-            :app:assembleMobileDebug \
-            :app:assembleTvDebug \
+            :app:assembleDebug \
             -PbuildNumber=${{ steps.build_number.outputs.value }} \
             -PxfilesDiagnosticBuild=${{ steps.package_mode.outputs.diagnostic }}
 
@@ -86,12 +83,9 @@ jobs:
           set -eu
           AAPT=$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort -V | tail -n 1)
           test -x "$AAPT"
-          MOBILE_APK=app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
-          TV_APK=app/build/outputs/apk/tv/debug/app-tv-debug.apk
+          MOBILE_APK=app/build/outputs/apk/debug/app-debug.apk
           MOBILE_PACKAGE=$($AAPT dump badging "$MOBILE_APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
-          TV_PACKAGE=$($AAPT dump badging "$TV_APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
           test "$MOBILE_PACKAGE" = "${{ steps.package_mode.outputs.mobile_package }}"
-          test "$TV_PACKAGE" = "${{ steps.package_mode.outputs.tv_package }}"
 
       - name: Name debug APKs
         id: apk_name
@@ -100,24 +94,18 @@ jobs:
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
           if [ "${{ steps.package_mode.outputs.diagnostic }}" = "true" ]; then
             MOBILE_NAME="XFiles-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-            TV_NAME="XFiles-TV-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
           else
             MOBILE_NAME="XFiles-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-            TV_NAME="XFiles-TV-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
           fi
-          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
-          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
+          cp app/build/outputs/apk/debug/app-debug.apk "$MOBILE_NAME"
           echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
-          echo "tv_name=$TV_NAME" >> "$GITHUB_OUTPUT"
           echo "version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Upload signed debug APKs
         uses: actions/upload-artifact@v4
         with:
           name: XFiles-${{ steps.build_number.outputs.value }}-signed-debug
-          path: |
-            ${{ steps.apk_name.outputs.mobile_name }}
-            ${{ steps.apk_name.outputs.tv_name }}
+          path: ${{ steps.apk_name.outputs.mobile_name }}
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
@@ -131,11 +119,10 @@ jobs:
           gh release delete debug-latest --cleanup-tag -y 2>/dev/null || true
           gh release create debug-latest \
             "${{ steps.apk_name.outputs.mobile_name }}" \
-            "${{ steps.apk_name.outputs.tv_name }}" \
             --target "$GITHUB_SHA" \
             --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ steps.build_number.outputs.value }}" \
             --prerelease \
-            --notes "Signed mobile and Google TV debug APKs built from main at $GITHUB_SHA."
+            --notes "Signed phone debug APK built from main at $GITHUB_SHA."
 
       - name: Publish diagnostic-latest release
         if: startsWith(github.ref, 'refs/heads/diagnose/')
@@ -146,11 +133,10 @@ jobs:
           gh release delete diagnostic-latest --cleanup-tag -y 2>/dev/null || true
           gh release create diagnostic-latest \
             "${{ steps.apk_name.outputs.mobile_name }}" \
-            "${{ steps.apk_name.outputs.tv_name }}" \
             --target "$GITHUB_SHA" \
             --title "XFiles diagnostic build ${{ steps.build_number.outputs.value }}" \
             --prerelease \
-            --notes "Side-by-side diagnostic APKs built from $GITHUB_REF_NAME at $GITHUB_SHA. They do not replace the normal XFiles package."
+            --notes "Side-by-side diagnostic APK built from $GITHUB_REF_NAME at $GITHUB_SHA. They do not replace the normal XFiles package."
 
       - name: Record debug run metadata
         if: github.ref == 'refs/heads/main'
@@ -164,7 +150,6 @@ jobs:
           DEBUG_CI_RUN_NUMBER=${{ github.run_number }}
           DEBUG_BUILD_NUMBER=${{ steps.build_number.outputs.value }}
           DEBUG_APK=${{ steps.apk_name.outputs.mobile_name }}
-          DEBUG_TV_APK=${{ steps.apk_name.outputs.tv_name }}
           COMMIT=$GITHUB_SHA
           EOF
           )
@@ -184,8 +169,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      - name: Run unit tests for both editions
-        run: ./gradlew :app:testMobileDebugUnitTest :app:testTvDebugUnitTest
+      - name: Run phone unit tests
+        run: ./gradlew :app:testDebugUnitTest
 
   release-lint:
     name: Release lint
@@ -202,8 +187,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      - name: Run fatal release lint for both editions
-        run: ./gradlew :app:lintVitalMobileRelease :app:lintVitalTvRelease
+      - name: Run fatal release lint
+        run: ./gradlew :app:lintVitalRelease
 
   emulator:
     name: Android emulator smoke tests
@@ -241,7 +226,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none -partition-size 2048
-          script: ./gradlew :app:connectedMobileDebugAndroidTest --stacktrace
+          script: ./gradlew :app:connectedDebugAndroidTest --stacktrace
 
       - name: Upload emulator test reports
         if: always()

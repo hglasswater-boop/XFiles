@@ -130,7 +130,7 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/xfiles-personal.jks"
 
-      - name: Assemble Rust SMB preview APKs
+      - name: Assemble Rust SMB phone preview APK
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/xfiles-personal.jks
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -138,8 +138,7 @@ jobs:
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           ./gradlew \
-            :app:assembleMobileDebug \
-            :app:assembleTvDebug \
+            :app:assembleDebug \
             -PbuildNumber=${{ steps.build_number.outputs.value }} \
             -PxfilesDiagnosticBuild=true \
             -PxfilesSmbBackend=rust
@@ -150,19 +149,14 @@ jobs:
           set -eu
           BASE_VERSION=$(sed -n 's/^versionName=//p' version.properties | tr -d '[:space:]')
           MOBILE_NAME="XFiles-RustSMB-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-          TV_NAME="XFiles-TV-RustSMB-Diagnostic-${BASE_VERSION}-b${{ steps.build_number.outputs.value }}-debug.apk"
-          cp app/build/outputs/apk/mobile/debug/app-mobile-debug.apk "$MOBILE_NAME"
-          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk "$TV_NAME"
+          cp app/build/outputs/apk/debug/app-debug.apk "$MOBILE_NAME"
           echo "mobile_name=$MOBILE_NAME" >> "$GITHUB_OUTPUT"
-          echo "tv_name=$TV_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload Rust SMB preview APKs
         uses: actions/upload-artifact@v4
         with:
           name: XFiles-${{ steps.build_number.outputs.value }}-RustSMB-preview
-          path: |
-            ${{ steps.apk_name.outputs.mobile_name }}
-            ${{ steps.apk_name.outputs.tv_name }}
+          path: ${{ steps.apk_name.outputs.mobile_name }}
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

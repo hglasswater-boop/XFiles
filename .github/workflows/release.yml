@@ -59,19 +59,19 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
-      - name: Build signed mobile + TV APKs and mobile AAB
+      - name: Build signed phone APK and AAB
         env:
           XFILES_KEYSTORE: ${{ runner.temp }}/release.jks
           XFILES_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           XFILES_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XFILES_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleMobileRelease :app:assembleTvRelease :app:bundleMobileRelease -PbuildNumber=${{ steps.build_number.outputs.value }} --no-daemon
+        run: ./gradlew :app:assembleRelease :app:bundleRelease -PbuildNumber=${{ steps.build_number.outputs.value }} --no-daemon
 
       - name: Upload mobile AAB as build artifact
         uses: actions/upload-artifact@v7
         with:
           name: XFiles-${{ steps.build_number.outputs.value }}-play-bundle
-          path: app/build/outputs/bundle/mobileRelease/app-mobile-release.aab
+          path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 7
 
@@ -106,7 +106,6 @@ jobs:
             echo "name=XFiles ${VERSION}"                        >> "$GITHUB_OUTPUT"
             echo "prerelease=false"                              >> "$GITHUB_OUTPUT"
             echo "apk=XFiles-${VERSION}.apk"                     >> "$GITHUB_OUTPUT"
-            echo "tv_apk=XFiles-TV-${VERSION}.apk"               >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD"     >> "$GITHUB_OUTPUT"
@@ -144,8 +143,7 @@ jobs:
       - name: Rename APKs
         if: steps.decide.outputs.publish == 'true'
         run: |
-          cp app/build/outputs/apk/mobile/release/app-mobile-release.apk "${{ steps.decide.outputs.apk }}"
-          cp app/build/outputs/apk/tv/release/app-tv-release.apk "${{ steps.decide.outputs.tv_apk }}"
+          cp app/build/outputs/apk/release/app-release.apk "${{ steps.decide.outputs.apk }}"
 
       - name: Publish release
         if: steps.decide.outputs.publish == 'true'
@@ -157,12 +155,11 @@ jobs:
           name: ${{ steps.decide.outputs.name }}
           prerelease: ${{ steps.decide.outputs.prerelease }}
           body: |
-            **NAS-focused Android file manager: dual-pane mobile, Google TV edition, Rust SMB2/3, video storyboards and package installs. No ads or telemetry.**
+            **NAS-focused Android file manager: dual-pane touch UI, Chromecast, Rust SMB2/3, video storyboards and package installs. No ads or telemetry.**
 
             XFiles ${{ steps.decide.outputs.version }} · build ${{ steps.decide.outputs.build }} (${{ github.sha }}).
-            The mobile edition keeps the dual-pane touch workflow and includes Chromecast controls. The separate XFiles TV edition is single-pane and remote-first, and intentionally omits the Cast stack.
+            XFiles is a phone-only app with dual-pane touch browsing and Chromecast controls. The separate Android TV package is discontinued.
 
             ${{ steps.decide.outputs.notes }}
           files: |
             ${{ steps.decide.outputs.apk }}
-            ${{ steps.decide.outputs.tv_apk }}
