@@ -36,7 +36,6 @@ import app.local1st.files.core.update.ReleaseAsset
 import app.local1st.files.core.update.ResolvedUpdateRelease
 import app.local1st.files.core.update.SelfUpdateSource
 import app.local1st.files.core.update.StableReleaseMetadata
-import app.local1st.files.core.update.SelfUpdateEdition
 import app.local1st.files.core.update.SelfUpdateReleaseContract
 import app.local1st.files.core.util.SelfUpdateApkVerifier
 import app.local1st.files.core.util.SelfUpdateInstaller
@@ -111,7 +110,6 @@ private object MobileSelfUpdater {
         val stable = runCatching {
             fetchRelease(SelfUpdateReleaseContract.STABLE_LATEST_API)?.let {
                 SelfUpdateReleaseContract.resolveStable(
-                    edition = SelfUpdateEdition.MOBILE,
                     release = it.stableReleaseMetadata(),
                 )
             }
@@ -119,7 +117,6 @@ private object MobileSelfUpdater {
         val debug = runCatching {
             fetchRelease(SelfUpdateReleaseContract.DEBUG_LATEST_API)?.let {
                 SelfUpdateReleaseContract.resolveNormal(
-                    edition = SelfUpdateEdition.MOBILE,
                     assets = it.releaseAssets(),
                 )
             }

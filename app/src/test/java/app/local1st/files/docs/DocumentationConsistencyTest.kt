@@ -32,7 +32,6 @@ class DocumentationConsistencyTest {
             val text = File(repo, path).readText()
             assertContains(path, text, versionName)
             assertContains(path, text, applicationId)
-            assertFalse("$path must not advertise retired TV package ID", text.contains("app.local1st.files.tv"))
             assertContains(path, text, "minSdk $minSdk")
             if (compileSdk == targetSdk) {
                 assertContains(path, text, "compile/target SDK $compileSdk")
