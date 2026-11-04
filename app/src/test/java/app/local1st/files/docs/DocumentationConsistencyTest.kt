@@ -132,6 +132,11 @@ class DocumentationConsistencyTest {
             rustPreview.contains("retention-days: 1"))
         assertTrue("Play submission AAB is retained seven days",
             release.contains("retention-days: 7"))
+        assertTrue("Only new stable versions upload AABs", release.contains(
+            "- name: Upload mobile AAB as build artifact\n        if: steps.decide.outputs.publish == 'true'"
+        ))
+        assertTrue("AAB upload must happen after release decision",
+            release.indexOf("- name: Decide stable release") < release.indexOf("- name: Upload mobile AAB as build artifact"))
         assertTrue("Rolling update still uses GitHub Releases",
             buildCi.contains("gh release create debug-latest"))
         assertTrue("Stable APK remains a GitHub Release asset",
