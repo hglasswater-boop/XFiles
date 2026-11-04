@@ -240,4 +240,10 @@
     <string name="cast_auto_off">Stopp</string>
     <string name="cast_auto_next">Nächstes</string>
     <string name="cast_auto_previous">Vorheriges</string>
+    <string name="smb_backend_section">Verwendetes SMB-Backend</string>
+    <string name="smb_backend_summary">Zeigt das tatsächlich verwendete Backend der letzten erfolgreichen Kapazitätsabfragen in dieser App-Sitzung.</string>
+    <string name="smb_backend_share_capacity">Speicherplatz der Freigabe</string>
+    <string name="smb_backend_folder_size">Ordnergröße</string>
+    <string name="smb_backend_not_run">Noch nicht ausgeführt</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>

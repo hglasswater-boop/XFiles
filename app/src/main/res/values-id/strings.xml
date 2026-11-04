@@ -240,4 +240,10 @@
     <string name="cast_auto_off">Berhenti</string>
     <string name="cast_auto_next">Berikutnya</string>
     <string name="cast_auto_previous">Sebelumnya</string>
+    <string name="smb_backend_section">Backend SMB yang digunakan</string>
+    <string name="smb_backend_summary">Menampilkan mesin yang benar-benar digunakan untuk pemeriksaan kapasitas terakhir yang berhasil dalam sesi ini.</string>
+    <string name="smb_backend_share_capacity">Kapasitas berbagi</string>
+    <string name="smb_backend_folder_size">Ukuran folder</string>
+    <string name="smb_backend_not_run">Belum dijalankan</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>

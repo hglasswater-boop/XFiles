@@ -242,4 +242,10 @@
     <string name="cast_auto_off">Zatrzymaj</string>
     <string name="cast_auto_next">Następny</string>
     <string name="cast_auto_previous">Poprzedni</string>
+    <string name="smb_backend_section">Używany silnik SMB</string>
+    <string name="smb_backend_summary">Pokazuje silnik faktycznie użyty podczas ostatnich udanych odczytów pojemności w tej sesji.</string>
+    <string name="smb_backend_share_capacity">Pojemność udziału</string>
+    <string name="smb_backend_folder_size">Rozmiar folderu</string>
+    <string name="smb_backend_not_run">Jeszcze nie wykonano</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>

@@ -244,4 +244,10 @@
     <string name="cast_auto_off">إيقاف</string>
     <string name="cast_auto_next">التالي</string>
     <string name="cast_auto_previous">السابق</string>
+    <string name="smb_backend_section">محرك SMB المستخدم</string>
+    <string name="smb_backend_summary">يعرض المحرك المستخدم فعليًا في آخر استعلام ناجح عن السعة خلال جلسة التطبيق الحالية.</string>
+    <string name="smb_backend_share_capacity">سعة المشاركة</string>
+    <string name="smb_backend_folder_size">حجم المجلد</string>
+    <string name="smb_backend_not_run">لم يتم التنفيذ بعد</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>

@@ -240,4 +240,10 @@
     <string name="cast_auto_off">停止</string>
     <string name="cast_auto_next">下一個</string>
     <string name="cast_auto_previous">上一個</string>
+    <string name="smb_backend_section">實際使用的 SMB 引擎</string>
+    <string name="smb_backend_summary">顯示本次應用程式執行期間上次成功查詢容量時實際使用的引擎。</string>
+    <string name="smb_backend_share_capacity">共用容量</string>
+    <string name="smb_backend_folder_size">資料夾大小</string>
+    <string name="smb_backend_not_run">尚未執行</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>

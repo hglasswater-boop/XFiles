@@ -240,4 +240,10 @@
     <string name="cast_auto_off">Stop</string>
     <string name="cast_auto_next">Volgende</string>
     <string name="cast_auto_previous">Vorige</string>
+    <string name="smb_backend_section">Gebruikte SMB-backend</string>
+    <string name="smb_backend_summary">Toont de werkelijk gebruikte backend voor de laatst geslaagde capaciteitsaanvragen in deze sessie.</string>
+    <string name="smb_backend_share_capacity">Capaciteit van share</string>
+    <string name="smb_backend_folder_size">Mapgrootte</string>
+    <string name="smb_backend_not_run">Nog niet uitgevoerd</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>

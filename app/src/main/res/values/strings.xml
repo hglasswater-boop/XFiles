@@ -240,4 +240,10 @@
     <string name="cast_auto_off">Stop</string>
     <string name="cast_auto_next">Next</string>
     <string name="cast_auto_previous">Previous</string>
+    <string name="smb_backend_section">SMB runtime backend</string>
+    <string name="smb_backend_summary">Last successful capacity queries in this app session. Shows the actual engine used, not the configured preference.</string>
+    <string name="smb_backend_share_capacity">Share capacity</string>
+    <string name="smb_backend_folder_size">Folder size</string>
+    <string name="smb_backend_not_run">Not run yet</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>

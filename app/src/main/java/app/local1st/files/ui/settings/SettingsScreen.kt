@@ -207,6 +207,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                 SectionHeader(stringResource(R.string.update_settings_title))
                 EditionUpdateSettingsSection()
 
+                SectionHeader(stringResource(R.string.smb_backend_section))
+                SmbBackendDiagnosticsSection()
+
                 SectionHeader(stringResource(R.string.about))
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {

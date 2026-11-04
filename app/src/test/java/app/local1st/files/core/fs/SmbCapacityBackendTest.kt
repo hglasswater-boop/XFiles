@@ -116,6 +116,150 @@ class SmbCapacityBackendTest {
     }
 
     @Test
+    fun trackingReportsRustOnlyAfterSuccessfulOperation() {
+        val successes = mutableListOf<SmbCapacityEngine>()
+        val result = SmbCapacityBackend.route(
+            mode = "auto",
+            ensureNative = {},
+            prepareNetwork = {},
+            rust = { 100L },
+            smbj = { error("must not fall back") },
+            onSuccess = successes::add,
+        )
+        assertEquals(100L, result)
+        assertEquals(listOf(SmbCapacityEngine.RUST), successes)
+    }
+
+    @Test
+    fun trackingReportsSmbjOnlyWhenFallbackOrExplicitSmbjCompletes() {
+        val successes = mutableListOf<SmbCapacityEngine>()
+        val fallback = SmbCapacityBackend.route(
+            mode = "auto",
+            ensureNative = { throw RustSmbUnavailableException("ABI mismatch") },
+            prepareNetwork = { error("native preflight should not run") },
+            rust = { error("must not call native") },
+            smbj = { 200L },
+            onSuccess = successes::add,
+        )
+        assertEquals(200L, fallback)
+        assertEquals(listOf(SmbCapacityEngine.SMBJ), successes)
+
+        val smbj = SmbCapacityBackend.route(
+            mode = "smbj",
+            ensureNative = { error("must not check JNI") },
+            prepareNetwork = { error("must not run native preflight") },
+            rust = { error("must not call native") },
+            smbj = { 300L },
+            onSuccess = successes::add,
+        )
+        assertEquals(300L, smbj)
+        assertEquals(listOf(SmbCapacityEngine.SMBJ, SmbCapacityEngine.SMBJ), successes)
+    }
+
+    @Test
+    fun trackingNeverClaimsCompletionOnErrorOrNull() {
+        val successes = mutableListOf<SmbCapacityEngine>()
+        assertThrows(IOException::class.java) {
+            SmbCapacityBackend.route(
+                mode = "auto",
+                ensureNative = {},
+                prepareNetwork = {},
+                rust = { throw IOException("SMB server rejected query") },
+                smbj = { error("no automatic replay") },
+                onSuccess = successes::add,
+            )
+        }
+        assertThrows(RustSmbUnavailableException::class.java) {
+            SmbCapacityBackend.route(
+                mode = "rust",
+                ensureNative = { throw RustSmbUnavailableException("missing JNI") },
+                prepareNetwork = {},
+                rust = { 1L },
+                smbj = { error("must not use SMBJ") },
+                onSuccess = successes::add,
+            )
+        }
+        val absent: Long? = SmbCapacityBackend.route(
+            mode = "smbj",
+            ensureNative = {},
+            prepareNetwork = {},
+            rust = { 2L },
+            smbj = { null },
+            onSuccess = successes::add,
+        )
+        assertEquals(null, absent)
+        assertEquals(emptyList<SmbCapacityEngine>(), successes)
+    }
+
+    @Test
+    fun trackerKeepsLastSuccessfulShareAndFolderIndependentAndObservable() {
+        val tracker = SmbBackendExecutionTracker()
+        assertEquals(emptyMap<SmbCapacityOperation, SmbBackendExecution>(), tracker.lastSuccess.value)
+        tracker.record(SmbCapacityOperation.SHARE_CAPACITY, SmbCapacityEngine.RUST, "家庭NAS")
+        assertEquals(
+            SmbBackendExecution(SmbCapacityEngine.RUST, "家庭NAS"),
+            tracker.lastSuccess.value[SmbCapacityOperation.SHARE_CAPACITY],
+        )
+        assertEquals(null, tracker.lastSuccess.value[SmbCapacityOperation.DIRECTORY_SIZE])
+        tracker.record(SmbCapacityOperation.DIRECTORY_SIZE, SmbCapacityEngine.SMBJ, "サブNAS")
+        assertEquals(
+            SmbBackendExecution(SmbCapacityEngine.RUST, "家庭NAS"),
+            tracker.lastSuccess.value[SmbCapacityOperation.SHARE_CAPACITY],
+        )
+        assertEquals(
+            SmbBackendExecution(SmbCapacityEngine.SMBJ, "サブNAS"),
+            tracker.lastSuccess.value[SmbCapacityOperation.DIRECTORY_SIZE],
+        )
+        tracker.record(SmbCapacityOperation.SHARE_CAPACITY, SmbCapacityEngine.SMBJ, "新NAS")
+        assertEquals(
+            SmbBackendExecution(SmbCapacityEngine.SMBJ, "新NAS"),
+            tracker.lastSuccess.value[SmbCapacityOperation.SHARE_CAPACITY],
+        )
+    }
+
+    @Test
+    fun recordingIsAfterHandleCloseAndNeverAfterCloseFailure() {
+        val successes = mutableListOf<SmbCapacityEngine>()
+        val order = mutableListOf<String>()
+        assertThrows(IOException::class.java) {
+            SmbCapacityBackend.route(
+                mode = "rust",
+                ensureNative = {},
+                prepareNetwork = {},
+                rust = {
+                    SmbCapacityBackend.withDirectory(
+                        open = { 4L },
+                        query = { order += "query"; 70L },
+                        close = { order += "close"; throw IOException("SMB CLOSE failed") },
+                    )
+                },
+                smbj = { error("no replay after close failure") },
+                onSuccess = { successes.add(it); order += "record" },
+            )
+        }
+        assertEquals(listOf("query", "close"), order)
+        assertEquals(emptyList<SmbCapacityEngine>(), successes)
+
+        val size = SmbCapacityBackend.route(
+            mode = "rust",
+            ensureNative = {},
+            prepareNetwork = {},
+            rust = {
+                SmbCapacityBackend.withDirectory(
+                    open = { 5L },
+                    query = { order += "query"; 80L },
+                    close = { order += "close" },
+                )
+            },
+            smbj = { error("no fallback") },
+            onSuccess = { successes.add(it); order += "record" },
+        )
+        assertEquals(80L, size)
+        assertEquals(listOf("query", "close", "query", "close", "record"), order)
+        assertEquals(listOf(SmbCapacityEngine.RUST), successes)
+    }
+
+    @Test
     fun successfulNativeDirectoryQueryClosesExactlyOnce() {
         val calls = mutableListOf<String>()
         assertEquals(99L, SmbCapacityBackend.withDirectory(
