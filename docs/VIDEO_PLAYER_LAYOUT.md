@@ -104,7 +104,7 @@ to the same 1.2.0 version required by AndroidX Test 1.7.0, because Android Gradl
 constrains shared test dependencies to the app's resolved versions. Keep this alignment
 in the debug configuration alongside the test activity dependency.
 
-The existing mobile/TV unit tests, release lint and Android emulator instrumentation tests
+The existing Android unit tests, release lint and Android emulator instrumentation tests
 remain required. Physical-device validation must also check local and SMB playback,
 pause/seek controls, fine-preview open/close, cutouts/navigation modes, and PiP transitions.
 Geometry tests do not establish actual device playback behavior.

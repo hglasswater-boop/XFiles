@@ -56,7 +56,7 @@ class DocumentationConsistencyTest {
     }
 
     @Test
-    fun activeBuildAndCiHaveNoTvEdition() {
+    fun activeBuildAndCiShipOnePhoneApp() {
         val repo = File(requireNotNull(System.getProperty("xfiles.repo")))
         val gradle = File(repo, "app/build.gradle.kts").readText()
         assertFalse("Product flavors have been retired", gradle.contains("productFlavors"))
@@ -83,6 +83,30 @@ class DocumentationConsistencyTest {
                 assertFalse("$path contains retired edition marker '$marker'", workflow.contains(marker))
             }
         }
+    }
+
+    @Test
+    fun currentPublicDocsDescribeOnlyTheSupportedApp() {
+        val repo = File(requireNotNull(System.getProperty("xfiles.repo")))
+        val publicDocs = listOf("README.md", "README.ja.md", "README.zh-CN.md")
+            .map { File(repo, it) } +
+            File(repo, "docs").walkTopDown().filter { it.isFile && it.extension == "md" }.toList() +
+            File(repo, "fastlane/metadata/android").walkTopDown()
+                .filter { it.isFile && it.extension == "txt" }.toList() +
+            listOf(File(repo, ".github/workflows/release.yml"))
+
+        val deprecatedClaims = listOf(
+            "Android TV", "Google TV", "XFiles-TV-", "TV版", "TV 版",
+            "Mobile/TV", "mobile/TV", "Android_TV_RETIREMENT",
+            "app.local1st.files.tv",
+        )
+        publicDocs.forEach { file ->
+            val text = file.readText()
+            deprecatedClaims.forEach { claim ->
+                assertFalse("${file.path} contains obsolete edition description: $claim", text.contains(claim))
+            }
+        }
+        assertFalse(File(repo, "docs/ANDROID_TV_RETIREMENT.md").exists())
     }
 
     @Test
