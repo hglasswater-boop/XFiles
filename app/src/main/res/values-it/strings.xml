@@ -240,4 +240,10 @@
     <string name="cast_auto_off">Stop</string>
     <string name="cast_auto_next">Successivo</string>
     <string name="cast_auto_previous">Precedente</string>
+    <string name="smb_backend_section">Motore SMB utilizzato</string>
+    <string name="smb_backend_summary">Mostra il motore realmente utilizzato per le ultime richieste di capacità riuscite in questa sessione.</string>
+    <string name="smb_backend_share_capacity">Capacità della condivisione</string>
+    <string name="smb_backend_folder_size">Dimensione cartella</string>
+    <string name="smb_backend_not_run">Non ancora eseguito</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>
