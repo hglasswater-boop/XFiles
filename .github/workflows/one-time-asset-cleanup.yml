@@ -1,0 +1,37 @@
+name: One-time obsolete APK asset cleanup
+
+on:
+  push:
+    branches:
+      - chore/purge-tv-references-262
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete only the matching legacy APK release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | .assets[] | select(.name | startswith("XFiles-TV-") and endswith(".apk")) | [.id, .name] | @tsv' \
+            > /tmp/legacy-assets.tsv
+          count=$(wc -l < /tmp/legacy-assets.tsv)
+          echo "Matching package assets: $count"
+          if [ "$count" -gt 30 ]; then
+            echo "Unexpected number of assets; refusing to delete" >&2
+            exit 1
+          fi
+          while IFS=$'\t' read -r asset_id asset_name; do
+            [ -n "$asset_id" ] || continue
+            case "$asset_name" in
+              XFiles-TV-*.apk) ;;
+              *) echo "Refusing unexpected asset: $asset_name" >&2; exit 1 ;;
+            esac
+            echo "Deleting $asset_name ($asset_id)"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+          done < /tmp/legacy-assets.tsv
