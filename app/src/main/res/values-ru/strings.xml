@@ -242,4 +242,10 @@
     <string name="cast_auto_off">Остановить</string>
     <string name="cast_auto_next">Следующее</string>
     <string name="cast_auto_previous">Предыдущее</string>
+    <string name="smb_backend_section">Используемый движок SMB</string>
+    <string name="smb_backend_summary">Показывает движок, реально использованный при последних успешных запросах ёмкости в этом сеансе.</string>
+    <string name="smb_backend_share_capacity">Ёмкость общего ресурса</string>
+    <string name="smb_backend_folder_size">Размер папки</string>
+    <string name="smb_backend_not_run">Ещё не выполнялось</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>
