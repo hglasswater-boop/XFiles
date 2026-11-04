@@ -56,7 +56,7 @@ object SelfUpdateReleaseContract {
         Regex("""XFiles\s+(\d+\.\d+\.\d+-smb)\s+·\s+build\s+(\d+)\s+\([a-f0-9]{40}\)""")
 
     private val normalPhoneAsset =
-        Regex("^XFiles-(?!TV-|Diagnostic-)(.+)-b(\\d+)-debug\\.apk$")
+        Regex("^XFiles-(\\d+\\.\\d+\\.\\d+-smb)-b(\\d+)-debug\\.apk$")
     private val diagnosticMobileAsset =
         Regex("^XFiles-Diagnostic-(.+)-b(\\d+)-debug\\.apk$")
 

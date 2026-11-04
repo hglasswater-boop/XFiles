@@ -158,7 +158,6 @@ jobs:
             **NAS-focused Android file manager: dual-pane touch UI, Chromecast, Rust SMB2/3, video storyboards and package installs. No ads or telemetry.**
 
             XFiles ${{ steps.decide.outputs.version }} · build ${{ steps.decide.outputs.build }} (${{ github.sha }}).
-            XFiles is a phone-only app with dual-pane touch browsing and Chromecast controls. The separate Android TV package is discontinued.
 
             ${{ steps.decide.outputs.notes }}
           files: |
