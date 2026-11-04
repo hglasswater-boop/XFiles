@@ -15,19 +15,26 @@ internal object SmbCapacityBackend {
         prepareNetwork: () -> Unit,
         rust: () -> T,
         smbj: () -> T,
+        onSuccess: (SmbCapacityEngine) -> Unit = {},
     ): T {
-        if (mode == "smbj") return smbj()
+        fun execute(engine: SmbCapacityEngine, action: () -> T): T {
+            val result = action()
+            if (result != null) onSuccess(engine)
+            return result
+        }
+
+        if (mode == "smbj") return execute(SmbCapacityEngine.SMBJ, smbj)
         if (mode == "rust") {
             ensureNative()
         } else {
             try {
                 ensureNative()
             } catch (_: RustSmbUnavailableException) {
-                return smbj()
+                return execute(SmbCapacityEngine.SMBJ, smbj)
             }
         }
         prepareNetwork()
-        return rust()
+        return execute(SmbCapacityEngine.RUST, rust)
     }
 
     /** Always close the authenticated root directory handle, even if the query throws. */
@@ -47,6 +54,7 @@ internal object SmbCapacityBackend {
         prepareNetwork: () -> Unit,
         smbj: () -> StorageSpace?,
     ): StorageSpace? = query(
+        operation = SmbCapacityOperation.SHARE_CAPACITY,
         config = config,
         path = config.basePath,
         password = password,
@@ -62,6 +70,7 @@ internal object SmbCapacityBackend {
         prepareNetwork: () -> Unit,
         smbj: () -> Long?,
     ): Long? = query(
+        operation = SmbCapacityOperation.DIRECTORY_SIZE,
         config = config,
         path = path,
         password = password,
@@ -75,6 +84,7 @@ internal object SmbCapacityBackend {
     )
 
     private fun <T> query(
+        operation: SmbCapacityOperation,
         config: SmbConnectionConfig,
         path: String,
         password: () -> String,
@@ -104,5 +114,6 @@ internal object SmbCapacityBackend {
             )
         },
         smbj = smbj,
+        onSuccess = { engine -> smbBackendExecutions.record(operation, engine, config.name) },
     )
 }
