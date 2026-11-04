@@ -220,15 +220,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun forceStartupUpdateCheck() {
-        // Mobile and TV each keep their updater preferences in a flavor-specific store. Clearing
-        // only the throttle timestamp preserves the user's auto-check toggle while making a fresh
-        // app launch perform the requested update check instead of waiting up to 24 hours.
-        UPDATE_PREFS.forEach { name ->
-            getSharedPreferences(name, MODE_PRIVATE)
-                .edit()
-                .remove(LAST_AUTO_CHECK_KEY)
-                .apply()
-        }
+        // Reset only the throttle to preserve the automatic update preference.
+        getSharedPreferences("mobile_self_update", MODE_PRIVATE)
+            .edit()
+            .remove(LAST_AUTO_CHECK_KEY)
+            .apply()
     }
 
     private companion object {
@@ -239,7 +235,6 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_ALLOWED_EXTENSIONS = "app.local1st.files.extra.ALLOWED_EXTENSIONS"
         const val EXTRA_OUTPUT_NAME = "app.local1st.files.extra.OUTPUT_NAME"
         const val EXTRA_OUTPUT_MIME = "app.local1st.files.extra.OUTPUT_MIME"
-        val UPDATE_PREFS = arrayOf("mobile_self_update", "tv_self_update")
 
         fun isSafeOutputName(name: String): Boolean =
             name.isNotBlank() && name != "." && name != ".." &&

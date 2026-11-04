@@ -1,7 +1,5 @@
 package app.local1st.files.ui.main
 
-import android.app.Activity
-import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
@@ -66,14 +64,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -82,7 +74,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import app.local1st.files.BuildConfig
 import app.local1st.files.R
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
@@ -94,7 +85,6 @@ import app.local1st.files.ui.dialogs.DialogRequest
 
 private val CompactTargetChipMaxWidth = 96.dp
 private val CompactIosChevronSize = 12.dp
-private const val TvExitBackWindowMs = 2_000L
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -106,10 +96,8 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     val sessionReady by vm.sessionReady.collectAsStateWithLifecycle()
     val activePane by vm.activePane.collectAsStateWithLifecycle()
     val pendingTransfer by vm.pendingTransfer.collectAsStateWithLifecycle()
-    val isTvEdition = BuildConfig.APPLICATION_ID.endsWith(".tv")
     val activeState by vm.panes[activePane].state.collectAsStateWithLifecycle()
-    // TV uses the current pane as its operation destination. There is no hidden destination pane.
-    val otherPaneController = if (isTvEdition) vm.activeCtrl else vm.panes[1 - activePane]
+    val otherPaneController = vm.panes[1 - activePane]
     val otherPaneState by otherPaneController.state.collectAsStateWithLifecycle()
     val otherPaneDestination = otherPaneController.focusedDirEntry()
     val otherPaneName = paneLocationName(otherPaneDestination, otherPaneState.focusedDirId)
@@ -124,10 +112,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     }
     var searchPane by rememberSaveable(vm) { mutableStateOf<Int?>(null) }
     var searchEntries by remember(vm) { mutableStateOf<Map<String, XEntry>>(emptyMap()) }
-    var lastTvRootBackAt by remember { mutableStateOf(0L) }
-    val wideLayout = !isTvEdition && LocalConfiguration.current.screenWidthDp >= 700
-    val context = LocalContext.current
-    val editionSideRailOpen = isTvEdition && isEditionSideRailOpen()
+    val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
 
     fun closeSearch(paneIndex: Int) {
         vm.panes[paneIndex].clearSelection()
@@ -170,58 +155,16 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
     ) {
         vm.activeCtrl.clearSelection()
     }
-    BackHandler(
-        enabled = isTvEdition &&
-            pendingTransfer == null &&
-            searchPane != activePane &&
-            selectionCount == 0,
-    ) {
-        val controller = vm.activeCtrl
-        val paneState = controller.state.value
-        val focusedId = paneState.focusedDirId
-        val focusedIndex = focusedId?.let { id ->
-            paneState.nodes.indexOfLast { node -> node.entry.id == id }
-        } ?: -1
-        val focusedNode = paneState.nodes.getOrNull(focusedIndex)
-        val parentNode = if (focusedNode != null && focusedNode.depth > 0) {
-            paneState.nodes
-                .take(focusedIndex)
-                .lastOrNull { node -> node.depth == focusedNode.depth - 1 }
-        } else {
-            null
-        }
-
-        if (focusedNode != null && parentNode != null) {
-            if (focusedNode.entry.isContainer) controller.collapse(focusedNode.entry)
-            controller.revealPath(parentNode.entry.id, animate = false)
-            lastTvRootBackAt = 0L
-        } else {
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastTvRootBackAt <= TvExitBackWindowMs) {
-                (context as? Activity)?.finish()
-            } else {
-                lastTvRootBackAt = now
-                vm.snackbar.tryEmit(context.getString(R.string.press_back_again_to_exit))
-            }
-        }
-    }
-
-    // TV Back closes an open side rail before any browser/root Back behavior can run.
-    BackHandler(enabled = editionSideRailOpen) {
-        dismissEditionSideRail()
-        lastTvRootBackAt = 0L
-    }
-
     // No top app bar at all: the panes extend under the status bar, and the few former
     // top-bar actions live elsewhere (search in the bottom toolbar, Settings in More).
     // On phones the freed top-end slot exposes the otherwise hidden destination pane.
     // The explicit background paints the pane gutters and rounded-corner gaps that
     // Scaffold used to cover.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val listPadding = PaddingValues(bottom = if (isTvEdition) 24.dp else 120.dp)
+        val listPadding = PaddingValues(bottom = 120.dp)
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val wide = !isTvEdition && maxWidth >= 700.dp
+            val wide = maxWidth >= 700.dp
             if (wide) {
                 Row(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
                     vm.panes.forEachIndexed { index, pane ->
@@ -260,16 +203,12 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     }
                 }
             } else {
-                val tvPaneIndex = activePane
-                val pagerState = rememberPagerState(
-                    initialPage = if (isTvEdition) 0 else activePane,
-                ) { if (isTvEdition) 1 else 2 }
+                val pagerState = rememberPagerState(initialPage = activePane) { 2 }
                 LaunchedEffect(pagerState, sessionReady) {
-                    if (!sessionReady || isTvEdition) return@LaunchedEffect
+                    if (!sessionReady) return@LaunchedEffect
                     snapshotFlow { pagerState.currentPage }.collect { vm.setActivePane(it) }
                 }
                 LaunchedEffect(activePane) {
-                    if (isTvEdition) return@LaunchedEffect
                     if (pagerState.currentPage != activePane &&
                         !pagerState.isScrollInProgress
                     ) {
@@ -279,13 +218,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 }
                 HorizontalPager(
                     state = pagerState,
-                    // TV has one live pane only. Disable pager gestures so the dormant controller
-                    // cannot be surfaced accidentally; mobile compact mode keeps normal paging.
-                    userScrollEnabled = !isTvEdition,
                     beyondViewportPageCount = 0,
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
-                    val paneIndex = if (isTvEdition) tvPaneIndex else page
+                    val paneIndex = page
                     val pane = vm.panes[paneIndex]
                     PaneView(
                         controller = pane,
@@ -308,15 +244,12 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             vm.onPaneInitialLayoutReady(paneIndex, version)
                             if (paneIndex == activePane) startupContentReady = true
                         },
-                        breadcrumbAlignment = if (isTvEdition || paneIndex == 0) {
+                        breadcrumbAlignment = if (paneIndex == 0) {
                             Alignment.TopStart
                         } else {
                             Alignment.TopEnd
                         },
-                        headerOverlay = if (isTvEdition) {
-                            null
-                        } else {
-                            {
+                        headerOverlay = {
                                 val targetPane = 1 - page
                                 val targetController = vm.panes[targetPane]
                                 val targetState = if (targetPane == activePane) {
@@ -339,7 +272,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                     activePane = page,
                                     onClick = { vm.setActivePane(targetPane) },
                                 )
-                            }
                         },
                         searchActive = searchPane == paneIndex,
                         onSearchClose = { closeSearch(paneIndex) },
@@ -349,31 +281,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                             }
                         },
                         contentPadding = listPadding,
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .then(
-                                if (isTvEdition && searchPane != paneIndex) {
-                                    Modifier.onPreviewKeyEvent { event ->
-                                        if (event.type != KeyEventType.KeyDown) {
-                                            false
-                                        } else {
-                                            when (event.key) {
-                                                Key.DirectionLeft -> {
-                                                    requestEditionSideRail(left = true)
-                                                    true
-                                                }
-                                                Key.DirectionRight -> {
-                                                    requestEditionSideRail(left = false)
-                                                    true
-                                                }
-                                                else -> false
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Modifier
-                                },
-                            ),
+                        modifier = Modifier.padding(horizontal = 4.dp),
                     )
                 }
             }
@@ -401,9 +309,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 ),
         )
 
-        // Phones keep the bottom toolbar. TV exposes equivalent actions as edge focus targets so
-        // users can reach commands from any row without first travelling back to the list top.
-        if (!isTvEdition && pendingTransfer == null) {
+        if (pendingTransfer == null) {
             HorizontalFloatingToolbar(
                 expanded = true,
                 modifier = Modifier
@@ -511,7 +417,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     }
                 },
             )
-        } else if (!isTvEdition) {
+        } else {
             val transfer = pendingTransfer
             if (transfer != null) {
                 HorizontalFloatingToolbar(
@@ -556,50 +462,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     },
                 )
             }
-        }
-
-        if (isTvEdition) {
-            EditionSideActionMenu(
-                selectionCount = selectionCount,
-                selectionAvailable = selectedEntries.isNotEmpty(),
-                canUseOtherPane = canUseOtherPane,
-                canShareSelection = canShareSelection,
-                copyTargetLabel = copyTargetLabel,
-                moveTargetLabel = moveTargetLabel,
-                compressTargetLabel = compressTargetLabel,
-                transferActive = pendingTransfer != null,
-                transferMove = pendingTransfer?.move == true,
-                transferSourceCount = pendingTransfer?.sources?.size ?: 0,
-                transferDestinationName = transferDestinationName,
-                canConfirmTransfer = canConfirmTransfer,
-                onNewFolder = { vm.requestNewFolder() },
-                onNewTextFile = { vm.requestNewTextFile() },
-                onSearch = {
-                    if (searchPane == activePane) {
-                        closeSearch(activePane)
-                    } else {
-                        searchPane?.let { previous -> vm.panes[previous].clearSelection() }
-                        searchEntries = emptyMap()
-                        searchPane = activePane
-                    }
-                },
-                onRefresh = { vm.activeCtrl.refreshAllExpanded() },
-                onSettings = { vm.openSettings() },
-                onMore = {
-                    vm.dialog.value = DialogRequest.EntryMenu(
-                        entry = vm.activeCtrl.focusedDirEntry(),
-                        showSettings = true,
-                    )
-                },
-                onClear = { vm.activeCtrl.clearSelection() },
-                onCopy = { vm.chooseTransferDestination(move = false, sources = selectedEntries) },
-                onMove = { vm.chooseTransferDestination(move = true, sources = selectedEntries) },
-                onDelete = { vm.requestDelete(selectedEntries) },
-                onCompress = { vm.requestCompress(selectedEntries) },
-                onShare = { vm.shareSelection(selectedEntries) },
-                onCancelTransfer = { vm.cancelTransferDestination() },
-                onConfirmTransfer = { vm.confirmTransferCurrentDestination() },
-            )
         }
 
         val requiredPanes = if (wideLayout) vm.panes.indices else listOf(activePane)
