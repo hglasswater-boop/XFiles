@@ -30,6 +30,15 @@ The independent Mobile diagnostic package uses `diagnostic-latest` only from its
 - If both sources have eligible assets, choose the higher build code, preferring stable on a tie. A missing/malformed stable asset does **not** block a valid debug update, and vice versa.
 - Continue to publish `debug-latest` on each `main` push: **existing app versions that only know the debug feed cannot discover the stable feed until their updater is upgraded through this bridge**. The new stable-aware logic reaches installed users through the next `debug-latest` package. Old apps configured for retired Nightly may still require one manual update.
 
+### Rolling release publication and recovery (Issue #265)
+
+- The `debug-latest` GitHub Release is an **in-place rolling release**, not a disposable publication. Existing app installations query its tag directly. The CI **must never delete the release/tag before an upload**: GitHub Releases returning HTTP 500 mid-publication must not break previously working updates. `diagnostic-latest` follows the same publication contract.
+- After the signed APK is built, the publisher checks whether the rolling release exists, creates it only when absent, then **uploads the new APK first** using idempotent overwrite. New releases are initially created with no assets so failed or partial creates can be retried safely. Existing assets and release metadata remain available if creation/upload fails.
+- After successfully verifying the newly uploaded asset, stale older assets can be removed individually (never the active APK or the whole release). This keeps the update resolver unambiguous and avoids accumulating old APKs.
+- Set the release title, body, prerelease flag, target commit, and move the lightweight rolling Git tag to the current build commit. Verify the published APK and Git tag SHA after publishing. Stable version tags such as `v1.4.10-smb` are **never** changed by this process.
+- The publisher retries transient GitHub API failures with bounded backoff; an exhausted retry must fail the CI job visibly, not claim that users have received an update. It must leave any previously published APK available. Re-running the same `main` commit is idempotent.
+- Test contract: fake `gh` executable covers an existing release, absent release, transient upload failure, partial creation success despite API failure, and persistent API failure without deleting a working release. Run tests in CI, then verify the actual `debug-latest` API and its asset after a successful `main` workflow. Users must not be told that a new build is available before this check.
+
 ### Diagnostic package (unchanged)
 
 - API: `diagnostic-latest`
