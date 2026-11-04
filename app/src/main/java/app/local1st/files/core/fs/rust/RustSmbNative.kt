@@ -10,7 +10,7 @@ internal class RustSmbUnavailableException(
 
 /** Mechanical JNI binding for the Pure Rust SMB engine. */
 internal object RustSmbNative {
-    private const val EXPECTED_API_VERSION = 8
+    private const val EXPECTED_API_VERSION = 9
 
     @Volatile
     private var loaded = false
@@ -99,6 +99,12 @@ internal object RustSmbNative {
 
     /** Exactly one QUERY_DIRECTORY response, encoded as an XFL1 page; zero-count means EOF. */
     external fun nativeReadDirectoryPage(handle: Long): ByteArray
+
+    /** Signed FS_FULL_SIZE_INFORMATION: XSS1 plus caller-aware total/free bytes. */
+    external fun nativeDirectoryCapacity(handle: Long): ByteArray
+
+    /** Recursive EOF bytes within this directory; does not follow reparse directories. */
+    external fun nativeDirectorySize(handle: Long): Long
 
     /** Always close the native directory cursor after reading, including on failure. */
     external fun nativeCloseDirectory(handle: Long)

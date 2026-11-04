@@ -268,23 +268,33 @@ open class SmbFileSystem(
     override fun storageSpace(entry: XEntry): StorageSpace? {
         if (entry.id == ROOT_ID) return null
         val target = target(entry.id)
-        return withShare(target.connection) { share ->
-            val info = share.shareInformation
-            StorageSpace(
-                totalBytes = info.totalSpace,
-                // Match Android StatFs.availableBytes semantics: show space available to the
-                // authenticated caller, respecting server-side quotas when present.
-                freeBytes = info.callerFreeSpace,
-            )
-        }
+        return SmbCapacityBackend.storageSpace(
+            config = target.connection,
+            password = { connections.password(target.connection.id) },
+            prepareNetwork = { wireGuard?.prepare(target.connection) },
+            smbj = {
+                withShare(target.connection) { share ->
+                    val info = share.shareInformation
+                    StorageSpace(
+                        totalBytes = info.totalSpace,
+                        // This is quota-aware caller space, not the server's raw free bytes.
+                        freeBytes = info.callerFreeSpace,
+                    )
+                }
+            },
+        )
     }
 
     override fun directorySize(entry: XEntry): Long? {
         if (!entry.isDir || entry.id == ROOT_ID) return null
         val target = target(entry.id)
-        return withShare(target.connection) { share ->
-            directorySizeOnShare(share, target.path)
-        }
+        return SmbCapacityBackend.directorySize(
+            config = target.connection,
+            path = target.path,
+            password = { connections.password(target.connection.id) },
+            prepareNetwork = { wireGuard?.prepare(target.connection) },
+            smbj = { withShare(target.connection) { share -> directorySizeOnShare(share, target.path) } },
+        )
     }
 
     private fun connectionEntry(config: SmbConnectionConfig): XEntry = XEntry(

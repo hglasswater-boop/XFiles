@@ -47,12 +47,12 @@ grep -Fq '| `delete` | SMBJ |' "$STATUS_DOC" ||
 
 
 # One version and one engine SHA must advance together; all packaged ABI checks include mkdir.
-grep -Fq 'private const val EXPECTED_API_VERSION = 8' \
+grep -Fq 'private const val EXPECTED_API_VERSION = 9' \
     "$ROOT_DIR/app/src/main/java/app/local1st/files/core/fs/rust/RustSmbNative.kt" ||
-    fail "Kotlin JNI API is not v8"
+    fail "Kotlin JNI API is not v9"
 grep -Fq 'nativeMkdir' "$BUILD_SCRIPT" || fail "Android build script does not verify mkdir JNI"
 grep -Fq 'nativeMkdir' "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify mkdir JNI"
-for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeCloseDirectory nativeCreateFile nativeOpenWritable nativeWriteAt nativeFlushWritable nativeCloseWritable nativeOpenRandom nativeReadRandomAt nativeWriteRandomAt nativeSetRandomLength nativeFlushRandom nativeCloseRandom; do
+for METHOD in nativeRename nativeDeleteFile nativeOpenDirectory nativeReadDirectoryPage nativeDirectoryCapacity nativeDirectorySize nativeCloseDirectory nativeCreateFile nativeOpenWritable nativeWriteAt nativeFlushWritable nativeCloseWritable nativeOpenRandom nativeReadRandomAt nativeWriteRandomAt nativeSetRandomLength nativeFlushRandom nativeCloseRandom; do
     grep -Fq "$METHOD" "$BUILD_SCRIPT" || fail "Android build script does not verify $METHOD"
     grep -Fq "$METHOD" "$PREVIEW_WORKFLOW" || fail "Rust preview does not verify $METHOD"
 done
