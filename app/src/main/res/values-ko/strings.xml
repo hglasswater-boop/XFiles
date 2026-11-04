@@ -240,4 +240,10 @@
     <string name="cast_auto_off">중지</string>
     <string name="cast_auto_next">다음</string>
     <string name="cast_auto_previous">이전</string>
+    <string name="smb_backend_section">실제 사용된 SMB 엔진</string>
+    <string name="smb_backend_summary">이 앱 실행 중 마지막으로 성공한 용량 조회에 실제 사용된 엔진을 표시합니다.</string>
+    <string name="smb_backend_share_capacity">공유 용량</string>
+    <string name="smb_backend_folder_size">폴더 크기</string>
+    <string name="smb_backend_not_run">아직 실행되지 않음</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>
