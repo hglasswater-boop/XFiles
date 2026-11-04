@@ -23,25 +23,16 @@ class DocumentationConsistencyTest {
             Regex("applicationId\\s*=\\s*\"([^\"]+)\""),
             "applicationId",
         )
-        val tvApplicationIdSuffix = requireMatch(
-            buildScript,
-            Regex(
-                "create\\(\"tv\"\\)\\s*\\{.*?applicationIdSuffix\\s*=\\s*\"([^\"]+)\"",
-                RegexOption.DOT_MATCHES_ALL,
-            ),
-            "TV applicationIdSuffix",
-        )
         val minSdk = requireMatch(buildScript, Regex("\\bminSdk\\s*=\\s*(\\d+)"), "minSdk")
         val compileSdk = requireMatch(buildScript, Regex("\\bcompileSdk\\s*=\\s*(\\d+)"), "compileSdk")
         val targetSdk = requireMatch(buildScript, Regex("\\btargetSdk\\s*=\\s*(\\d+)"), "targetSdk")
-        val tvApplicationId = applicationId + tvApplicationIdSuffix
 
         val readmes = listOf("README.md", "README.ja.md", "README.zh-CN.md")
         readmes.forEach { path ->
             val text = File(repo, path).readText()
             assertContains(path, text, versionName)
             assertContains(path, text, applicationId)
-            assertContains(path, text, tvApplicationId)
+            assertFalse("$path must not advertise retired TV package ID", text.contains("app.local1st.files.tv"))
             assertContains(path, text, "minSdk $minSdk")
             if (compileSdk == targetSdk) {
                 assertContains(path, text, "compile/target SDK $compileSdk")
@@ -61,6 +52,36 @@ class DocumentationConsistencyTest {
                     "$path must not claim XFiles has no network capability: '$claim'",
                     text.contains(claim, ignoreCase = true),
                 )
+            }
+        }
+    }
+
+    @Test
+    fun activeBuildAndCiHaveNoTvEdition() {
+        val repo = File(requireNotNull(System.getProperty("xfiles.repo")))
+        val gradle = File(repo, "app/build.gradle.kts").readText()
+        assertFalse("Product flavors have been retired", gradle.contains("productFlavors"))
+        assertFalse("Cast dependency must not be mobile flavor-specific", gradle.contains("mobileImplementation"))
+        assertTrue("Cast must remain available", gradle.contains("implementation(libs.media3.cast)"))
+        assertFalse(File(repo, "app/src/tv").exists())
+        assertFalse(File(repo, "app/src/mobile").exists())
+
+        val workflows = listOf(
+            ".github/workflows/release.yml",
+            ".github/workflows/personal-fork-ci.yml",
+            ".github/workflows/debug-artifact-request.yml",
+            ".github/workflows/rust-smb-preview.yml",
+        )
+        val tvMarkers = listOf(
+            "assembleTv", "assembleMobile", "testTv", "testMobile", "lintVitalTv",
+            "lintVitalMobile", "bundleMobile", "connectedMobile", "XFiles-TV-",
+            "app-tv-", "app-mobile-", "tv_name", "tv_apk", "DEBUG_TV_APK",
+            "app.local1st.files.tv",
+        )
+        workflows.forEach { path ->
+            val workflow = File(repo, path).readText()
+            tvMarkers.forEach { marker ->
+                assertFalse("$path contains retired edition marker '$marker'", workflow.contains(marker))
             }
         }
     }

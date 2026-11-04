@@ -10,7 +10,6 @@ class SelfUpdateReleaseContractTest {
     @Test
     fun normalMobileKeepsDebugLatestContract() {
         val release = SelfUpdateReleaseContract.resolveNormal(
-            edition = SelfUpdateEdition.MOBILE,
             assets = listOf(
                 ReleaseAsset("XFiles-1.4.1-smb-b29850001-debug.apk", "mobile-old"),
                 ReleaseAsset("XFiles-1.4.1-smb-b29850002-debug.apk", "mobile-new"),
@@ -30,31 +29,14 @@ class SelfUpdateReleaseContractTest {
     }
 
     @Test
-    fun normalTvKeepsDebugLatestContract() {
-        val release = SelfUpdateReleaseContract.resolveNormal(
-            edition = SelfUpdateEdition.TV,
-            assets = listOf(
-                ReleaseAsset("XFiles-1.4.1-smb-b29850002-debug.apk", "mobile"),
-                ReleaseAsset("XFiles-TV-1.4.1-smb-b29850003-debug.apk", "tv"),
-            ),
-        )
-        assertEquals("1.4.1-smb", release.versionName)
-        assertEquals(29850003, release.buildNumber)
-        assertEquals("XFiles-TV-1.4.1-smb-b29850003-debug.apk", release.assetName)
-        assertEquals("tv", release.downloadUrl)
-    }
-
-    @Test
-    fun normalRejectsMissingOrMalformedEditionAssets() {
+    fun normalRejectsMissingOrMalformedPhoneAssets() {
         assertThrows(IllegalArgumentException::class.java) {
             SelfUpdateReleaseContract.resolveNormal(
-                SelfUpdateEdition.TV,
-                listOf(ReleaseAsset("XFiles-nightly.apk", "old-nightly")),
+                listOf(ReleaseAsset("XFiles-TV-1.4.1-smb-b29850002-debug.apk", "retired-tv")),
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
             SelfUpdateReleaseContract.resolveNormal(
-                SelfUpdateEdition.MOBILE,
                 listOf(ReleaseAsset("XFiles-1.4.1-smb-bnotanumber-debug.apk", "bad")),
             )
         }
@@ -120,53 +102,46 @@ class SelfUpdateReleaseContractTest {
         prerelease = false,
         assets = listOf(
             ReleaseAsset("XFiles-1.4.3-smb.apk", "stable-mobile"),
-            ReleaseAsset("XFiles-TV-1.4.3-smb.apk", "stable-tv"),
         ),
     )
 
     @Test
-    fun stableResolvesExactMobileAndTvAssetsUsingReleaseBodyBuildCode() {
+    fun stableResolvesExactPhoneAssetUsingReleaseBodyBuildCode() {
         assertEquals(
             "https://api.github.com/repos/hglasswater-boop/XFiles/releases/latest",
             SelfUpdateReleaseContract.STABLE_LATEST_API,
         )
-        val mobile = SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata)
-        assertEquals("1.4.3-smb", mobile.versionName)
-        assertEquals(29860653, mobile.buildNumber)
-        assertEquals("XFiles-1.4.3-smb.apk", mobile.assetName)
-        assertEquals("stable-mobile", mobile.downloadUrl)
-        assertEquals(SelfUpdateSource.STABLE, mobile.source)
-        val tv = SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.TV, stableMetadata)
-        assertEquals("XFiles-TV-1.4.3-smb.apk", tv.assetName)
-        assertEquals("stable-tv", tv.downloadUrl)
+        val release = SelfUpdateReleaseContract.resolveStable(stableMetadata)
+        assertEquals("1.4.3-smb", release.versionName)
+        assertEquals(29860653, release.buildNumber)
+        assertEquals("XFiles-1.4.3-smb.apk", release.assetName)
+        assertEquals("stable-mobile", release.downloadUrl)
+        assertEquals(SelfUpdateSource.STABLE, release.source)
     }
 
     @Test
-    fun stableRejectsDraftPrereleaseMismatchedMetadataAndWrongEdition() {
+    fun stableRejectsDraftPrereleaseMismatchedMetadataAndMissingPhoneAsset() {
         assertThrows(IllegalArgumentException::class.java) {
-            SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata.copy(draft = true))
+            SelfUpdateReleaseContract.resolveStable(stableMetadata.copy(draft = true))
         }
         assertThrows(IllegalArgumentException::class.java) {
-            SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata.copy(prerelease = true))
+            SelfUpdateReleaseContract.resolveStable(stableMetadata.copy(prerelease = true))
         }
         assertThrows(IllegalArgumentException::class.java) {
-            SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata.copy(tagName = "debug-latest"))
+            SelfUpdateReleaseContract.resolveStable(stableMetadata.copy(tagName = "debug-latest"))
         }
         assertThrows(IllegalArgumentException::class.java) {
             SelfUpdateReleaseContract.resolveStable(
-                SelfUpdateEdition.MOBILE,
                 stableMetadata.copy(body = "XFiles 1.4.2-smb · build 29860653 (1102cc43c7a68a8fa545521859030c998486ad9d)"),
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
             SelfUpdateReleaseContract.resolveStable(
-                SelfUpdateEdition.TV,
-                stableMetadata.copy(assets = listOf(ReleaseAsset("XFiles-1.4.3-smb.apk", "mobile"))),
+                stableMetadata.copy(assets = listOf(ReleaseAsset("XFiles-TV-1.4.3-smb.apk", "retired-tv"))),
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
             SelfUpdateReleaseContract.resolveStable(
-                SelfUpdateEdition.MOBILE,
                 stableMetadata.copy(body = "XFiles 1.4.3-smb · build 0 (1102cc43c7a68a8fa545521859030c998486ad9d)"),
             )
         }
@@ -174,9 +149,8 @@ class SelfUpdateReleaseContractTest {
 
     @Test
     fun newestInstallableBuildWinsAndStableWinsTies() {
-        val stable = SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata)
+        val stable = SelfUpdateReleaseContract.resolveStable(stableMetadata)
         val debug = SelfUpdateReleaseContract.resolveNormal(
-            SelfUpdateEdition.MOBILE,
             listOf(ReleaseAsset("XFiles-1.4.3-smb-b29860653-debug.apk", "debug")),
         )
         assertEquals(
@@ -200,7 +174,7 @@ class SelfUpdateReleaseContractTest {
 
     @Test
     fun stableNeverReinstallsSameBuildOrDowngradesExistingDebug() {
-        val stable = SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata)
+        val stable = SelfUpdateReleaseContract.resolveStable(stableMetadata)
         assertFalse(stable.isInstallableOver(29860653, false))
         assertFalse(stable.isInstallableOver(29860653, true))
         assertFalse(stable.isInstallableOver(29860654, true))
@@ -212,9 +186,8 @@ class SelfUpdateReleaseContractTest {
 
     @Test
     fun sameBuildDoesNotSwitchInstalledStableToDebug() {
-        val stable = SelfUpdateReleaseContract.resolveStable(SelfUpdateEdition.MOBILE, stableMetadata)
+        val stable = SelfUpdateReleaseContract.resolveStable(stableMetadata)
         val debug = SelfUpdateReleaseContract.resolveNormal(
-            SelfUpdateEdition.MOBILE,
             listOf(ReleaseAsset("XFiles-1.4.3-smb-b29860653-debug.apk", "debug")),
         )
         assertEquals(
