@@ -45,7 +45,7 @@ The current common manifest includes these notable permissions:
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Cast relay playback keep-alive |
 | `WAKE_LOCK` | Keep active operations from being interrupted by sleep |
 
-The source of truth is [`app/src/main/AndroidManifest.xml`](../app/src/main/AndroidManifest.xml) without a separate TV-specific manifest.
+The source of truth is [`app/src/main/AndroidManifest.xml`](../app/src/main/AndroidManifest.xml).
 
 ## Data safety / privacy positioning
 

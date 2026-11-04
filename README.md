@@ -26,7 +26,7 @@
 
 XFiles keeps the X-plore-style tree workflow from the upstream project, then pushes it much further for NAS and video-heavy use. A saved SMB share appears beside local storage, remote videos can be inspected visually before opening them, playback can stream directly from the NAS, and the mobile edition can hand that same media to Chromecast without first downloading the whole file.
 
-The fork maintains a **single Android phone edition**, without a separate TV APK or remote-control UI. Archive browsing, package installation, encrypted settings backup, storage metrics, media utilities and powerful file operations remain part of the same app family.
+The Android phone app provides archive browsing, package installation, encrypted settings backup, storage metrics, media utilities and powerful file operations.
 
 ## Highlights
 
@@ -118,7 +118,7 @@ Chromecast controls remain available in the phone app.
 
 ## Supported devices
 
-XFiles ships one Android phone app (`app.local1st.files`). The discontinued Android TV package (`app.local1st.files.tv`) receives no further builds or updates. Existing TV installs cannot automatically upgrade to the phone package. See [Android TV retirement](docs/ANDROID_TV_RETIREMENT.md).
+XFiles is an Android phone app (package ID: `app.local1st.files`).
 
 ## Download
 

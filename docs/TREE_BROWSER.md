@@ -1,6 +1,6 @@
 # Tree browser behavior
 
-This document defines the browser-tree state and refresh contract shared by the mobile and Google TV editions.
+This document defines the Android phone browser-tree state and refresh contract.
 
 ## Directory listings
 

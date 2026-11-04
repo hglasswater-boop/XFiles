@@ -118,7 +118,7 @@ Chromecastの操作機能はスマートフォン版に引き続き搭載して�
 
 ## 対応端末
 
-Androidスマートフォン向けの単一アプリ（パッケージID: `app.local1st.files`）です。Android TV版（`app.local1st.files.tv`）の新規ビルド・更新は終了します。既存TVインストールは別パッケージのため、自動移行されません。詳細: [Android TV版廃止](docs/ANDROID_TV_RETIREMENT.md)。
+Androidスマートフォン向けアプリです（パッケージID: `app.local1st.files`）。
 
 ## ダウンロード
 

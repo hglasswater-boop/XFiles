@@ -42,7 +42,7 @@ The independent Mobile diagnostic package uses `diagnostic-latest` only from its
 - Only use the exact platform-specific release asset names and reject missing or invalid release metadata.
 - Download to the existing update cache, verify readable Android package identity and manifest `versionCode`, reject downgrades and reject incorrect Debug/Release APK type.
 - Verify the APK's signing identity matches the currently installed package before launching Android's installer; the Android `PackageInstaller` remains the final signing/compatibility authority and requires user consent. A new installation with no previously installed package cannot compare against a prior signing identity.
-- Keep Android phone package identity `app.local1st.files` and side-by-side diagnostic `app.local1st.files.diagnostic`. No package-ID changes or silent installation. Android TV (`app.local1st.files.tv`) is discontinued.
+- Keep Android phone package identity `app.local1st.files` and side-by-side diagnostic `app.local1st.files.diagnostic`. No package-ID changes or silent installation.
 - Preserve `auto_check_enabled`, `last_auto_check`, last-check messaging and once-daily cadence. UI remains one automatic-update toggle and one check button, no channel selector.
 - Stable release CI continues publishing a stable tag **once per version** plus the phone APK and AAB. Later commits to `main` with the same version update rolling debug, but do not mutate that stable tag.
 - Verify that `debug-latest` and stable assets are signed with a mutually compatible key on physical devices. CI and manifest checks do not prove real-device seamless installation.
