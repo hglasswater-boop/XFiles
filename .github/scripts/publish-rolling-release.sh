@@ -25,7 +25,7 @@ retry() {
   for attempt in 1 2 3 4; do
     if "$@"; then return 0; fi
     if (( attempt == 4 )); then
-      echo "GitHub release operation failed after $attempt attempts: $1 $2" >&2
+      echo "GitHub release operation failed after $attempt attempts: $1 ${2:-}" >&2
       return 1
     fi
     sleep "${RELEASE_RETRY_DELAY_SECONDS:-5}"
