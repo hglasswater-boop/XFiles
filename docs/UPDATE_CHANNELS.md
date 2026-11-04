@@ -37,6 +37,13 @@ The independent Mobile diagnostic package uses `diagnostic-latest` only from its
 - Package ID: `app.local1st.files.diagnostic`
 - Strictly newer than the installed diagnostic build; no stable diagnostic channel.
 
+## GitHub Actions artifact retention
+
+- GitHub Releases are the install/update distribution channel. **Never delete stable phone APKs or the `debug-latest`/`diagnostic-latest` release assets when clearing Actions artifacts.**
+- CI-generated artifacts are temporary convenience downloads, not a permanent archive: branch-only signed debug APKs, on-demand debug builds, Rust SMB diagnostic previews and failed emulator reports expire after **1 day**.
+- On `main`, the signed debug APK is already published in the rolling GitHub Release, so do not upload an extra Actions APK artifact.
+- Successful emulator tests keep their results in run logs instead of uploading duplicate report artifacts. On failure, retain the diagnostic report for 1 day.
+- Retain signed Release AAB artifacts for **7 days** for manual Play submission. Old Actions artifacts may be cleared in bulk, including expired build outputs and superseded AABs; this does not touch release assets or GitHub Actions run logs/caches.
 ## Security and compatibility
 
 - Only use the exact platform-specific release asset names and reject missing or invalid release metadata.
