@@ -1,1 +1,1 @@
-Dual-pane file manager with SMB/NAS, Chromecast and Google TV. No telemetry.
+Dual-pane file manager with SMB/NAS, Chromecast. No telemetry.

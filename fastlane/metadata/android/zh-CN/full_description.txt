@@ -1,4 +1,4 @@
-XFiles 是一款开源 Android 文件管理器，重点提供类似 X-plore 的双栏树形浏览、NAS 访问和视频工作流，并提供独立的 Google TV 遥控器界面。
+XFiles 是一款开源 Android 文件管理器，重点提供类似 X-plore 的双栏树形浏览、NAS 访问和视频工作流，支持手机端 Chromecast 控制。
 
 SMB / NAS
 • 在普通文件树中直接浏览已保存的 SMB2 / SMB3 服务器
@@ -22,7 +22,6 @@ SMB / NAS
 • 双列纵向故事板与长按精细预览
 • 手机版可把本地 / SMB 媒体投送到 Chromecast
 • 支持上一项 / 下一项、seek、通知控制和稳定的媒体切换 handoff
-• Google TV 版使用单栏、遥控器优先 UI，不包含 Cast 控制栈
 
 安装包 / 媒体工具
 • 安装 APK / APKS / APKM / XAPK / AAB
@@ -38,7 +37,7 @@ SMB / NAS
 设置 / 更新
 • 使用 AES-256-GCM 的密码加密设置备份
 • 可迁移浏览设置、收藏、文件关联和 SMB 连接
-• 手机版与 TV 版都可检查签名更新
+• 手机版可检查签名更新
 • 手机设置将最新普通版与可并存的诊断版分开安装
 
 隐私

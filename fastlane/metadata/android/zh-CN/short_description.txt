@@ -1,1 +1,1 @@
-双栏文件管理器，支持 SMB/NAS、Chromecast 与 Google TV，无广告和遥测。
+双栏文件管理器，支持 SMB/NAS、Chromecast，无广告和遥测。

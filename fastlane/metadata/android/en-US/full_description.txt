@@ -1,4 +1,4 @@
-XFiles is an open-source Android file manager built for X-plore-style dual-pane tree browsing, first-class NAS access, video-heavy workflows and a separate Google TV experience.
+XFiles is an open-source Android file manager built for X-plore-style dual-pane tree browsing, first-class NAS access, video-heavy workflows and Chromecast controls.
 
 SMB / NAS
 • Browse saved SMB2/SMB3 servers directly in the normal file tree
@@ -22,7 +22,6 @@ VIDEO & CAST
 • Two-column vertical storyboard plus long-press fine preview
 • Mobile-only Chromecast controller for local and SMB media
 • Previous/next, seeking, notification controls and robust handoff state
-• Google TV edition uses a separate single-pane remote-first UI and intentionally omits the Cast stack
 
 PACKAGE & MEDIA TOOLS
 • Install APK, APKS, APKM, XAPK and AAB packages
@@ -38,7 +37,7 @@ SEARCH & ARCHIVES
 SETTINGS & UPDATES
 • Password-encrypted settings backup using AES-256-GCM
 • Back up browser preferences, favorites, file associations and SMB connections
-• Signed in-app update checks for mobile and TV
+• Signed in-app update checks for Android phones
 • Mobile settings separate the latest normal build from a side-by-side diagnostic package
 
 PRIVACY
