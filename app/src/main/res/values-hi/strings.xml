@@ -240,4 +240,10 @@
     <string name="cast_auto_off">रोकें</string>
     <string name="cast_auto_next">अगला</string>
     <string name="cast_auto_previous">पिछला</string>
+    <string name="smb_backend_section">उपयोग किया गया SMB इंजन</string>
+    <string name="smb_backend_summary">इस ऐप सत्र में अंतिम सफल क्षमता जाँच के लिए वास्तव में उपयोग किया गया इंजन दिखाता है।</string>
+    <string name="smb_backend_share_capacity">शेयर की क्षमता</string>
+    <string name="smb_backend_folder_size">फ़ोल्डर का आकार</string>
+    <string name="smb_backend_not_run">अभी तक नहीं चला</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>
