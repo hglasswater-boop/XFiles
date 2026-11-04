@@ -117,13 +117,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          gh release delete debug-latest --cleanup-tag -y 2>/dev/null || true
-          gh release create debug-latest \
+          bash .github/scripts/publish-rolling-release.sh \
+            debug-latest \
             "${{ steps.apk_name.outputs.mobile_name }}" \
-            --target "$GITHUB_SHA" \
-            --title "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ steps.build_number.outputs.value }}" \
-            --prerelease \
-            --notes "Signed phone debug APK built from main at $GITHUB_SHA."
+            "XFiles ${{ steps.apk_name.outputs.version }} debug build ${{ steps.build_number.outputs.value }}" \
+            "Signed phone debug APK built from main at $GITHUB_SHA."
 
       - name: Publish diagnostic-latest release
         if: startsWith(github.ref, 'refs/heads/diagnose/')
@@ -131,13 +129,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          gh release delete diagnostic-latest --cleanup-tag -y 2>/dev/null || true
-          gh release create diagnostic-latest \
+          bash .github/scripts/publish-rolling-release.sh \
+            diagnostic-latest \
             "${{ steps.apk_name.outputs.mobile_name }}" \
-            --target "$GITHUB_SHA" \
-            --title "XFiles diagnostic build ${{ steps.build_number.outputs.value }}" \
-            --prerelease \
-            --notes "Side-by-side diagnostic APK built from $GITHUB_REF_NAME at $GITHUB_SHA. They do not replace the normal XFiles package."
+            "XFiles diagnostic build ${{ steps.build_number.outputs.value }}" \
+            "Side-by-side diagnostic APK built from $GITHUB_REF_NAME at $GITHUB_SHA. They do not replace the normal XFiles package."
 
       - name: Record debug run metadata
         if: github.ref == 'refs/heads/main'
@@ -170,6 +166,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Test rolling release publisher (offline fake GitHub CLI)
+        run: bash .github/scripts/test-publish-rolling-release.sh
       - name: Run phone unit tests
         run: ./gradlew :app:testDebugUnitTest
 
