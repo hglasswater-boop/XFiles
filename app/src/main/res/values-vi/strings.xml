@@ -240,4 +240,10 @@
     <string name="cast_auto_off">Dừng</string>
     <string name="cast_auto_next">Tiếp</string>
     <string name="cast_auto_previous">Trước</string>
+    <string name="smb_backend_section">Công cụ SMB đã sử dụng</string>
+    <string name="smb_backend_summary">Hiển thị công cụ thực sự được dùng cho lần truy vấn dung lượng thành công gần nhất trong phiên này.</string>
+    <string name="smb_backend_share_capacity">Dung lượng chia sẻ</string>
+    <string name="smb_backend_folder_size">Kích thước thư mục</string>
+    <string name="smb_backend_not_run">Chưa thực hiện</string>
+    <string name="smb_backend_result">%1$s · %2$s</string>
 </resources>
