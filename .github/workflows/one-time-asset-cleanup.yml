@@ -46,3 +46,54 @@ jobs:
             done
             if [ "$success" != true ]; then echo "Unable to delete $asset_name" >&2; exit 1; fi
           done < /tmp/legacy-assets.tsv
+
+      - uses: actions/checkout@v5
+      - name: Sync older release descriptions with the supported phone documentation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import time
+          from pathlib import Path
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          releases = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/releases?per_page=100'], text=True))
+          metadata = re.compile(r'XFiles\s+\d+\.\d+\.\d+-smb\s+·\s+build\s+\d+\s+\([a-f0-9]{40}\)')
+          obsolete = re.compile(r'Android\s*TV|Google\s*TV|XFiles-TV|TV版|Mobile/TV|TV edition', re.I)
+          version = re.compile(r'^v\d+\.\d+\.\d+-smb$')
+          for release in releases:
+              tag = release['tag_name']
+              original = release.get('body') or ''
+              if not version.fullmatch(tag) or not obsolete.search(original):
+                  continue
+              notes_file = Path('docs/releases') / (tag[1:] + '.md')
+              if not notes_file.is_file():
+                  raise RuntimeError(f'Missing release notes for {tag}')
+              match = metadata.search(original)
+              if not match:
+                  raise RuntimeError(f'Missing updater build metadata in {tag}')
+              notes = notes_file.read_text(encoding='utf-8').strip()
+              diff = next((line for line in original.splitlines() if line.startswith('[Full diff](')), '')
+              body = ('**NAS-focused Android file manager: dual-pane browsing, Chromecast, Rust SMB2/3, '
+                      'video storyboards and package installs. No ads or telemetry.**\n\n'
+                      + match.group(0) + '.\n\n' + notes + ('\n\n' + diff if diff else '') + '\n')
+              if obsolete.search(body):
+                  raise RuntimeError(f'Unexpected obsolete description in {tag}')
+              payload = json.dumps({'body': body}, ensure_ascii=False)
+              for attempt in range(1, 6):
+                  result = subprocess.run(
+                      ['gh', 'api', '--method', 'PATCH', f'repos/{repo}/releases/{release["id"]}', '--input', '-'],
+                      input=payload, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                  )
+                  if result.returncode == 0:
+                      break
+                  print(f'{tag}: retry {attempt}: {result.stderr.strip()[:200]}', flush=True)
+                  time.sleep(attempt)
+              else:
+                  raise RuntimeError(f'Unable to update {tag}')
+              print(f'Updated release description: {tag}', flush=True)
+          PY
