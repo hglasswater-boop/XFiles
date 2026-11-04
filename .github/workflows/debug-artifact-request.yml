@@ -89,7 +89,7 @@ jobs:
           name: XFiles-debug-apks
           path: ${{ steps.apk.outputs.mobile_name }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
           compression-level: 0
 
       - name: Publish ready marker
