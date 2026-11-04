@@ -1,5 +1,7 @@
 # Rust SMB Integration Status
 
+> Product platform update (Issue #260): Android TV edition is being retired. All historical Mobile/TV CI mentions below describe previously executed checks; forward-going Android validation targets the single phone build. SMB Rust migration / real NAS gates remain open and unchanged.
+
 ## Current engine baseline
 
 XFiles integrates the standalone Rust SMB engine from `hglasswater-boop/smb-io-rs` through the Android JNI boundary.
