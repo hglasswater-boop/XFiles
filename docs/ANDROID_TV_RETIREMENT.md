@@ -19,6 +19,10 @@ XFiles is an Android **phone-only** application. Remove the `tv` product flavor 
 - The three existing JNI ABIs and signing requirements are unchanged.
 - Stable asset: `XFiles-<version>.apk`; rolling debug: `XFiles-<version>-b<build>-debug.apk`; diagnostic: `XFiles-Diagnostic-<version>-b<build>-debug.apk`. No new `XFiles-TV-*` assets.
 
+## Existing locale fallback compatibility
+
+The phone-only strings previously in `app/src/mobile/res/values/strings.xml` had English and Japanese translations only. After moving them to `main`, other enabled locales continue to fall back to English for those **same 27 strings**, rather than pretending translations exist. The resource-completeness test explicitly exempts only that known legacy set, requires full Japanese coverage, and still requires all pre-existing shared strings in every advertised locale. Further translations can remove entries from the exception set.
+
 ## TDD and acceptance
 
 1. Update documentation before code changes.
