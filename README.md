@@ -4,9 +4,9 @@
 
 # XFiles
 
-**An Android file manager built for local storage, NAS media, power users, and the living room.**
+**An Android phone file manager built for local storage, NAS media, and power users.**
 
-> **Dual-pane on mobile. Remote-first on Google TV. SMB2/3 streaming, visual video timelines, package installs, no ads, no telemetry.**
+> **Dual-pane on Android phones. SMB2/3 streaming, visual video timelines, Chromecast, package installs, no ads, no telemetry.**
 
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
@@ -26,7 +26,7 @@
 
 XFiles keeps the X-plore-style tree workflow from the upstream project, then pushes it much further for NAS and video-heavy use. A saved SMB share appears beside local storage, remote videos can be inspected visually before opening them, playback can stream directly from the NAS, and the mobile edition can hand that same media to Chromecast without first downloading the whole file.
 
-The fork is split into purpose-built **mobile** and **Google TV** editions rather than forcing touch and remote-control UX into one compromise. Archive browsing, package installation, encrypted settings backup, storage metrics, media utilities and powerful file operations remain part of the same app family.
+The fork maintains a **single Android phone edition**, without a separate TV APK or remote-control UI. Archive browsing, package installation, encrypted settings backup, storage metrics, media utilities and powerful file operations remain part of the same app family.
 
 ## Highlights
 
@@ -78,18 +78,7 @@ The mobile edition can cast local, SMB and provider-backed media through a tempo
 - Notification controls for previous/next, ±10 seconds and play/pause.
 - Robust handoff state so stale media metadata does not flash when changing videos.
 
-Chromecast is intentionally **mobile-only**. The TV edition is the receiver-side browsing/playback experience and does not include the Cast stack.
-
-### Google TV edition
-
-XFiles TV is a separate package built specifically for a remote control:
-
-- Leanback launcher/banner support.
-- A true **single-pane** browser to reduce work and remove D-pad focus ambiguity.
-- Focus-revealed left/right action rails.
-- Deterministic Up/Down row navigation and focus restoration.
-- Remote-first player controls: center play/pause, left/right ±10 seconds, up show controls, down hide controls, Back hides controls before exiting.
-- TV-specific self-update flow.
+Chromecast controls remain available in the phone app.
 
 ### File operations that fit real workflows
 
@@ -123,20 +112,13 @@ XFiles TV is a separate package built specifically for a remote control:
 
 - Password-encrypted settings export/import using **AES-256-GCM** and PBKDF2-HMAC-SHA256.
 - Backups include browser settings, favorites, per-folder sort rules, file associations and saved SMB connections, including protected credentials.
-- Both editions can check GitHub Releases for newer signed builds for their package.
+- The phone app checks GitHub Releases for signed updates to its package.
 - Mobile settings provide separate actions for the latest normal main build and a side-by-side **diagnostic** package, so diagnostic testing cannot replace or trap the normal install.
 - Settings shows automatic update checks, current version/build, last successful check and status.
 
-## Mobile vs TV
+## Supported devices
 
-| | Mobile | Google TV |
-|---|---|---|
-| Package | `app.local1st.files` | `app.local1st.files.tv` |
-| Browser | Dual-pane tree | Single-pane remote-first tree |
-| Primary input | Touch / gesture | D-pad / remote |
-| Chromecast controller | Yes | No |
-| Storyboard | Browser, player, Cast | Player/browser features as supported by TV UI |
-| Self-update | Yes | Yes |
+XFiles ships one Android phone app (`app.local1st.files`). The discontinued Android TV package (`app.local1st.files.tv`) receives no further builds or updates. Existing TV installs cannot automatically upgrade to the phone package. See [Android TV retirement](docs/ANDROID_TV_RETIREMENT.md).
 
 ## Download
 
@@ -145,10 +127,9 @@ Grab signed builds from [**GitHub Releases**](https://github.com/hglasswater-boo
 For the current stable line, `v1.4.10-smb`:
 
 - `XFiles-1.4.10-smb.apk` is the normal mobile edition.
-- `XFiles-TV-1.4.10-smb.apk` is the Google TV edition.
 - The release workflow also builds a mobile AAB as a CI artifact.
 
-The built-in update checker on Mobile and TV compares the latest stable signed release with the rolling signed `debug-latest` builds, offers the newest installable `versionCode`, and prefers stable when both builds are equally new. Download and installation still require your confirmation; no downgrade is attempted. Existing versions which only know `debug-latest` can acquire this updated checker from their next debug feed update. The release workflow publishes versioned stable packages and a Mobile AAB; Nightly remains retired. `diagnose/*` branches may publish a separate `diagnostic-latest` package.
+The built-in phone update checker compares the latest stable signed release with the rolling signed `debug-latest` builds, offers the newest installable `versionCode`, and prefers stable when both builds are equally new. Download and installation still require your confirmation; no downgrade is attempted. Existing versions which only know `debug-latest` can acquire this updated checker from their next debug feed update. The release workflow publishes versioned stable packages and a Mobile AAB; Nightly remains retired. `diagnose/*` branches may publish a separate `diagnostic-latest` package.
 
 **Upgrading from an older Nightly-selected build:** install the signed Normal APK over the existing app once, without uninstalling, because the old Nightly updater cannot discover the retired channel's replacement. See [1.4.2 release notes](docs/releases/1.4.2-smb.md).
 
@@ -197,21 +178,20 @@ The Rust Android JNI build is validated for arm64-v8a, armeabi-v7a and x86_64 be
 JDK 17+ and Android SDK platform 37 are required.
 
 ```bash
-./gradlew :app:assembleMobileDebug :app:assembleTvDebug
+./gradlew :app:assembleDebug
 ```
 
 Outputs:
 
 ```text
-app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
-app/build/outputs/apk/tv/debug/app-tv-debug.apk
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Release CI builds signed mobile/TV APKs plus a mobile AAB. Debug CI runs both unit-test variants, builds both signed debug editions, verifies package identities and the Rust JNI layer, and runs an API 35 Android Emulator launch/lifecycle smoke test.
+Release CI builds a signed phone APK and AAB. Debug CI runs the phone unit tests, builds a signed debug APK, verifies package identity and Rust JNI, and runs an API 35 Android Emulator launch/lifecycle smoke test.
 
 ## Project lineage
 
-This repository is a personal fork based on [Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles). The upstream project and contributors created the foundation this fork builds on. The NAS/media, Chromecast, Google TV, storyboard, update and integration work described above intentionally diverges from upstream behavior.
+This repository is a personal fork based on [Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles). The upstream project and contributors created the foundation this fork builds on. The NAS/media, Chromecast, storyboard, update and integration work described above intentionally diverges from upstream behavior.
 
 ## License
 

@@ -39,18 +39,6 @@ android {
         )
     }
 
-    flavorDimensions += "edition"
-    productFlavors {
-        create("mobile") {
-            dimension = "edition"
-        }
-        create("tv") {
-            dimension = "edition"
-            applicationIdSuffix = ".tv"
-            versionNameSuffix = "-tv"
-        }
-    }
-
     signingConfigs {
         if (ciKeystore != null) {
             create("release") {
@@ -159,7 +147,7 @@ dependencies {
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
-    add("mobileImplementation", libs.media3.cast)
+    implementation(libs.media3.cast)
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")

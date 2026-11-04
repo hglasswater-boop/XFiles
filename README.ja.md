@@ -4,9 +4,9 @@
 
 # XFiles
 
-**ローカルストレージ、NAS動画、パワーユーザー、Google TVまでを一つの系統で扱う Android ファイルマネージャー。**
+**ローカルストレージとNAS動画に強いAndroidスマートフォン向けファイルマネージャー。**
 
-> **モバイルは2ペイン。TVはリモコン最適化。SMB2/3ストリーミング、動画ストーリーボード、パッケージインストール。広告・テレメトリなし。**
+> **スマートフォンで2ペイン。SMB2/3ストリーミング、動画ストーリーボード、Chromecast、パッケージインストール。広告・テレメトリなし。**
 
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
@@ -26,7 +26,7 @@
 
 XFiles の X-plore 系ツリーブラウザを土台に、**NAS と動画を日常的に大量に扱う用途**へ重点的に拡張しています。SMB共有をローカルと同じツリーから開き、動画を開く前に中身をストーリーボードで確認し、そのままNASから再生できます。モバイル版では同じ動画を Chromecast へ渡すこともできます。
 
-さらに、タッチ操作とテレビのリモコン操作を無理に同居させず、**モバイル版と Google TV 版を別エディション**として最適化しています。アーカイブ閲覧、パッケージインストール、暗号化設定バックアップ、容量表示、メディア補助機能、強力なファイル操作も同じアプリ系統にまとめています。
+タッチ操作向けの**単一スマートフォン版**に絞り、TV専用UI・別APKを廃止しています。アーカイブ閲覧、パッケージインストール、暗号化設定バックアップ、容量表示、メディア補助機能、強力なファイル操作も同じアプリ系統にまとめています。
 
 ## 主な特徴
 
@@ -78,19 +78,7 @@ XFiles の X-plore 系ツリーブラウザを土台に、**NAS と動画を日�
 - 通知から前 / 次、±10秒、再生 / 一時停止。
 - 動画切り替え時に前の動画情報が一瞬表示されないよう handoff 状態を管理。
 
-Chromecast は **モバイル版専用**です。Google TV 版はテレビ上で直接閲覧・再生する用途に絞り、Cast スタックを含めません。
-
-### Google TV 専用エディション
-
-XFiles TV は別パッケージとして、リモコン操作向けに最適化しています。
-
-- Leanback ランチャー / バナー対応。
-- 描画とフォーカスを単純化した **完全1ペイン**ブラウザ。
-- 左右キーで現れるサイドアクションレール。
-- ファイル行の Up / Down 移動とフォーカス復帰を明示制御。
-- センターで再生 / 一時停止、左右で ±10秒、上で操作表示、下で非表示。
-- Back は操作パネルを先に閉じ、その後プレイヤーを終了。
-- TV 専用の更新フロー。
+Chromecastの操作機能はスマートフォン版に引き続き搭載しています。
 
 ### 実用的なファイル操作
 
@@ -124,20 +112,13 @@ XFiles TV は別パッケージとして、リモコン操作向けに最適化�
 
 - **AES-256-GCM** と PBKDF2-HMAC-SHA256 を利用したパスワード暗号化設定バックアップ。
 - 表示設定、お気に入り、フォルダ別ソート、関連付け、SMB 接続と保護された認証情報を移行可能。
-- モバイル / TV とも GitHub Releases から自分のパッケージに対応する新しい署名済みビルドを確認可能。
+- スマートフォン版は GitHub Releases から署名済みの更新を確認できます。
 - モバイル設定には **通常版の最新** と、別パッケージで共存する **診断版** のインストール操作を分離して用意。診断版が通常版を置き換えません。
 - 自動更新確認、現在のバージョン / ビルド、最終確認日時、状態を設定画面で確認可能。
 
-## モバイル版とTV版
+## 対応端末
 
-| | モバイル | Google TV |
-|---|---|---|
-| パッケージ | `app.local1st.files` | `app.local1st.files.tv` |
-| ブラウザ | 2ペインツリー | 1ペイン、リモコン最適化 |
-| 主な入力 | タッチ / ジェスチャー | D-pad / リモコン |
-| Chromecast 操作 | 対応 | 非搭載 |
-| ストーリーボード | ブラウザ / プレイヤー / Cast | TV UIで利用可能な動画機能 |
-| セルフアップデート | 対応 | 対応 |
+Androidスマートフォン向けの単一アプリ（パッケージID: `app.local1st.files`）です。Android TV版（`app.local1st.files.tv`）の新規ビルド・更新は終了します。既存TVインストールは別パッケージのため、自動移行されません。詳細: [Android TV版廃止](docs/ANDROID_TV_RETIREMENT.md)。
 
 ## ダウンロード
 
@@ -146,10 +127,9 @@ XFiles TV は別パッケージとして、リモコン操作向けに最適化�
 現行の正式版系統 `v1.4.10-smb` では:
 
 - `XFiles-1.4.10-smb.apk` が通常のモバイル版。
-- `XFiles-TV-1.4.10-smb.apk` が Google TV 版。
 - Release CI ではモバイル AAB も生成します。
 
-アプリ内更新は Mobile / TV ともに**最新の正式版と署名済み `debug-latest` を比較**し、インストール可能な新しいビルド番号のAPKを案内します。同一ビルド番号では正式版を優先し、ダウングレードは行いません。ダウンロードとインストールには利用者の確認が必要です。従来の `debug-latest` 専用アプリには、まず次回のデバッグ更新経由で新しい更新チェック機能が届きます。Release CI は正式版とモバイルAABを公開します。Nightlyの公開・チャンネル切替は廃止済みです。`diagnose/*` ブランチでは別パッケージの `diagnostic-latest` を公開できます。
+アプリ内更新は スマートフォン版は**最新の正式版と署名済み `debug-latest` を比較**し、インストール可能な新しいビルド番号のAPKを案内します。同一ビルド番号では正式版を優先し、ダウングレードは行いません。ダウンロードとインストールには利用者の確認が必要です。従来の `debug-latest` 専用アプリには、まず次回のデバッグ更新経由で新しい更新チェック機能が届きます。Release CI は正式版とモバイルAABを公開します。Nightlyの公開・チャンネル切替は廃止済みです。`diagnose/*` ブランチでは別パッケージの `diagnostic-latest` を公開できます。
 
 **旧Nightly版から移行する場合**：旧アプリは新しい通常更新先を自動認識できません。データを保持するためアンインストールせず、署名済み通常版APKを一度上書きインストールしてください。[1.4.2リリースノート](docs/releases/1.4.2-smb.md)も参照してください。
 
@@ -198,21 +178,20 @@ Rust Android JNI は arm64-v8a、armeabi-v7a、x86_64 の3 ABIでシンボル検
 JDK 17+ と Android SDK platform 37 が必要です。
 
 ```bash
-./gradlew :app:assembleMobileDebug :app:assembleTvDebug
+./gradlew :app:assembleDebug
 ```
 
 出力:
 
 ```text
-app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
-app/build/outputs/apk/tv/debug/app-tv-debug.apk
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Release CI は署名済みモバイル / TV APK とモバイル AAB を生成します。Debug CI はモバイル / TV のユニットテスト、両エディションの署名済みデバッグビルド、パッケージIDと Rust JNI の検証に加えて、API 35 Android Emulator で起動とバックグラウンド / 復帰のスモークテストを実行します。
+Release CI は署名済みスマートフォン APK と AAB を生成します。Debug CI は単一アプリのユニットテスト、署名済みデバッグビルド、パッケージIDと Rust JNI の検証に加えて、API 35 Android Emulator で起動とバックグラウンド / 復帰のスモークテストを実行します。
 
 ## この fork について
 
-このリポジトリは [Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles) をベースにした個人向け fork です。元プロジェクトとコントリビューターの皆さまが公開した土台の上に、NAS / メディア、Chromecast、Google TV、ストーリーボード、更新、外部連携の機能を追加しています。
+このリポジトリは [Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles) をベースにした個人向け fork です。元プロジェクトとコントリビューターの皆さまが公開した土台の上に、NAS / メディア、Chromecast、ストーリーボード、更新、外部連携の機能を追加しています。
 
 ## ライセンス
 

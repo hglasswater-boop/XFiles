@@ -13,18 +13,17 @@ app.local1st.files
 The release workflow builds:
 
 ```text
-:app:assembleMobileRelease
-:app:assembleTvRelease
-:app:bundleMobileRelease
+:app:assembleRelease
+:app:bundleRelease
 ```
 
 The mobile AAB is produced at:
 
 ```text
-app/build/outputs/bundle/mobileRelease/app-mobile-release.aab
+app/build/outputs/bundle/release/app-release.aab
 ```
 
-The GitHub release workflow also publishes signed mobile and TV APKs. The Android `versionCode` is derived from the repository build number and `versionName` comes from `version.properties`.
+The GitHub release workflow publishes one signed Android phone APK. The Android `versionCode` is derived from the repository build number and `versionName` comes from `version.properties`.
 
 ## Current feature / permission shape
 
@@ -46,7 +45,7 @@ The current common manifest includes these notable permissions:
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Cast relay playback keep-alive |
 | `WAKE_LOCK` | Keep active operations from being interrupted by sleep |
 
-The source of truth is [`app/src/main/AndroidManifest.xml`](../app/src/main/AndroidManifest.xml) plus the edition-specific manifests.
+The source of truth is [`app/src/main/AndroidManifest.xml`](../app/src/main/AndroidManifest.xml) without a separate TV-specific manifest.
 
 ## Data safety / privacy positioning
 
@@ -100,7 +99,6 @@ Current locales include English, Japanese and Simplified Chinese. The listing sh
 - SMB2/SMB3 / NAS access
 - video thumbnails and storyboards
 - Media3 playback and mobile Chromecast
-- separate Google TV edition
 - package installation
 - encrypted settings backup
 - no ads / analytics / telemetry
@@ -122,15 +120,15 @@ and make sure it still represents the current UI.
 The repository has multiple distribution/update concepts:
 
 - stable GitHub tags such as `v1.4.1-smb`
-- rolling `nightly` releases after a stable tag exists
-- signed `debug-latest` builds from `main` used by the normal in-app update channel
+- rolling signed `debug-latest` releases for the phone app
+- phone self-update compares stable and rolling debug builds and installs only a newer `versionCode`
 - side-by-side `diagnostic-latest` packages from `diagnose/*` branches
 
 The diagnostic package uses a different application ID and must not be presented as the normal Play package.
 
 ## Pre-submission checklist
 
-- Build and test the current mobile release AAB/APK.
+- Build and test the current phone-only release AAB/APK.
 - Re-check current Play policy and Console declarations.
 - Confirm store text matches the current README and Fastlane metadata.
 - Confirm privacy policy matches the current network and permission behavior.

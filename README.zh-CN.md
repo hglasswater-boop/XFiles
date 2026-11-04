@@ -4,9 +4,9 @@
 
 # XFiles
 
-**面向本地存储、NAS 媒体与 Google TV 的开源 Android 文件管理器。**
+**面向本地存储和 NAS 媒体的 Android 手机文件管理器。**
 
-> **手机双栏，电视遥控优先。SMB2/3 流式播放、视频故事板、安装包支持，无广告、无遥测。**
+> **手机双栏，SMB2/3 流式播放、视频故事板、Chromecast、安装包支持，无广告、无遥测。**
 
 [![Release](https://img.shields.io/github/v/release/hglasswater-boop/XFiles?include_prereleases&sort=semver&label=release)](https://github.com/hglasswater-boop/XFiles/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
@@ -26,7 +26,7 @@
 
 XFiles 保留了上游项目类似 X-plore 的树形操作方式，并进一步针对 **NAS 与大量视频文件** 做了扩展。保存的 SMB 共享会直接出现在普通文件树中，远程视频可以先用故事板查看内容，再直接从 NAS 流式播放。手机端还可以把同一媒体交给 Chromecast，而不需要先完整下载到本机。
 
-手机端与 **Google TV** 端采用独立的产品形态：手机端是双栏触控浏览器，电视端是单栏、遥控器优先的界面。归档浏览、安装包、加密设置备份、容量信息、媒体工具和常用文件操作都保留在同一套 XFiles 中。
+产品仅保留**手机触控版**；原 Google TV 专用界面和独立 APK 已停止维护。归档浏览、安装包、加密设置备份、容量信息、媒体工具和常用文件操作都保留在同一套 XFiles 中。
 
 ## 主要功能
 
@@ -74,16 +74,7 @@ XFiles 保留了上游项目类似 X-plore 的树形操作方式，并进一步�
 - 返回文件列表后仍可通过迷你播放器继续控制。
 - 通知支持上一项 / 下一项、±10 秒和播放 / 暂停。
 
-Chromecast 只包含在 **手机版**。Google TV 版用于电视本机浏览和播放，不包含 Cast 控制栈。
-
-### Google TV 专用版本
-
-- 独立包名与 Leanback 启动入口。
-- 真正的 **单栏**浏览器，减少 D-pad 焦点歧义。
-- 左右键显示操作栏。
-- 明确控制上下行导航和焦点恢复。
-- 遥控器优先的播放器操作。
-- TV 专用自更新流程。
+Chromecast 控制功能继续保留在手机版。
 
 ### 文件操作与容量信息
 
@@ -117,20 +108,13 @@ Chromecast 只包含在 **手机版**。Google TV 版用于电视本机浏览和
 
 - 设置导入 / 导出使用 **AES-256-GCM** 和 PBKDF2-HMAC-SHA256 进行密码加密。
 - 备份包含浏览器设置、收藏、目录排序、文件关联和已保存的 SMB 连接及受保护凭据。
-- 手机版与 TV 版都可检查适合自身包名的签名更新。
+- 手机版可以检查适合自身包名的签名更新。
 - 手机设置中将 **最新普通版** 与可并存的 **诊断版** 分开安装，诊断包不会覆盖普通安装。
 - 设置页显示自动检查、当前版本 / 构建号、最近检查时间和状态。
 
-## 手机版与 TV 版
+## 支持设备
 
-| | 手机版 | Google TV |
-|---|---|---|
-| 包名 | `app.local1st.files` | `app.local1st.files.tv` |
-| 浏览器 | 双栏树形 | 单栏、遥控器优先 |
-| 主要输入 | 触控 / 手势 | D-pad / 遥控器 |
-| Chromecast 控制 | 支持 | 不包含 |
-| 故事板 | 浏览器 / 播放器 / Cast | TV UI 支持的播放器 / 浏览功能 |
-| 自更新 | 支持 | 支持 |
+仅提供 Android 手机应用（包名：`app.local1st.files`）。不再构建或发布 Android TV 专用版（`app.local1st.files.tv`）；已经安装的 TV 应用不会自动迁移到手机应用。详情见 [TV 版本停用说明](docs/ANDROID_TV_RETIREMENT.md)。
 
 ## 下载
 
@@ -139,10 +123,9 @@ Chromecast 只包含在 **手机版**。Google TV 版用于电视本机浏览和
 当前稳定版本线为 `v1.4.10-smb`：
 
 - `XFiles-1.4.10-smb.apk`：普通手机版。
-- `XFiles-TV-1.4.10-smb.apk`：Google TV 版。
 - Release CI 同时生成手机端 AAB 作为 CI artifact。
 
-Mobile / TV 应用内更新会同时检查**最新正式版**及签名的 `debug-latest`，选择版本代码更高且可安装的 APK；版本代码相同时优先正式版，不执行降级。下载与安装仍需用户确认。旧版应用需先从 `debug-latest` 更新，才能使用新增的稳定版检查功能。Release CI 发布正式版及手机 AAB，Nightly 仍已停用。`diagnose/*` 分支可发布独立包名的 `diagnostic-latest`。
+手机版应用内更新会同时检查**最新正式版**及签名的 `debug-latest`，选择版本代码更高且可安装的 APK；版本代码相同时优先正式版，不执行降级。下载与安装仍需用户确认。旧版应用需先从 `debug-latest` 更新，才能使用新增的稳定版检查功能。Release CI 发布正式版及手机 AAB，Nightly 仍已停用。`diagnose/*` 分支可发布独立包名的 `diagnostic-latest`。
 
 **从旧 Nightly 版本迁移**：旧版无法自动找到新的更新源。请勿卸载应用，需手动覆盖安装一次已签名的普通版 APK，以保留应用数据。参见[1.4.2 发布说明](docs/releases/1.4.2-smb.md)。
 
@@ -189,21 +172,20 @@ Rust Android JNI 在普通 APK 组装前会验证 arm64-v8a、armeabi-v7a 与 x8
 需要 JDK 17+ 与 Android SDK platform 37。
 
 ```bash
-./gradlew :app:assembleMobileDebug :app:assembleTvDebug
+./gradlew :app:assembleDebug
 ```
 
 输出：
 
 ```text
-app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
-app/build/outputs/apk/tv/debug/app-tv-debug.apk
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Release CI 构建签名的手机 / TV APK 与手机 AAB。Debug CI 会运行两个版本的单元测试、构建签名 Debug APK、验证包名和 Rust JNI，并在 API 35 Android Emulator 上执行启动与生命周期 smoke test。
+Release CI 构建签名的手机 APK 与 AAB。Debug CI 运行单一应用的单元测试、构建签名 Debug APK、验证包名和 Rust JNI，并在 API 35 Android Emulator 上执行启动与生命周期 smoke test。
 
 ## 项目来源
 
-本仓库是基于 [Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles) 的个人 fork。感谢上游作者与贡献者提供基础实现。本 fork 在 NAS / 媒体、Chromecast、Google TV、故事板、更新和外部集成等方面有意与上游产生差异。
+本仓库是基于 [Local1stDotApp/XFiles](https://github.com/Local1stDotApp/XFiles) 的个人 fork。感谢上游作者与贡献者提供基础实现。本 fork 在 NAS / 媒体、Chromecast、故事板、更新和外部集成等方面有意与上游产生差异。
 
 ## 许可证
 

@@ -16,7 +16,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -75,18 +74,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -135,7 +126,6 @@ fun VideoPlayerScreen(
     hasNext: Boolean,
     onClose: () -> Unit,
     videoBottomInset: Dp = 0.dp,
-    tvRemoteControls: Boolean = false,
     keepControlsVisible: Boolean = false,
     topBarActions: @Composable () -> Unit = {},
     controlsOverlay: @Composable BoxScope.() -> Unit = {},
@@ -157,26 +147,7 @@ fun VideoPlayerScreen(
     var sliderPos by remember { mutableStateOf<Float?>(null) }
     var sliderWasPlaying by remember { mutableStateOf(false) }
     var showPlayerSettings by remember { mutableStateOf(false) }
-    val tvFocusRequester = remember { FocusRequester() }
-
-    BackHandler(enabled = tvRemoteControls && controlsVisible) {
-        controlsVisible = false
-        showPlayerSettings = false
-        interactionTick++
-    }
-
-    LaunchedEffect(tvRemoteControls, entry.id) {
-        if (!tvRemoteControls) return@LaunchedEffect
-        repeat(TV_FOCUS_RETRY_FRAMES) {
-            withFrameNanos { }
-            val focused = runCatching { tvFocusRequester.requestFocus() }.getOrDefault(false)
-            if (focused) return@LaunchedEffect
-        }
-    }
-
-    // Phone/tablet playback can follow or lock device orientation. A TV already has a fixed
-    // display orientation, so remote mode deliberately avoids requesting any orientation change.
-    val orientationController = if (tvRemoteControls) null else rememberVideoOrientationController()
+    val orientationController = rememberVideoOrientationController()
     VideoPictureInPicture(
         player = player,
         playing = playing,
@@ -341,51 +312,7 @@ fun VideoPlayerScreen(
     val navBarsIns = WindowInsets.navigationBarsIgnoringVisibility
     val cutout = WindowInsets.displayCutout
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .then(
-                if (tvRemoteControls) {
-                    Modifier
-                        .onPreviewKeyEvent { event ->
-                            // While the TV chrome is visible, let the focused Slider/buttons handle
-                            // D-pad events themselves. Hidden-mode shortcuts remain available.
-                            if (event.type != KeyEventType.KeyDown || controlsVisible) {
-                                false
-                            } else {
-                                when (event.key) {
-                                    Key.DirectionCenter, Key.Enter -> {
-                                        togglePlayback()
-                                        controlsVisible = true
-                                        true
-                                    }
-                                    Key.DirectionLeft -> {
-                                        stepSeconds(-TV_REMOTE_SEEK_SECONDS)
-                                        updateTapSeekLabel(-TV_REMOTE_SEEK_SECONDS)
-                                        true
-                                    }
-                                    Key.DirectionRight -> {
-                                        stepSeconds(TV_REMOTE_SEEK_SECONDS)
-                                        updateTapSeekLabel(TV_REMOTE_SEEK_SECONDS)
-                                        true
-                                    }
-                                    Key.DirectionUp -> {
-                                        controlsVisible = true
-                                        interactionTick++
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            }
-                        }
-                        .focusRequester(tvFocusRequester)
-                        .focusable()
-                } else {
-                    Modifier
-                },
-            ),
-    ) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -588,10 +515,8 @@ fun VideoPlayerScreen(
                     )
                     .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
             ) {
-                if (!tvRemoteControls) {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
-                    }
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
                 }
                 Text(
                     entry.name,
@@ -601,9 +526,8 @@ fun VideoPlayerScreen(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (!tvRemoteControls) {
-                    topBarActions()
-                    Box {
+                topBarActions()
+                Box {
                         IconButton(onClick = { showPlayerSettings = true }) {
                             Icon(
                                 Icons.Outlined.Settings,
@@ -653,7 +577,6 @@ fun VideoPlayerScreen(
                                 },
                             )
                         }
-                    }
                 }
             }
         }
@@ -1017,5 +940,4 @@ private const val VOLUME_FULL_SCALE_FRACTION = 0.7f
 private const val VOLUME_LABEL_MS = 900L
 private const val AUTO_HIDE_MS = 4000L
 private const val STEP_SECONDS = 5
-private const val TV_REMOTE_SEEK_SECONDS = 10
 private const val TV_FOCUS_RETRY_FRAMES = 8
