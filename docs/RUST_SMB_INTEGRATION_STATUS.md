@@ -142,6 +142,16 @@ Minimal CI repair: set a **2,048 MB** test-only emulator data partition via the 
 
 The user will validate normal signed Mobile/TV binaries on a real NAS after release. Version `1.4.10-smb` is the new stable version; retain the existing `v1.4.9-smb` tag. That release workflow originally packaged JNI v8 for all three ABIs and signed the normal `auto` package; the current PR #257 engine generation is JNI v9. A successful published Release/APK is a packaging milestone, **not** successful NAS validation. Record any NAS, signing, transfer, WireGuard, cancel, disconnect or throughput regressions against #252/#239 and keep those Issues open. Normal `openOut` and random editing are still SMBJ; do not claim full Rust conversion.
 
+## Settings diagnostics: actually executed capacity backend (Issue #258)
+
+The user must be able to verify which engine **actually completed** capacity requests. A build-time `auto` choice or presence of a JNI library does **not** prove which engine ran.
+
+- A dedicated **SMB backend** card in Settings displays the last successful operation for **share capacity** (`storageSpace`) and **recursive folder size** (`directorySize`), separately. Each row includes the actual Rust or SMBJ engine and the user-defined SMB connection name. Other filesystem operations remain uninstrumented and must never be implied to use that engine.
+- Both rows start as **Not run** after a process restart, regardless of configured `auto`/`rust`/`smbj`. The card uses an in-memory `StateFlow` so new successful operations appear without reopening Settings. It does not persist stale information, access passwords or paths, or generate new network traffic merely by opening Settings.
+- Report only **after** a successful native query *and* directory-handle close, or successful SMBJ result. Null return, protocol errors, WireGuard errors, invalid JNI, or failed close do not overwrite a previous successful backend. In `auto`, JNI unavailable before opening native SMB correctly records SMBJ **only if** SMBJ completes. Do not retry via SMBJ after Rust began.
+- Multiple connections: show the **saved connection display name** for the latest successful operation, never assume that this applies to all SMB shares. Results for share capacity and folder size are independent. Values returned from UI caches do not create new execution records.
+- Test-first: route callback after success, no callback on failed/nullable operations, fallback attribution, strict `rust` and `smbj`, independent operation rows, and StateFlow updates. Mobile/TV test, lint, emulator, release build and Rust pin/preview checks must pass before promoting to main. Real-device confirmation belongs to the user; keep Issues #258/#256/#239 open until verified.
+
 ## Open tracking
 
 - XFiles #254: 1.4.10-smb release packaging and user-led NAS verification (open until gates are met).
