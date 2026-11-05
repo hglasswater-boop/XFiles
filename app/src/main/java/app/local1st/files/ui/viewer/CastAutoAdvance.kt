@@ -21,6 +21,7 @@ internal class CastAutoAdvance {
         handoffPending: Boolean,
         playbackFailed: Boolean,
         isRemote: Boolean,
+        receiverFinished: Boolean = false,
     ): Int? {
         if (!isRemote || playbackFailed) {
             handledMediaId = null
@@ -30,7 +31,9 @@ internal class CastAutoAdvance {
         if (playbackState == Player.STATE_READY && handledMediaId == selectedMediaId) {
             handledMediaId = null // Explicit replay of the same video starts a fresh completion.
         }
-        if (playbackState != Player.STATE_ENDED || handledMediaId == selectedMediaId) return null
+        val naturallyEnded = playbackState == Player.STATE_ENDED ||
+            (playbackState == Player.STATE_IDLE && receiverFinished)
+        if (!naturallyEnded || handledMediaId == selectedMediaId) return null
 
         handledMediaId = selectedMediaId // Consume even in Off mode or at either boundary.
         val currentIndex = entryIds.indexOf(selectedMediaId).takeIf { it >= 0 } ?: return null
