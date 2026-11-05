@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.media3.cast.DefaultMediaItemConverter
 import androidx.media3.cast.MediaItemConverter
@@ -240,10 +241,12 @@ internal class CastMediaRelay(
                     streamDataSourceRange(source, selection.start, bodyLength, out, streamGeneration)
                 }
                 out.flush()
-            } catch (_: IOException) {
-                // Receiver disconnected or sought elsewhere. A new HTTP range request will follow.
-            } catch (_: RuntimeException) {
-                // Keep the relay alive for other playlist entries/range requests.
+            } catch (error: IOException) {
+                // Broken connections are normal during seeks. Record the failure class only:
+                // file names and credentials must not be written to logs.
+                if (!closed.get()) Log.w(TAG, "Cast relay I/O aborted (${error.javaClass.simpleName})")
+            } catch (error: RuntimeException) {
+                if (!closed.get()) Log.w(TAG, "Cast relay failed (${error.javaClass.simpleName})")
             }
         }
     }
@@ -300,47 +303,27 @@ internal class CastMediaRelay(
         out: OutputStream,
         streamGeneration: Long?,
     ) {
-        val buffer = ByteArray(SMB_RELAY_BUFFER_SIZE)
-        var position = start
-        var remaining = bodyLength
-        var consecutiveFailures = 0
         var handle = smbHandle(source)
-
-        try {
-            handle.seek(start)
-        } catch (_: Throwable) {
-            invalidateSmbHandle(source, handle)
-            handle = smbHandle(source)
-            handle.seek(start)
-        }
-
-        while (
-            remaining > 0L &&
-            !closed.get() &&
-            isCurrentStream(source, streamGeneration)
-        ) {
-            val requested = minOf(buffer.size.toLong(), remaining).toInt()
-            val read = try {
-                handle.read(position, buffer, 0, requested)
-            } catch (error: Throwable) {
-                if (!isCurrentStream(source, streamGeneration)) break
-                invalidateSmbHandle(source, handle)
-                if (++consecutiveFailures > 1) {
-                    throw if (error is IOException) error
-                    else IOException("SMB Cast relay read failed", error)
+        copyCastSmbRange(
+            start = start,
+            length = bodyLength,
+            chunkSize = SMB_RELAY_BUFFER_SIZE,
+            isActive = { !closed.get() && isCurrentStream(source, streamGeneration) },
+            readAt = { position, buffer, requested ->
+                try {
+                    handle.read(position, buffer, 0, requested)
+                } catch (error: Throwable) {
+                    if (closed.get() || !isCurrentStream(source, streamGeneration)) throw error
+                    Log.w(TAG, "Cast SMB read failed; retrying with a fresh handle (${error.javaClass.simpleName})")
+                    invalidateSmbHandle(source, handle)
+                    handle = smbHandle(source)
+                    // Read again at the exact offset, not via seek(). Parallel receiver range
+                    // requests share this handle and must never cancel each other.
+                    handle.read(position, buffer, 0, requested)
                 }
-                handle = smbHandle(source)
-                handle.seek(position)
-                continue
-            }
-
-            consecutiveFailures = 0
-            if (read <= 0) break
-            if (!isCurrentStream(source, streamGeneration)) break
-            out.write(buffer, 0, read)
-            position += read
-            remaining -= read
-        }
+            },
+            write = { buffer, count -> out.write(buffer, 0, count) },
+        )
     }
 
     private fun nextStreamGeneration(source: Source): Long =
@@ -355,7 +338,7 @@ internal class CastMediaRelay(
         smbHandles[source.token]?.let { return it }
         synchronized(smbHandles) {
             smbHandles[source.token]?.let { return it }
-            return SmbRandomAccessFile.open(source.entry.id, Graph.smbConnections).also {
+            return SmbRandomAccessFile.openForPlayback(source.entry.id, Graph.smbConnections).also {
                 smbHandles[source.token] = it
             }
         }
@@ -378,6 +361,7 @@ internal class CastMediaRelay(
     }
 
     private companion object {
+        const val TAG = "XFilesCastRelay"
         const val RELAY_BUFFER_SIZE = 128 * 1024
         const val SMB_RELAY_BUFFER_SIZE = 256 * 1024
 

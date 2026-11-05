@@ -1,6 +1,7 @@
 package app.local1st.files.ui.viewer
 
 import android.content.Context
+import android.os.Looper
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.common.AudioAttributes
@@ -14,6 +15,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.google.android.gms.cast.MediaStatus
+import com.google.android.gms.cast.framework.CastContext
 import app.local1st.files.core.cast.CastPlaybackBridge
 import app.local1st.files.core.cast.CastPlaybackKeepAliveService
 import app.local1st.files.core.cast.CastPlaybackNotificationController
@@ -505,6 +508,8 @@ internal object CastPlaybackSessionManager {
             playbackFailed = session.castPlayer.playerError != null ||
                 session.remotePlayer.playerError != null,
             isRemote = isRemote(session),
+            receiverFinished = session.remotePlayer.playbackState == Player.STATE_IDLE &&
+                receiverReportsFinishedIdle(),
         ) ?: return
         selectRemoteMedia(
             castPlayer = session.castPlayer,
@@ -515,6 +520,17 @@ internal object CastPlaybackSessionManager {
             mediaItemIndex = nextIndex,
             positionMs = null,
         )
+    }
+
+    /** Cast reports finished as an IDLE reason on receivers that do not expose STATE_ENDED. */
+    private fun receiverReportsFinishedIdle(): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) return false
+        val status = runCatching {
+            CastContext.getSharedInstance()?.sessionManager?.currentCastSession
+                ?.remoteMediaClient?.mediaStatus
+        }.getOrNull() ?: return false
+        return status.playerState == MediaStatus.PLAYER_STATE_IDLE &&
+            status.idleReason == MediaStatus.IDLE_REASON_FINISHED
     }
 
     private fun prewarmCastWindow(relay: CastMediaRelay, entries: List<XEntry>, centerIndex: Int) {

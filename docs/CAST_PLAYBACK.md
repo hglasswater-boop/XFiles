@@ -26,8 +26,11 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
   mode is owned by the process-scoped Cast session manager, so it survives dismissing
   and reopening the controller during the same app process, but is not persisted across
   app restarts. Changing the mode does not immediately start another video.
-- Auto-advance runs **only** when the active remote receiver reports
-  `Player.STATE_ENDED`, with no pending handoff or player error. Its source video
+- Auto-advance runs **only** when the active remote player reports
+  `Player.STATE_ENDED` or the Cast receiver explicitly reports
+  `MediaStatus.PLAYER_STATE_IDLE` with `IDLE_REASON_FINISHED`, with no pending
+  handoff or player error. Generic `STATE_IDLE` is not sufficient: canceled,
+  interrupted and failed loads must not auto-advance. Its source video
   is the last receiver-confirmed media ID, not the local playlist's index or Cast's
   sometimes-empty receiver queue. The manager replaces the receiver's one media item
   with the immediately adjacent folder video via the existing explicit remote load.
@@ -44,8 +47,30 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
   stale remote selection. Playback failure cancels a pending handoff and invalidates
   the last remote selection so a failed load is not presented as successful.
 - Notification title, browser Cast highlighting, and playback controls should all use
-  the same presented video identity. This contract does not change local/TV playback
+  the same presented video identity. This contract does not change local playback
   or automatically replay a video when it ends.
+
+## Relay reliability and diagnostics
+
+- A Cast receiver loads XFiles media through the handset's HTTP relay, which
+  requires an IPv4 address reachable on the same LAN as the receiver. The current
+  selection first checks Android's active-network IPv4 address, then network
+  interfaces. Active-network selection can be wrong with VPN/mobile routing;
+  this issue was reported on a LAN **without VPN**, so that separate case has
+  not been proven or fixed by this change.
+- The relay serves independently requested HTTP byte ranges from SMB using
+  positional reads. In particular, a metadata/probe range must not call
+  `seek()` on the same shared Rust handle and cancel an ongoing stream. HTTP
+  streaming replacements may cancel an obsolete stream only for the same media
+  item; unrelated ranges and items remain independent.
+- A failed HTTP read must be diagnosable in logcat without printing sensitive
+  file paths, relay tokens or credentials. A premature end of the HTTP response
+  is **not** a successful Cast playback.
+- Automatic Next/Previous depends on the **remote** player reporting a natural
+  `STATE_ENDED` or an explicitly finished Cast idle reason, not elapsed wall
+  clock time, a paused state, a disconnected receiver or generic `STATE_IDLE`.
+  Remote player errors and missing completion events must be distinguished
+  when investigating failures; a device observation is necessary to prove the fix.
 
 ## Regression tests
 
@@ -60,6 +85,8 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
 8. Repeated END events for the same video do not skip multiple videos, and a replayed
    video may advance again after it has entered a fresh ready state.
 9. Pending handoff, errors, disconnection and non-ended playback cannot advance.
+10. Cast IDLE+FINISHED advances; IDLE+CANCELED, IDLE+INTERRUPTED, and IDLE+ERROR do not.
+11. Independent SMB HTTP range reads do not seek/cancel a shared backend handle and preserve the requested byte offset.
 
 Physical-device validation (not covered by JVM tests): cast a non-first video,
 allow it to finish with Off selected and check that the controller, browser

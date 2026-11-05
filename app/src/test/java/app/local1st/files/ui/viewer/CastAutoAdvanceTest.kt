@@ -15,6 +15,7 @@ class CastAutoAdvanceTest {
         pending: Boolean = false,
         error: Boolean = false,
         remote: Boolean = true,
+        receiverFinished: Boolean = false,
     ): Int? = nextOnEnd(
         mode = mode,
         entryIds = items,
@@ -23,6 +24,7 @@ class CastAutoAdvanceTest {
         handoffPending = pending,
         playbackFailed = error,
         isRemote = remote,
+        receiverFinished = receiverFinished,
     )
 
     @Test
@@ -80,6 +82,44 @@ class CastAutoAdvanceTest {
         assertNull(CastAutoAdvance().onState(state = Player.STATE_READY))
         assertNull(CastAutoAdvance().onState(state = Player.STATE_BUFFERING))
         assertNull(CastAutoAdvance().onState(state = Player.STATE_IDLE))
+    }
+
+    @Test
+    fun castReceiverFinishedIdleCanAutoAdvanceInEitherDirection() {
+        assertEquals(
+            2,
+            CastAutoAdvance().onState(state = Player.STATE_IDLE, receiverFinished = true),
+        )
+        assertEquals(
+            0,
+            CastAutoAdvance().onState(
+                mode = CastAutoAdvanceMode.PREVIOUS,
+                state = Player.STATE_IDLE,
+                receiverFinished = true,
+            ),
+        )
+    }
+
+    @Test
+    fun receiverIdleWithoutExplicitFinishedNeverAdvances() {
+        assertNull(CastAutoAdvance().onState(state = Player.STATE_IDLE, receiverFinished = false))
+        assertNull(CastAutoAdvance().onState(
+            state = Player.STATE_IDLE, receiverFinished = true, pending = true,
+        ))
+        assertNull(CastAutoAdvance().onState(
+            state = Player.STATE_IDLE, receiverFinished = true, error = true,
+        ))
+        assertNull(CastAutoAdvance().onState(
+            state = Player.STATE_IDLE, receiverFinished = true, remote = false,
+        ))
+    }
+
+    @Test
+    fun castFinishedIdleIsHandledOnceEvenIfStateIsRepeated() {
+        val advance = CastAutoAdvance()
+        assertEquals(2, advance.onState(state = Player.STATE_IDLE, receiverFinished = true))
+        assertNull(advance.onState(state = Player.STATE_IDLE, receiverFinished = true))
+        assertNull(advance.onState(state = Player.STATE_ENDED))
     }
 
     @Test
