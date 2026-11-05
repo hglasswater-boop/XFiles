@@ -47,6 +47,27 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
   the same presented video identity. This contract does not change local/TV playback
   or automatically replay a video when it ends.
 
+## Relay reliability and diagnostics
+
+- A Cast receiver loads XFiles media through the handset's HTTP relay. Advertise an
+  IPv4 address on a reachable Wi-Fi or Ethernet LAN, **not** the VPN tunnel or
+  cellular default network. A WireGuard connection can become Android's active
+  network without being reachable from the Cast device. If no LAN address is
+  available, do not pretend that an SMB/content URI is reachable by the receiver.
+- The relay serves independently requested HTTP byte ranges from SMB using
+  positional reads. In particular, a metadata/probe range must not call
+  `seek()` on the same shared Rust handle and cancel an ongoing stream. HTTP
+  streaming replacements may cancel an obsolete stream only for the same media
+  item; unrelated ranges and items remain independent.
+- A failed HTTP read must be diagnosable in logcat without printing sensitive
+  file paths, relay tokens or credentials. A premature end of the HTTP response
+  is **not** a successful Cast playback.
+- Automatic Next/Previous depends on the **remote** player reporting a natural
+  `STATE_ENDED`, not elapsed wall clock time, a paused state, a disconnected
+  receiver, or `STATE_IDLE` (which also represents stop/error). Remote player
+  errors and missing completion events must be distinguished when investigating
+  failures; a device observation is necessary to prove the fix.
+
 ## Regression tests
 
 `CastHandoffTrackerTest` should cover:
@@ -60,6 +81,8 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
 8. Repeated END events for the same video do not skip multiple videos, and a replayed
    video may advance again after it has entered a fresh ready state.
 9. Pending handoff, errors, disconnection and non-ended playback cannot advance.
+10. Relay IPv4 selection prefers a real Wi-Fi LAN over an active VPN, never selects VPN/cellular, and accepts Ethernet when appropriate.
+11. Independent SMB HTTP range reads do not seek/cancel a shared backend handle and preserve the requested byte offset.
 
 Physical-device validation (not covered by JVM tests): cast a non-first video,
 allow it to finish with Off selected and check that the controller, browser
