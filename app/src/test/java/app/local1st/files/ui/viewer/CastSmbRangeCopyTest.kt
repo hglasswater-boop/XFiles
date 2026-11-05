@@ -2,6 +2,8 @@ package app.local1st.files.ui.viewer
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import java.io.IOException
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 
@@ -57,10 +59,11 @@ class CastSmbRangeCopyTest {
     }
 
     @Test
-    fun shortSourceStopsRatherThanInfiniteLooping() {
+    fun shortSourceReportsPrematureEof() {
         val out = ByteArrayOutputStream()
         var reads = 0
-        copyCastSmbRange(
+        assertThrows(IOException::class.java) {
+            copyCastSmbRange(
             start = 9L,
             length = 5L,
             chunkSize = 3,
@@ -73,7 +76,8 @@ class CastSmbRangeCopyTest {
                 if (n == 0) -1 else n
             },
             write = { buffer, count -> out.write(buffer, 0, count) },
-        )
+            )
+        }
 
         assertEquals(2, reads)
         assertArrayEquals("j".toByteArray(), out.toByteArray())
