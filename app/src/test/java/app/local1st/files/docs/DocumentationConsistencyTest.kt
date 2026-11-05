@@ -141,7 +141,7 @@ class DocumentationConsistencyTest {
         assertTrue("Rolling CI invokes the shared release publisher",
             buildCi.contains("bash .github/scripts/publish-rolling-release.sh"))
         assertTrue("Rolling publisher creates a release when absent",
-            rollingPublisher.contains("gh release create \"\\$tag\""))
+            rollingPublisher.contains("gh release create \"\$tag\""))
         assertTrue("Stable APK remains a GitHub Release asset",
             release.contains("name: Publish release"))
     }
