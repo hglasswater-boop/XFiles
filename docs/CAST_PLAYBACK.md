@@ -47,16 +47,17 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
   stale remote selection. Playback failure cancels a pending handoff and invalidates
   the last remote selection so a failed load is not presented as successful.
 - Notification title, browser Cast highlighting, and playback controls should all use
-  the same presented video identity. This contract does not change local/TV playback
+  the same presented video identity. This contract does not change local playback
   or automatically replay a video when it ends.
 
 ## Relay reliability and diagnostics
 
-- A Cast receiver loads XFiles media through the handset's HTTP relay. Advertise an
-  IPv4 address on a reachable Wi-Fi or Ethernet LAN, **not** the VPN tunnel or
-  cellular default network. A WireGuard connection can become Android's active
-  network without being reachable from the Cast device. If no LAN address is
-  available, do not pretend that an SMB/content URI is reachable by the receiver.
+- A Cast receiver loads XFiles media through the handset's HTTP relay, which
+  requires an IPv4 address reachable on the same LAN as the receiver. The current
+  selection first checks Android's active-network IPv4 address, then network
+  interfaces. Active-network selection can be wrong with VPN/mobile routing;
+  this issue was reported on a LAN **without VPN**, so that separate case has
+  not been proven or fixed by this change.
 - The relay serves independently requested HTTP byte ranges from SMB using
   positional reads. In particular, a metadata/probe range must not call
   `seek()` on the same shared Rust handle and cancel an ongoing stream. HTTP
@@ -84,8 +85,7 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
 8. Repeated END events for the same video do not skip multiple videos, and a replayed
    video may advance again after it has entered a fresh ready state.
 9. Pending handoff, errors, disconnection and non-ended playback cannot advance.
-9a. Cast IDLE+FINISHED advances; IDLE+CANCELED, IDLE+INTERRUPTED, and IDLE+ERROR do not.
-10. Relay IPv4 selection prefers a real Wi-Fi LAN over an active VPN, never selects VPN/cellular, and accepts Ethernet when appropriate.
+10. Cast IDLE+FINISHED advances; IDLE+CANCELED, IDLE+INTERRUPTED, and IDLE+ERROR do not.
 11. Independent SMB HTTP range reads do not seek/cancel a shared backend handle and preserve the requested byte offset.
 
 Physical-device validation (not covered by JVM tests): cast a non-first video,
