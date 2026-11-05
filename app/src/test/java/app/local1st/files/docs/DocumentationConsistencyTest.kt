@@ -137,8 +137,11 @@ class DocumentationConsistencyTest {
         ))
         assertTrue("AAB upload must happen after release decision",
             release.indexOf("- name: Decide stable release") < release.indexOf("- name: Upload mobile AAB as build artifact"))
-        assertTrue("Rolling update still uses GitHub Releases",
-            buildCi.contains("gh release create debug-latest"))
+        val rollingPublisher = File(repo, ".github/scripts/publish-rolling-release.sh").readText()
+        assertTrue("Rolling CI invokes the shared release publisher",
+            buildCi.contains("bash .github/scripts/publish-rolling-release.sh"))
+        assertTrue("Rolling publisher creates a release when absent",
+            rollingPublisher.contains("gh release create \"\\$tag\""))
         assertTrue("Stable APK remains a GitHub Release asset",
             release.contains("name: Publish release"))
     }
