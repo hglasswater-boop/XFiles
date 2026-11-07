@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -126,10 +127,12 @@ class LocalVideoPlayerLayoutTest {
                                     "Playback instance: $playbackInstance",
                                     Modifier.clickable { playbackInstance++ },
                                 )
-                                LandscapeStoryboardToggle(
-                                    visible = visible,
-                                    onToggle = { visible = !visible },
-                                )
+                                Box(Modifier.align(Alignment.TopEnd)) {
+                                    LandscapeStoryboardToggle(
+                                        visible = visible,
+                                        onToggle = { visible = !visible },
+                                    )
+                                }
                             }
                         },
                         storyboardContent = {
