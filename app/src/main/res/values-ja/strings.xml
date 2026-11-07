@@ -269,6 +269,8 @@
     <string name="cast_now_playing">キャスト中</string>
     <string name="cast_jump_to_current_storyboard">再生位置へ</string>
     <string name="player_vertical_storyboard">縦型ストーリーボード</string>
+    <string name="player_hide_storyboard">ストーリーボードを隠す</string>
+    <string name="player_show_storyboard">ストーリーボードを表示</string>
     <string name="smb_backend_section">SMB実行エンジン</string>
     <string name="smb_backend_summary">このアプリ起動中に成功した容量取得の実行エンジンです。設定値ではなく、実際の処理結果を表示します。</string>
     <string name="smb_backend_share_capacity">共有の総容量・空き容量</string>
