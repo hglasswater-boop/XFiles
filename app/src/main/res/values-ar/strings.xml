@@ -250,4 +250,6 @@
     <string name="smb_backend_folder_size">حجم المجلد</string>
     <string name="smb_backend_not_run">لم يتم التنفيذ بعد</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">إخفاء لوحة اللقطات</string>
+    <string name="player_show_storyboard">إظهار لوحة اللقطات</string>
 </resources>

@@ -246,4 +246,6 @@
     <string name="smb_backend_folder_size">Taille du dossier</string>
     <string name="smb_backend_not_run">Pas encore exécuté</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">Masquer le storyboard</string>
+    <string name="player_show_storyboard">Afficher le storyboard</string>
 </resources>

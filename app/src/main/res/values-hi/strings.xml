@@ -246,4 +246,6 @@
     <string name="smb_backend_folder_size">फ़ोल्डर का आकार</string>
     <string name="smb_backend_not_run">अभी तक नहीं चला</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">स्टोरीबोर्ड छिपाएँ</string>
+    <string name="player_show_storyboard">स्टोरीबोर्ड दिखाएँ</string>
 </resources>

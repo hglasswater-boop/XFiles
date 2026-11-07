@@ -246,4 +246,6 @@
     <string name="smb_backend_folder_size">Klasör boyutu</string>
     <string name="smb_backend_not_run">Henüz çalıştırılmadı</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">Hikâye panosunu gizle</string>
+    <string name="player_show_storyboard">Hikâye panosunu göster</string>
 </resources>

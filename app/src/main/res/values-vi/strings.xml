@@ -246,4 +246,6 @@
     <string name="smb_backend_folder_size">Kích thước thư mục</string>
     <string name="smb_backend_not_run">Chưa thực hiện</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">Ẩn bảng phân cảnh</string>
+    <string name="player_show_storyboard">Hiện bảng phân cảnh</string>
 </resources>

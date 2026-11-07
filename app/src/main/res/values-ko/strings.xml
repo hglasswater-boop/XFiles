@@ -246,4 +246,6 @@
     <string name="smb_backend_folder_size">폴더 크기</string>
     <string name="smb_backend_not_run">아직 실행되지 않음</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">스토리보드 숨기기</string>
+    <string name="player_show_storyboard">스토리보드 표시</string>
 </resources>
