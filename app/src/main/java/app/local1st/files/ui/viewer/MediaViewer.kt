@@ -357,11 +357,15 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                             onClose = onClose,
                             videoBottomInset = videoBottomInset,
                             topBarActions = {
-                                if (!landscapeStoryboardVisible) {
-                                    TooltipIconButton(
-                                        stringResource(R.string.player_vertical_storyboard),
-                                        Icons.Outlined.ViewAgenda,
-                                        onClick = { landscapeStoryboardVisible = true },
+                                if (
+                                    playerOrientation == Configuration.ORIENTATION_LANDSCAPE &&
+                                    !inPictureInPicture
+                                ) {
+                                    LandscapeStoryboardToggle(
+                                        visible = landscapeStoryboardVisible,
+                                        onToggle = {
+                                            landscapeStoryboardVisible = !landscapeStoryboardVisible
+                                        },
                                     )
                                 }
                                 VideoCastButton()
@@ -406,6 +410,22 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             onClose = onClose,
         )
     }
+}
+
+/** The video toolbar owns this toggle so it remains reachable when the sidebar is hidden. */
+@Composable
+internal fun LandscapeStoryboardToggle(
+    visible: Boolean,
+    onToggle: () -> Unit,
+) {
+    TooltipIconButton(
+        label = stringResource(
+            if (visible) R.string.player_hide_storyboard else R.string.player_show_storyboard,
+        ),
+        icon = Icons.Outlined.ViewAgenda,
+        selected = visible,
+        onClick = onToggle,
+    )
 }
 
 @Composable
