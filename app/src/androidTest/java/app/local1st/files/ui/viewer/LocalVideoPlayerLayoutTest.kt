@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -23,6 +24,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -33,6 +35,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
+import app.local1st.files.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -101,6 +105,59 @@ class LocalVideoPlayerLayoutTest {
         compose.runOnIdle { visible = true }
         compose.onNodeWithTag("frame").assertExists()
         assertEquals(472f, compose.onNodeWithTag("video").bounds().relativeTo(container).width, 1f)
+    }
+
+    @Test
+    fun landscapeToolbarToggleHidesAndReopensStoryboardWithoutRecreatingVideo() {
+        var visible by mutableStateOf(true)
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(Modifier.requiredSize(600.dp, 300.dp).testTag("container")) {
+                    LocalVideoPlayerLayout(
+                        inPictureInPicture = false,
+                        storyboardHeight = 126.dp,
+                        storyboardBottomClearance = 40.dp,
+                        finePreviewVisible = false,
+                        onDismissFinePreview = {},
+                        landscapeStoryboardVisible = visible,
+                        videoContent = { inset ->
+                            var playbackInstance by remember { mutableIntStateOf(0) }
+                            Box(Modifier.fillMaxSize().padding(bottom = inset).testTag("video")) {
+                                Text(
+                                    "Playback instance: $playbackInstance",
+                                    Modifier.clickable { playbackInstance++ },
+                                )
+                                Box(Modifier.align(Alignment.TopEnd)) {
+                                    LandscapeStoryboardToggle(
+                                        visible = visible,
+                                        onToggle = { visible = !visible },
+                                    )
+                                }
+                            }
+                        },
+                        storyboardContent = {
+                            Box(Modifier.fillMaxSize().testTag("storyboard"))
+                        },
+                    )
+                }
+            }
+        }
+
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val container = compose.onNodeWithTag("container").bounds()
+        val show = context.getString(R.string.player_show_storyboard)
+        val hide = context.getString(R.string.player_hide_storyboard)
+
+        compose.onNodeWithText("Playback instance: 0").performClick()
+        compose.onNodeWithContentDescription(hide).assertExists().performClick()
+        compose.onNodeWithTag("storyboard").assertDoesNotExist()
+        assertEquals(600f, compose.onNodeWithTag("video").bounds().relativeTo(container).width, 1f)
+        compose.onNodeWithText("Playback instance: 1").assertExists()
+
+        compose.onNodeWithContentDescription(show).assertExists().performClick()
+        compose.onNodeWithTag("storyboard").assertExists()
+        assertEquals(472f, compose.onNodeWithTag("video").bounds().relativeTo(container).width, 1f)
+        compose.onNodeWithText("Playback instance: 1").assertExists()
     }
 
     @Test

@@ -246,4 +246,6 @@
     <string name="smb_backend_folder_size">資料夾大小</string>
     <string name="smb_backend_not_run">尚未執行</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">隱藏分鏡板</string>
+    <string name="player_show_storyboard">顯示分鏡板</string>
 </resources>

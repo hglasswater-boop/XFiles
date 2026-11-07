@@ -46,9 +46,13 @@ the existing `CastStoryboardStrip` implementation.
 - Tapping a loaded thumbnail in a **vertical** storyboard seeks to its timestamp, then closes
   the vertical view. A long-press to inspect a fine preview, scrolling, or jumping to the
   current item must not close the storyboard.
-- In the landscape local player, closing the one-column sidebar returns its 128 dp width
-  to the video. The player toolbar exposes a labeled storyboard button to reopen the sidebar
-  without restarting playback. Reopening uses the current video position.
+- In the landscape local player, the player top bar always exposes a labeled storyboard
+  toggle: **Hide storyboard** when the sidebar is visible and **Show storyboard** when hidden.
+  Its accent state reflects whether the sidebar is shown. Tapping it hides or restores the
+  one-column sidebar without seeking or restarting playback. Hiding immediately returns its
+  entire 128 dp width to the video; reopening uses the current video position. The toggle
+  remains inside the video area (not the removable sidebar), so it can always reopen it.
+  The toggle is absent from the portrait controls and from Picture-in-Picture.
 - In the portrait player's expanded two-column storyboard dialog, a selected thumbnail
   closes only the dialog; the horizontal storyboard stays available.
 - Tapping a thumbnail in the regular horizontal storyboard keeps that strip visible.
@@ -95,8 +99,10 @@ storyboard slots, using constrained container sizes without requiring media deco
   slot's remembered state and recalculates the layout.
 - Tapping the video area while the fine preview is open dismisses that preview.
 - A vertical thumbnail selection seeks, dismisses the landscape sidebar or expanded portrait
-  dialog as appropriate, and does not dismiss the ordinary horizontal strip. The landscape
-  sidebar can be reopened without replacing the video player.
+  dialog as appropriate, and does not dismiss the ordinary horizontal strip. In landscape,
+  the toolbar toggle hides and reopens the sidebar without replacing the video player; the
+  video expands to the full container width when hidden and resumes its previous layout when
+  visible. No manual hide control appears in portrait or PiP.
 
 The Compose test rule uses `ui-test-junit4` and the debug-only `ui-test-manifest` activity.
 The debug app and instrumentation APK must resolve `androidx.concurrent:concurrent-futures`

@@ -246,4 +246,6 @@
     <string name="smb_backend_folder_size">Mapgrootte</string>
     <string name="smb_backend_not_run">Nog niet uitgevoerd</string>
     <string name="smb_backend_result">%1$s · %2$s</string>
+    <string name="player_hide_storyboard">Storyboard verbergen</string>
+    <string name="player_show_storyboard">Storyboard tonen</string>
 </resources>

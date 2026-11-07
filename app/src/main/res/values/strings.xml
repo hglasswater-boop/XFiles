@@ -270,6 +270,8 @@
     <string name="cast_now_playing">Casting now</string>
     <string name="cast_jump_to_current_storyboard">Current position</string>
     <string name="player_vertical_storyboard">Vertical storyboard</string>
+    <string name="player_hide_storyboard">Hide storyboard</string>
+    <string name="player_show_storyboard">Show storyboard</string>
     <string name="smb_backend_section">SMB runtime backend</string>
     <string name="smb_backend_summary">Last successful capacity queries in this app session. Shows the actual engine used, not the configured preference.</string>
     <string name="smb_backend_share_capacity">Share capacity</string>
