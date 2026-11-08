@@ -62,17 +62,8 @@ internal class CastMediaRelay(
         null
     }
 
-    private val sourcesById: Map<String, Source> = entries.mapNotNull { entry ->
-        val uri = relaySourceUri(entry) ?: return@mapNotNull null
-        Source(
-            entry = entry,
-            uri = uri,
-            size = relaySize(context, entry, uri),
-            mimeType = castMimeType(entry),
-            token = UUID.randomUUID().toString().replace("-", ""),
-        )
-    }.associateBy { it.entry.id }
-    private val sourcesByToken = sourcesById.values.associateBy(Source::token)
+    private val sourcesById = ConcurrentHashMap<String, Source>()
+    private val sourcesByToken = ConcurrentHashMap<String, Source>()
 
     private val wakeLock = if (server != null) {
         (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
@@ -86,7 +77,30 @@ internal class CastMediaRelay(
     }
 
     init {
+        register(entries)
         server?.let { relayServer -> executor.execute { acceptLoop(relayServer) } }
+    }
+
+    /**
+     * A Cast session can switch folders without replacing the relay. Previously issued URLs stay
+     * valid for in-flight receiver requests while the new folder is registered for the next load.
+     */
+    fun register(entries: List<XEntry>) {
+        if (closed.get()) return
+        entries.forEach { entry ->
+            if (sourcesById.containsKey(entry.id)) return@forEach
+            val uri = relaySourceUri(entry) ?: return@forEach
+            val candidate = Source(
+                entry = entry,
+                uri = uri,
+                size = relaySize(context, entry, uri),
+                mimeType = castMimeType(entry),
+                token = UUID.randomUUID().toString().replace("-", ""),
+            )
+            if (sourcesById.putIfAbsent(entry.id, candidate) == null) {
+                sourcesByToken[candidate.token] = candidate
+            }
+        }
     }
 
     fun urlFor(mediaId: String): Uri? {
@@ -356,6 +370,8 @@ internal class CastMediaRelay(
         smbHandles.values.toSet().forEach { handle -> runCatching { handle.close() } }
         smbHandles.clear()
         streamGenerations.clear()
+        sourcesById.clear()
+        sourcesByToken.clear()
         runCatching { if (wakeLock?.isHeld == true) wakeLock.release() }
         executor.shutdownNow()
     }
