@@ -144,32 +144,34 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 .build()
         }
     }
-    val castSession = remember(playable, mediaItems, startIndex) {
+    val viewerOwner = remember(entry.id, playable) { Any() }
+    val castSession = remember(playable, mediaItems, startIndex, viewerOwner) {
         CastPlaybackSessionManager.acquire(
             context = context,
             entries = playable,
             mediaItems = mediaItems,
             startIndex = startIndex,
+            viewerOwner = viewerOwner,
         )
     }
     val localPlayer = castSession.localPlayer
     val player = castSession.player
     val autoAdvanceMode by CastPlaybackSessionManager.autoAdvanceMode.collectAsStateWithLifecycle()
 
-    var currentIndex by remember(player) {
+    var currentIndex by remember(player, viewerOwner) {
         mutableIntStateOf(player.currentMediaItemIndex.coerceIn(0, playable.lastIndex))
     }
-    var lastLocalIndex by remember(player) { mutableIntStateOf(currentIndex) }
-    var castHandoffTargetIndex by remember(player) { mutableStateOf<Int?>(null) }
-    var playing by remember(player) { mutableStateOf(player.isPlaying) }
-    var metadata by remember(player) { mutableStateOf(player.mediaMetadata) }
-    var hasPrevious by remember(player) { mutableStateOf(player.hasPreviousMediaItem()) }
-    var hasNext by remember(player) { mutableStateOf(player.hasNextMediaItem()) }
-    var remotePlayback by remember(player) {
+    var lastLocalIndex by remember(player, viewerOwner) { mutableIntStateOf(currentIndex) }
+    var castHandoffTargetIndex by remember(player, viewerOwner) { mutableStateOf<Int?>(null) }
+    var playing by remember(player, viewerOwner) { mutableStateOf(player.isPlaying) }
+    var metadata by remember(player, viewerOwner) { mutableStateOf(player.mediaMetadata) }
+    var hasPrevious by remember(player, viewerOwner) { mutableStateOf(player.hasPreviousMediaItem()) }
+    var hasNext by remember(player, viewerOwner) { mutableStateOf(player.hasNextMediaItem()) }
+    var remotePlayback by remember(player, viewerOwner) {
         mutableStateOf(player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE)
     }
 
-    DisposableEffect(player) {
+    DisposableEffect(player, viewerOwner) {
         val listener = object : Player.Listener {
             override fun onEvents(p: Player, events: Player.Events) {
                 val reportedIndex = p.currentMediaItemIndex.coerceIn(0, playable.lastIndex)
@@ -228,7 +230,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         onDispose {
             saveCurrentVideoResume(context, playable, player)
             player.removeListener(listener)
-            CastPlaybackSessionManager.releaseViewer(castSession)
+            CastPlaybackSessionManager.releaseViewer(castSession, viewerOwner)
         }
     }
 
