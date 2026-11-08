@@ -234,9 +234,11 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
         }
     }
 
-    LaunchedEffect(player, currentIndex) {
+    LaunchedEffect(player, currentIndex, viewerOwner) {
         val resumeEntry = playable.getOrNull(currentIndex) ?: return@LaunchedEffect
-        if (!isVideoEntry(resumeEntry)) return@LaunchedEffect
+        if (!isVideoEntry(resumeEntry) ||
+            !isMatchingPlaybackMediaId(resumeEntry.id, player.currentMediaItem?.mediaId)
+        ) return@LaunchedEffect
 
         val requestedStartMs = VideoResumeStore.consumeRequestedStart(resumeEntry.id)
         if (requestedStartMs != null) {
@@ -250,7 +252,9 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 
         while (isActive) {
             delay(VIDEO_RESUME_SAVE_INTERVAL_MS)
-            if (player.currentMediaItemIndex != currentIndex) break
+            if (player.currentMediaItemIndex != currentIndex ||
+                !isMatchingPlaybackMediaId(resumeEntry.id, player.currentMediaItem?.mediaId)
+            ) break
             saveVideoResume(context, resumeEntry, player)
         }
     }
@@ -546,7 +550,9 @@ private fun isVideoEntry(entry: XEntry): Boolean =
 
 private fun saveCurrentVideoResume(context: Context, playable: List<XEntry>, player: Player) {
     val currentEntry = playable.getOrNull(player.currentMediaItemIndex) ?: return
-    if (isVideoEntry(currentEntry)) saveVideoResume(context, currentEntry, player)
+    if (isVideoEntry(currentEntry) &&
+        isMatchingPlaybackMediaId(currentEntry.id, player.currentMediaItem?.mediaId)
+    ) saveVideoResume(context, currentEntry, player)
 }
 
 private fun saveVideoResume(context: Context, entry: XEntry, player: Player) {
