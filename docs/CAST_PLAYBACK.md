@@ -10,6 +10,28 @@ This document covers the remote player's item identity after its single item rea
 the end, and the handoff from local to remote playback. Image Cast is documented
 separately in [IMAGE_CAST.md](IMAGE_CAST.md).
 
+## Cross-folder selection (Issue #273)
+
+- While a Cast receiver is connected and remote playback is active, navigating back to the
+  browser and opening a video from another folder must **keep the same Cast player,
+  receiver connection, HTTP relay and foreground-service ownership**. Changing the
+  folder is a playlist update and an explicit remote media handoff, never a reason
+  to create a new CastPlayer or fall back to phone playback.
+- Replace the controller's folder playlist and the inactive local player's playlist
+  before sending the newly selected video to the receiver. The receiver continues
+  to receive one media item at a time. Previous/Next and auto-advance now follow
+  the newly selected folder's order, not the prior folder's order.
+- Register the new folder's media IDs, relay sources and converter originals on the
+  existing objects **before** the remote load. Keep sources already used by an
+  in-flight request valid until the relay itself is closed.
+- Once Cast is explicitly disconnected, a newly opened video plays locally as usual.
+  A video change within the same folder retains the existing selection behavior.
+  Viewers must attach/detach listeners for the correct playlist and must not let a
+  previous viewer's dispose event dismiss the new viewer's ownership.
+- This is a process-scoped session handoff, not a persistent queue across app restarts.
+  Local/SMB-to-Cast continuity must be verified on a real Cast receiver; an emulator
+  cannot establish cross-device behavior.
+
 ## Selected-video identity
 
 - While Cast is active, the controller's selected video comes from the pending explicit
@@ -87,6 +109,8 @@ separately in [IMAGE_CAST.md](IMAGE_CAST.md).
 9. Pending handoff, errors, disconnection and non-ended playback cannot advance.
 10. Cast IDLE+FINISHED advances; IDLE+CANCELED, IDLE+INTERRUPTED, and IDLE+ERROR do not.
 11. Independent SMB HTTP range reads do not seek/cancel a shared backend handle and preserve the requested byte offset.
+12. Reusing a remote session with a different folder updates its playlist without rebuilding the player, remaps index/identity, and supports explicit handoff to the new folder.
+13. Old remote HTTP source tokens remain valid while the relay adds the new folder's sources.
 
 Physical-device validation (not covered by JVM tests): cast a non-first video,
 allow it to finish with Off selected and check that the controller, browser
