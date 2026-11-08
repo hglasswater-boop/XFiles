@@ -24,6 +24,7 @@ import app.local1st.files.core.cast.CastPlaybackNotificationState
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.prefs.resolveVideoPlaybackStartPosition
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,10 +49,9 @@ internal object CastPlaybackSessionManager {
     )
 
     internal class Session internal constructor(
-        val entryIds: List<String>,
-        val entries: List<XEntry>,
-        val mediaItems: List<MediaItem>,
+        val playlist: CastPlaylistState,
         val relay: CastMediaRelay,
+        val originalMediaItems: MutableMap<String, MediaItem>,
         val localPlayer: ExoPlayer,
         val remotePlayer: RemoteCastPlayer,
         val castPlayer: CastPlayer,
@@ -61,7 +61,11 @@ internal object CastPlaybackSessionManager {
         val notificationController: CastPlaybackNotificationController,
         var lifecycleListener: Player.Listener? = null,
         var receiverListener: Player.Listener? = null,
-    )
+    ) {
+        val entryIds: List<String> get() = playlist.entryIds
+        val entries: List<XEntry> get() = playlist.entries
+        val mediaItems: List<MediaItem> get() = playlist.mediaItems
+    }
 
     /**
      * Presents the full folder playlist to XFiles while keeping the actual Cast receiver queue at
@@ -71,13 +75,15 @@ internal object CastPlaybackSessionManager {
     private class HandoffAwarePlayer(
         private val delegatePlayer: Player,
         private val remotePlayer: Player,
-        private val entryIds: List<String>,
-        private val mediaItems: List<MediaItem>,
+        private val playlist: CastPlaylistState,
         private val handoffTracker: CastHandoffTracker,
         private val onRemoteSelection: (mediaItemIndex: Int, positionMs: Long?) -> Unit,
     ) : ForwardingPlayer(delegatePlayer) {
         private fun isRemote(): Boolean =
             delegatePlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE
+
+        private val entryIds: List<String> get() = playlist.entryIds
+        private val mediaItems: List<MediaItem> get() = playlist.mediaItems
 
         private fun presentedIndex(): Int? {
             if (!isRemote()) return null
@@ -173,6 +179,7 @@ internal object CastPlaybackSessionManager {
     private val lock = Any()
     private var activeSession: Session? = null
     private var viewerSession: Session? = null
+    private var viewerOwner: Any? = null
     private var serviceContext: Context? = null
     private var keepAliveRunning = false
 
@@ -198,6 +205,7 @@ internal object CastPlaybackSessionManager {
         entries: List<XEntry>,
         mediaItems: List<MediaItem>,
         startIndex: Int,
+        viewerOwner: Any,
     ): Session = synchronized(lock) {
         serviceContext = context.applicationContext
         val ids = entries.map { it.id }
@@ -207,40 +215,70 @@ internal object CastPlaybackSessionManager {
         val resumeStartMs = startEntry?.let { VideoResumeStore.load(context, it.id) } ?: 0L
         val initialStartMs = resolveVideoPlaybackStartPosition(requestedStartMs, resumeStartMs)
         val existing = activeSession
-        if (existing != null && existing.entryIds == ids && isRemote(existing)) {
+        if (existing != null && isRemote(existing)) {
+            val changedFolder = existing.entryIds != ids
             val targetMediaId = startEntry?.id
             if (targetMediaId != null) {
                 val reportedRemoteMediaId = existing.remotePlayer.currentMediaItem?.mediaId
+                // Mark the new selection before replacing the inactive local playlist. Any Cast
+                // callbacks triggered during replacement must not reselect the old folder.
                 existing.handoffTracker.beginRemoteHandoff(targetMediaId)
+                if (changedFolder) {
+                    // Keep the Cast player/receiver and HTTP listener alive. An active receiver
+                    // may still fetch ranges from the previous folder while the new item loads.
+                    existing.relay.register(entries)
+                    existing.originalMediaItems.putAll(mediaItems.associateBy(MediaItem::mediaId))
+                    existing.playlist.replace(entries, mediaItems)
+                    existing.localPlayer.setMediaItems(
+                        mediaItems,
+                        resolvedStartIndex,
+                        initialStartMs ?: C.TIME_UNSET,
+                    )
+                }
                 existing.handoffTracker.observe(
                     isRemote = true,
                     reportedMediaId = reportedRemoteMediaId,
                 )
                 prewarmCastWindow(existing.relay, existing.entries, resolvedStartIndex)
 
-                when (
-                    val action = reusedRemoteSelectionAction(
-                        currentMediaId = reportedRemoteMediaId,
-                        targetMediaId = targetMediaId,
-                        targetIndex = resolvedStartIndex,
-                        requestedStartMs = requestedStartMs,
-                        resolvedStartMs = initialStartMs,
+                if (changedFolder) {
+                    selectRemoteMedia(
+                        castPlayer = existing.castPlayer,
+                        handoffTracker = existing.handoffTracker,
+                        relay = existing.relay,
+                        entries = existing.entries,
+                        mediaItems = existing.mediaItems,
+                        mediaItemIndex = resolvedStartIndex,
+                        positionMs = initialStartMs,
                     )
-                ) {
-                    ReusedRemoteSelectionAction.None -> Unit
-                    is ReusedRemoteSelectionAction.SeekToDefault ->
-                        existing.player.seekToDefaultPosition(action.mediaItemIndex)
-                    is ReusedRemoteSelectionAction.SeekToPosition ->
-                        existing.player.seekTo(action.mediaItemIndex, action.positionMs)
+                } else {
+                    when (
+                        val action = reusedRemoteSelectionAction(
+                            currentMediaId = reportedRemoteMediaId,
+                            targetMediaId = targetMediaId,
+                            targetIndex = resolvedStartIndex,
+                            requestedStartMs = requestedStartMs,
+                            resolvedStartMs = initialStartMs,
+                        )
+                    ) {
+                        ReusedRemoteSelectionAction.None -> Unit
+                        is ReusedRemoteSelectionAction.SeekToDefault ->
+                            existing.player.seekToDefaultPosition(action.mediaItemIndex)
+                        is ReusedRemoteSelectionAction.SeekToPosition ->
+                            existing.player.seekTo(action.mediaItemIndex, action.positionMs)
+                    }
                 }
             }
             viewerSession = existing
+            this.viewerOwner = viewerOwner
             publishRemoteStateLocked(existing)
             updateKeepAliveLocked()
             return@synchronized existing
         }
 
         val appContext = context.applicationContext
+        val playlistState = CastPlaylistState(entries, mediaItems)
+        val originalMediaItems = ConcurrentHashMap(mediaItems.associateBy(MediaItem::mediaId))
         val relay = CastMediaRelay(appContext, entries)
         prewarmCastWindow(relay, entries, resolvedStartIndex)
         val localPlayer = ExoPlayer.Builder(
@@ -258,7 +296,7 @@ internal object CastPlaybackSessionManager {
             .setMediaItemConverter(
                 XFilesCastMediaItemConverter(
                     relay = relay,
-                    originals = mediaItems.associateBy { it.mediaId },
+                    originals = originalMediaItems,
                 ),
             )
             .build()
@@ -271,16 +309,15 @@ internal object CastPlaybackSessionManager {
         val presentationPlayer = HandoffAwarePlayer(
             delegatePlayer = castPlayer,
             remotePlayer = remotePlayer,
-            entryIds = ids,
-            mediaItems = mediaItems,
+            playlist = playlistState,
             handoffTracker = handoffTracker,
             onRemoteSelection = { mediaItemIndex, positionMs ->
                 selectRemoteMedia(
                     castPlayer = castPlayer,
                     handoffTracker = handoffTracker,
                     relay = relay,
-                    entries = entries,
-                    mediaItems = mediaItems,
+                    entries = playlistState.entries,
+                    mediaItems = playlistState.mediaItems,
                     mediaItemIndex = mediaItemIndex,
                     positionMs = positionMs,
                 )
@@ -392,10 +429,9 @@ internal object CastPlaybackSessionManager {
             }
         }
         created = Session(
-            entryIds = ids,
-            entries = entries,
-            mediaItems = mediaItems,
+            playlist = playlistState,
             relay = relay,
+            originalMediaItems = originalMediaItems,
             localPlayer = localPlayer,
             remotePlayer = remotePlayer,
             castPlayer = castPlayer,
@@ -439,6 +475,7 @@ internal object CastPlaybackSessionManager {
 
         activeSession = created
         viewerSession = created
+        this.viewerOwner = viewerOwner
         if (isRemote(created)) {
             handoffTracker.observe(
                 isRemote = true,
@@ -460,9 +497,11 @@ internal object CastPlaybackSessionManager {
         }
     }
 
-    fun releaseViewer(session: Session) {
+    fun releaseViewer(session: Session, owner: Any) {
         synchronized(lock) {
-            if (viewerSession === session) viewerSession = null
+            if (viewerSession !== session || !isCurrentCastViewerOwner(viewerOwner, owner)) return
+            viewerSession = null
+            viewerOwner = null
             if (activeSession === session && !isRemote(session)) {
                 destroyLocked(session)
             } else {
@@ -595,7 +634,10 @@ internal object CastPlaybackSessionManager {
             activeSession = null
             _activePlayback.value = null
         }
-        if (viewerSession === session) viewerSession = null
+        if (viewerSession === session) {
+            viewerSession = null
+            viewerOwner = null
+        }
         session.handoffTracker.abort()
         CastPlaybackBridge.detach(session.notificationController)
         updateKeepAliveLocked()
