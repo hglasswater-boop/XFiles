@@ -43,6 +43,13 @@ class CastPlaylistStateTest {
         assertTrue(isCurrentCastViewerOwner(newOwner, newOwner))
     }
 
+    @Test
+    fun oldFolderResumeMustNotBeSavedAfterRemoteSelectionChangesFolder() {
+        assertFalse(isMatchingPlaybackMediaId(old[0].id, newer[0].id))
+        assertTrue(isMatchingPlaybackMediaId(newer[0].id, newer[0].id))
+        assertFalse(isMatchingPlaybackMediaId(newer[0].id, null))
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun playlistRejectsMismatchedMediaItems() {
         CastPlaylistState(old, items(newer))
