@@ -39,3 +39,7 @@ internal class CastPlaylistState(
 /** A prior viewer must never detach the new viewer's Cast ownership. */
 internal fun isCurrentCastViewerOwner(currentOwner: Any?, releasedOwner: Any): Boolean =
     currentOwner === releasedOwner
+
+/** Prevent a disposed viewer from writing the new folder's playback position to an old file. */
+internal fun isMatchingPlaybackMediaId(entryId: String, currentMediaId: String?): Boolean =
+    entryId == currentMediaId
