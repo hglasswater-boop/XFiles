@@ -24,17 +24,20 @@ internal fun fineStoryboardWindowEndMs(
 }
 
 /**
- * Returns the later fine-storyboard section that should take over after playback passes the
- * currently displayed fine window. Backward movement never pulls the user's detail view back.
+ * Follows forward playback only when it crosses the displayed fine window's end.
+ * A manual long press on an older section must remain visible if playback was already
+ * beyond that section when the user opened it. Backward movement never rewinds the view.
  */
 internal fun fineStoryboardFollowTargetIndex(
     currentIndex: Int,
+    previousPositionMs: Long,
     positionMs: Long,
     fineWindowEndTimesMs: List<Long>,
 ): Int? {
     if (currentIndex !in fineWindowEndTimesMs.indices) return null
     if (currentIndex == fineWindowEndTimesMs.lastIndex) return null
-    if (positionMs <= fineWindowEndTimesMs[currentIndex]) return null
+    val windowEndMs = fineWindowEndTimesMs[currentIndex]
+    if (previousPositionMs > windowEndMs || positionMs <= windowEndMs) return null
 
     return ((currentIndex + 1)..fineWindowEndTimesMs.lastIndex)
         .firstOrNull { index -> positionMs <= fineWindowEndTimesMs[index] }

@@ -8,6 +8,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
@@ -93,6 +97,35 @@ class CastStoryboardStripInteractionTest {
         compose.runOnIdle { assertEquals(timestamp, seekMs) }
         compose.onNodeWithContentDescription(context.getString(R.string.close))
             .assertDoesNotExist()
+    }
+
+    @Test
+    fun longPressOnEarlierThumbnailKeepsItsFinePreviewWhenPlaybackIsLater() {
+        val result = StoryboardResult(
+            durationMs = 60_000L,
+            frames = listOf(
+                StoryboardFrame(index = 0, timeMs = timestamp, file = thumbnail),
+                StoryboardFrame(index = 1, timeMs = 48_000L, file = thumbnail),
+            ),
+        )
+        compose.setContent {
+            Box(Modifier.requiredSize(340.dp, 300.dp)) {
+                CastStoryboardStrip(
+                    entry = entry,
+                    positionMs = 50_000L,
+                    onSeek = {},
+                    verticalColumns = null,
+                    sharedResult = result,
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription(formatVideoDuration(timestamp))
+            .performTouchInput { longClick() }
+
+        // Both the coarse thumbnail and the fine panel heading still show the older time.
+        compose.onAllNodesWithText(formatVideoDuration(timestamp), useUnmergedTree = true)
+            .assertCountEquals(2)
     }
 
     private fun renderStoryboard(
