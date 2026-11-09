@@ -46,7 +46,7 @@ the existing `CastStoryboardStrip` implementation.
 - In the **landscape local player's persistent one-column sidebar**, tapping a loaded
   thumbnail seeks to its timestamp **without hiding the sidebar**. The user must explicitly
   tap the storyboard visibility toggle to hide it; selecting a frame must not trigger that
-  toggle or dismiss an open fine preview.
+  toggle; coarse thumbnail selection may still close an open fine preview.
 - In an **expanded temporary vertical storyboard dialog**, tapping a thumbnail seeks and
   closes only that dialog. Long-pressing for a fine preview, scrolling, or jumping to the
   current item must not close the storyboard.
