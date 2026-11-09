@@ -75,7 +75,6 @@ class FineStoryboardPlaybackSyncTest {
         )
     }
 
-
     @Test
     fun manuallyOpenedPastSectionDoesNotJumpToPlaybackAlreadyBeyondItsWindow() {
         assertNull(
@@ -116,6 +115,7 @@ class FineStoryboardPlaybackSyncTest {
     @Test
     fun windowEndUsesFiveFineStepsAndSaturatesOnOverflow() {
         assertEquals(15_000L, fineStoryboardWindowEndMs(centerTimeMs = 10_000L, stepMs = 1_000L))
+        assertEquals(5_000L, fineStoryboardWindowEndMs(centerTimeMs = -1_000L, stepMs = 1_000L))
         assertEquals(Long.MAX_VALUE, fineStoryboardWindowEndMs(Long.MAX_VALUE - 10L, 1_000L))
     }
 
