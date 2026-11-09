@@ -60,6 +60,35 @@ the existing `CastStoryboardStrip` implementation.
   sidebar visibility. PiP continues hiding all storyboards.
 
 
+## Fine storyboard manual browsing and playback following (Issue #275)
+
+- Long-pressing any coarse thumbnail opens a fine-grained strip centered on **that
+  thumbnail's timestamp**, even when playback is already ahead of it. Previously
+  displayed past sections remain accessible by another long press; opening an older
+  section must not immediately jump to the current playback position.
+- The fine strip contains up to five fine-grained timestamps before and five after
+  the selected center, with timestamps clamped to the available video range. Users
+  can scroll backward and forward through the generated fine frames and select
+  any loaded timestamp to seek, including timestamps earlier than the playhead.
+- Automatic playback following is **boundary crossing**, not merely "playhead is
+  already beyond this fine window". A forward playback update (including a seek)
+  can move the fine preview to a later coarse section only when the playhead was
+  at or before the displayed fine window's end and then moves past it. This keeps
+  normal playback following from Issue #188 without overriding manual inspection
+  of older sections.
+- Backward seeking does not automatically rewind the fine preview. Once playback
+  returns to/before the displayed window end, a later forward crossing may resume
+  auto-follow. Another long press explicitly selects a new window and resets the
+  follow baseline.
+- The same shared fine-preview behavior applies to local and Cast controllers and
+  to vertical and horizontal coarse storyboard layouts.
+
+Unit regression coverage must include: selecting an older coarse frame while
+playback is already later, normal forward crossing, crossing several sections
+in a large forward seek, backwards movement, and video start/end clamping.
+Device verification remains necessary for actual touch/scroll behavior.
+
+
 ## Why landscape needs a sidebar
 
 Issue #195 reports that rotating the player into landscape pushes the video upward and
