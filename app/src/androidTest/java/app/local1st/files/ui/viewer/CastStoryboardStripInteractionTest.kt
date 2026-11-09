@@ -67,6 +67,21 @@ class CastStoryboardStripInteractionTest {
     }
 
     @Test
+    fun persistentLandscapeSingleColumnSidebarSeeksAndRemainsVisible() {
+        var seekMs = -1L
+        // Local landscape sidebar intentionally omits onThumbnailSelected.
+        renderStoryboard(
+            verticalColumns = 1,
+            onSeek = { seekMs = it },
+        )
+
+        compose.onNodeWithContentDescription(formatVideoDuration(timestamp)).performClick()
+
+        compose.runOnIdle { assertEquals(timestamp, seekMs) }
+        compose.onNodeWithContentDescription(formatVideoDuration(timestamp)).assertExists()
+    }
+
+    @Test
     fun horizontalThumbnailSeeksWithoutRequestingDismissal() {
         var seekMs = -1L
         var dismissed = false

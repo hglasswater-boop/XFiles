@@ -43,8 +43,12 @@ the existing `CastStoryboardStrip` implementation.
 
 ## Vertical thumbnail selection and dismissal (Issue #235)
 
-- Tapping a loaded thumbnail in a **vertical** storyboard seeks to its timestamp, then closes
-  the vertical view. A long-press to inspect a fine preview, scrolling, or jumping to the
+- In the **landscape local player's persistent one-column sidebar**, tapping a loaded
+  thumbnail seeks to its timestamp **without hiding the sidebar**. The user must explicitly
+  tap the storyboard visibility toggle to hide it; selecting a frame must not trigger that
+  toggle; coarse thumbnail selection may still close an open fine preview.
+- In an **expanded temporary vertical storyboard dialog**, tapping a thumbnail seeks and
+  closes only that dialog. Long-pressing for a fine preview, scrolling, or jumping to the
   current item must not close the storyboard.
 - In the landscape local player, the player top bar always exposes a labeled storyboard
   toggle: **Hide storyboard** when the sidebar is visible and **Show storyboard** when hidden.
@@ -127,9 +131,10 @@ storyboard slots, using constrained container sizes without requiring media deco
 - Switching the same composition from portrait to landscape and back retains the video
   slot's remembered state and recalculates the layout.
 - Tapping the video area while the fine preview is open dismisses that preview.
-- A vertical thumbnail selection seeks, dismisses the landscape sidebar or expanded portrait
-  dialog as appropriate, and does not dismiss the ordinary horizontal strip. In landscape,
-  the toolbar toggle hides and reopens the sidebar without replacing the video player; the
+- A thumbnail selection seeks without dismissing the landscape one-column sidebar
+  or ordinary horizontal strip; selecting in the expanded portrait vertical dialog dismisses
+  that dialog. In landscape, the toolbar toggle hides and reopens the sidebar without
+  replacing the video player; the
   video expands to the full container width when hidden and resumes its previous layout when
   visible. No manual hide control appears in portrait or PiP.
 
