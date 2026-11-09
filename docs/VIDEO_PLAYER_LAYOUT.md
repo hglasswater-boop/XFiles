@@ -131,9 +131,10 @@ storyboard slots, using constrained container sizes without requiring media deco
 - Switching the same composition from portrait to landscape and back retains the video
   slot's remembered state and recalculates the layout.
 - Tapping the video area while the fine preview is open dismisses that preview.
-- A vertical thumbnail selection seeks, dismisses the landscape sidebar or expanded portrait
-  dialog as appropriate, and does not dismiss the ordinary horizontal strip. In landscape,
-  the toolbar toggle hides and reopens the sidebar without replacing the video player; the
+- A thumbnail selection seeks without dismissing the landscape one-column sidebar
+  or ordinary horizontal strip; selecting in the expanded portrait vertical dialog dismisses
+  that dialog. In landscape, the toolbar toggle hides and reopens the sidebar without
+  replacing the video player; the
   video expands to the full container width when hidden and resumes its previous layout when
   visible. No manual hide control appears in portrait or PiP.
 
