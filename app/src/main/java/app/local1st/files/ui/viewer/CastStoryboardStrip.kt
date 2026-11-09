@@ -246,8 +246,15 @@ internal fun CastStoryboardStrip(
                 entry.size,
                 vertical,
             ) { mutableStateOf<Int?>(null) }
+            var previousFinePlaybackPositionMs by remember(
+                entry.id,
+                entry.mtime,
+                entry.size,
+                vertical,
+            ) { mutableStateOf<Long?>(null) }
 
             fun showFinePreview(index: Int) {
+                previousFinePlaybackPositionMs = positionMs
                 lastFineFrameIndex = index
                 if (fineFrameIndex == null) {
                     onFinePreviewVisibilityChanged(true)
@@ -258,6 +265,7 @@ internal fun CastStoryboardStrip(
             fun hideFinePreview() {
                 if (fineFrameIndex != null) {
                     fineFrameIndex = null
+                    previousFinePlaybackPositionMs = null
                     onFinePreviewVisibilityChanged(false)
                 }
             }
@@ -277,8 +285,11 @@ internal fun CastStoryboardStrip(
             }
             LaunchedEffect(positionMs, fineFrameIndex, fineWindowEndTimesMs) {
                 val currentFineIndex = fineFrameIndex ?: return@LaunchedEffect
+                val previousPositionMs = previousFinePlaybackPositionMs ?: positionMs
+                previousFinePlaybackPositionMs = positionMs
                 val targetIndex = fineStoryboardFollowTargetIndex(
                     currentIndex = currentFineIndex,
+                    previousPositionMs = previousPositionMs,
                     positionMs = positionMs,
                     fineWindowEndTimesMs = fineWindowEndTimesMs,
                 ) ?: return@LaunchedEffect
