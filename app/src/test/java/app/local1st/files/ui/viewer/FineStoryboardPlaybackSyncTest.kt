@@ -10,6 +10,7 @@ class FineStoryboardPlaybackSyncTest {
         assertNull(
             fineStoryboardFollowTargetIndex(
                 currentIndex = 1,
+                previousPositionMs = 14_000L,
                 positionMs = 14_999L,
                 fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L),
             ),
@@ -17,6 +18,7 @@ class FineStoryboardPlaybackSyncTest {
         assertNull(
             fineStoryboardFollowTargetIndex(
                 currentIndex = 1,
+                previousPositionMs = 14_999L,
                 positionMs = 15_000L,
                 fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L),
             ),
@@ -29,6 +31,7 @@ class FineStoryboardPlaybackSyncTest {
             2,
             fineStoryboardFollowTargetIndex(
                 currentIndex = 1,
+                previousPositionMs = 15_000L,
                 positionMs = 15_001L,
                 fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L, 35_000L),
             ),
@@ -41,6 +44,7 @@ class FineStoryboardPlaybackSyncTest {
             4,
             fineStoryboardFollowTargetIndex(
                 currentIndex = 1,
+                previousPositionMs = 14_000L,
                 positionMs = 42_000L,
                 fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L, 35_000L, 45_000L),
             ),
@@ -52,6 +56,7 @@ class FineStoryboardPlaybackSyncTest {
         assertNull(
             fineStoryboardFollowTargetIndex(
                 currentIndex = 3,
+                previousPositionMs = 22_000L,
                 positionMs = 12_000L,
                 fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L, 35_000L, 45_000L),
             ),
@@ -63,8 +68,47 @@ class FineStoryboardPlaybackSyncTest {
         assertNull(
             fineStoryboardFollowTargetIndex(
                 currentIndex = 2,
+                previousPositionMs = 22_000L,
                 positionMs = 99_000L,
                 fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L),
+            ),
+        )
+    }
+
+
+    @Test
+    fun manuallyOpenedPastSectionDoesNotJumpToPlaybackAlreadyBeyondItsWindow() {
+        assertNull(
+            fineStoryboardFollowTargetIndex(
+                currentIndex = 1,
+                previousPositionMs = 42_000L,
+                positionMs = 43_000L,
+                fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L, 35_000L, 45_000L),
+            ),
+        )
+    }
+
+    @Test
+    fun forwardSeekFromAlreadyBeyondWindowKeepsManuallySelectedPastSection() {
+        assertNull(
+            fineStoryboardFollowTargetIndex(
+                currentIndex = 1,
+                previousPositionMs = 42_000L,
+                positionMs = 60_000L,
+                fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L, 35_000L, 45_000L),
+            ),
+        )
+    }
+
+    @Test
+    fun playbackCanFollowAgainAfterReturningBehindManuallySelectedWindow() {
+        assertEquals(
+            2,
+            fineStoryboardFollowTargetIndex(
+                currentIndex = 1,
+                previousPositionMs = 12_000L,
+                positionMs = 15_001L,
+                fineWindowEndTimesMs = listOf(5_000L, 15_000L, 25_000L, 35_000L),
             ),
         )
     }
