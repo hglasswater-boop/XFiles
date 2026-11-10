@@ -529,9 +529,16 @@ class DefaultOperationEngine(
             t.current(src.name)
             // fs.delete is recursive (leaf-first inside the fs); progress advances
             // per top-level source, scaled by the scanned subtree size.
-            registry.forScheme(src.scheme).delete(src)
-            removed += src.id
             XId.parent(src.id)?.let(dirty::add)
+            try {
+                registry.forScheme(src.scheme).delete(src)
+            } catch (error: Exception) {
+                // A recursive delete may have removed some children before the failure.
+                // Refresh the still-present folder as well as its parent.
+                if (src.isDir) dirty += src.id
+                throw error
+            }
+            removed += src.id
             t.itemsDone(perSource[i])
             deleted += perSource[i]
         }

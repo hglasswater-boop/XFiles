@@ -1,12 +1,10 @@
 # SMB delete semantics
 
-Status: product/implementation contract for SMB file deletion
+Status: product/implementation contract for SMB file and directory deletion (Issue #279)
 
 ## Scope
 
-This document defines the behavior of `XFileSystem.delete()` for regular files on SMB shares. Directory deletion keeps its existing recursive behavior and is outside the read-only-file recovery described here.
-
-The current production filesystem path is SMBJ. The Pure Rust SMB backend must implement the same externally visible semantics when filesystem mutations move to Rust.
+This document defines `XFileSystem.delete()` for regular files and directories on SMB shares. The current filesystem mutation path is SMBJ; directory listing may separately use Rust. The Pure Rust SMB backend must preserve these externally visible semantics when filesystem mutations migrate to Rust.
 
 ## Protocol fact behind `STATUS_CANNOT_DELETE`
 
@@ -35,6 +33,18 @@ For a regular SMB file:
 
 This is a narrow recovery path, not a general retry loop. Delete remains a non-idempotent mutation and must never be blindly replayed after an ambiguous transport failure.
 
+## Directory deletion
+
+- The existing UI requires explicit confirmation before any delete; cancelling never starts the operation. The confirmation applies to all descendants of a selected directory.
+- Delete the selected directory's contents depth-first, files before their parent folders, then remove the now-empty selected directory. Empty directories must also work.
+- Every regular file encountered, including inside nested directories, uses the **same read-only recovery** as deleting a single file. SMBJ's `DiskShare.rmdir(path, true)` recursively calls `rm` and bypasses XFiles' file recovery, so it must not be used for this operation.
+- Ignore `.` and `..` directory enumeration entries. Reject unsafe child names (blank, path separators, or other traversal names), rather than letting them escape the selected subtree.
+- Never walk directory reparse points/junctions; remove the link entry itself without traversing its target. Check the selected root as well.
+- Do not issue a recursive delete for the configured connection root or the SMB share root. Deleting a saved connection uses the distinct connection-management UI and does not modify NAS contents.
+- Stop at the first failure. Do not report success or blindly retry non-idempotent mutations; already removed children may remain removed, and the filesystem should be refreshed to reflect partial progress.
+- Do not swallow ACL, sharing, transport, or directory-not-empty failures. Preserve the SMB cause for the UI's existing error handling.
+- Keep one authenticated share open for the operation; use an explicit traversal stack rather than unbounded recursion.
+
 ## Error presentation
 
 Low-level SMB diagnostics remain useful for logs, but the filesystem layer must preserve the meaningful NTSTATUS and operation. The UI must not infer that `STATUS_CANNOT_DELETE` always means missing ACL permissions: for the `FileDispositionInformation` path it specifically requires read-only handling as described above.
@@ -48,6 +58,16 @@ Regression coverage must prove:
 - `STATUS_CANNOT_DELETE` with no read-only attribute is propagated without mutation;
 - a read-only file has only `FILE_ATTRIBUTE_READONLY` cleared, then delete is retried once;
 - a read-only-only attribute set uses `FILE_ATTRIBUTE_NORMAL` rather than zero;
-- if the retry fails, restoration uses the original attribute value.
+- if the retry fails, restoration uses the original attribute value;
+- an empty directory is deleted;
+- populated and nested directories are removed in postorder and every descendant file passes through the file-delete recovery;
+- `.`/`..` entries are ignored and an unsafe child path fails closed;
+- directory reparse points are never traversed;
+- a failure interrupts deletion and propagates the original error;
+- deleting the connection root is rejected without touching the server.
 
 The Rust backend must carry equivalent protocol-level tests before it replaces the SMBJ mutation path.
+
+## NAS acceptance tests (pending)
+
+On a Synology SMB share, verify deleting an empty folder, a normal nonempty folder, nested folders, a folder containing a read-only file, and failure cases (insufficient permission / open handles). Verify that a directory link, if supported, does not delete its target. Do not close Issue #279 until these real-device checks and CI are complete.

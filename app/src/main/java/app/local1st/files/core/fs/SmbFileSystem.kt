@@ -5,6 +5,7 @@ import app.local1st.files.core.prefs.SmbConnectionRepo
 import app.local1st.files.core.util.FileTypes
 import com.hierynomus.msdtyp.AccessMask
 import com.hierynomus.msfscc.FileAttributes
+import com.hierynomus.msfscc.fileinformation.FileBasicInformation
 import com.hierynomus.mssmb2.SMB2CreateDisposition
 import com.hierynomus.mssmb2.SMB2CreateOptions
 import com.hierynomus.mssmb2.SMB2ShareAccess
@@ -223,14 +224,53 @@ open class SmbFileSystem(
     }
 
     override fun delete(entry: XEntry) {
+        // The connection row is a synthetic browsing root, not a directory to delete on NAS.
+        if (entry.isDir && !entry.id.removePrefix("$scheme://").contains('/')) {
+            throw IOException("Cannot delete an SMB connection root")
+        }
         val target = target(entry.id)
         val path = toSmbPath(target.path)
         withShare(target.connection) { share ->
-            if (entry.isDir) {
-                share.rmdir(path, true)
-            } else {
+            if (!entry.isDir) {
                 deleteSmbFileWithReadOnlyRecovery(SmbjFileDeleteOperations(share, path))
+                return@withShare
             }
+
+            val attributes = share.getFileInformation(path, FileBasicInformation::class.java).fileAttributes
+            if (EnumWithValue.EnumUtils.isSet(attributes, FileAttributes.FILE_ATTRIBUTE_REPARSE_POINT)) {
+                // Removing a directory link must not enumerate its target's contents.
+                share.rmdir(path, false)
+                return@withShare
+            }
+
+            deleteSmbDirectoryRecursively(path, object : SmbDirectoryDeleteOperations {
+                override fun list(path: String): List<SmbDeleteDirectoryEntry> =
+                    share.list(path)
+                        .asSequence()
+                        .filterNot { it.fileName == "." || it.fileName == ".." }
+                        .map { info ->
+                            SmbDeleteDirectoryEntry(
+                                name = info.fileName,
+                                isDirectory = EnumWithValue.EnumUtils.isSet(
+                                    info.fileAttributes,
+                                    FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
+                                ),
+                                isReparsePoint = EnumWithValue.EnumUtils.isSet(
+                                    info.fileAttributes,
+                                    FileAttributes.FILE_ATTRIBUTE_REPARSE_POINT,
+                                ),
+                            )
+                        }
+                        .toList()
+
+                override fun deleteFile(path: String) {
+                    deleteSmbFileWithReadOnlyRecovery(SmbjFileDeleteOperations(share, path))
+                }
+
+                override fun deleteDirectory(path: String) {
+                    share.rmdir(path, false)
+                }
+            })
         }
     }
 
