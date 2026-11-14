@@ -37,6 +37,7 @@ private sealed interface VideoCompatibilityState {
     data object Checking : VideoCompatibilityState
     data object Supported : VideoCompatibilityState
     data class Unsupported(val codec: String?) : VideoCompatibilityState
+    data class PlaybackFailed(val code: Int, val isFileReadFailure: Boolean) : VideoCompatibilityState
 }
 
 /**
@@ -75,10 +76,21 @@ internal fun VideoCompatibilityGuard(
     DisposableEffect(player, entry.id) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                if (!error.isVideoDecoderFailure()) return
                 player.pause()
-                val codec = player.videoFormat?.sampleMimeType?.let(::codecLabelForMime)
-                state = VideoCompatibilityState.Unsupported(codec)
+                state = when (classifyVideoPlaybackFailure(error)) {
+                    VideoPlaybackFailure.DECODER -> {
+                        val codec = player.videoFormat?.sampleMimeType?.let(::codecLabelForMime)
+                        VideoCompatibilityState.Unsupported(codec)
+                    }
+                    VideoPlaybackFailure.FILE_IO -> VideoCompatibilityState.PlaybackFailed(
+                        error.errorCode,
+                        isFileReadFailure = true,
+                    )
+                    VideoPlaybackFailure.OTHER -> VideoCompatibilityState.PlaybackFailed(
+                        error.errorCode,
+                        isFileReadFailure = false,
+                    )
+                }
             }
         }
         player.addListener(listener)
@@ -89,11 +101,28 @@ internal fun VideoCompatibilityGuard(
         VideoCompatibilityState.Checking -> Unit
         VideoCompatibilityState.Supported -> content()
         is VideoCompatibilityState.Unsupported -> {
-            UnsupportedVideoCard(
-                entry = entry,
-                codec = compatibility.codec,
+            VideoPlaybackFailureCard(
+                title = stringResource(R.string.cannot_play, entry.name),
+                detail = compatibility.codec?.let { stringResource(R.string.file_type, it) },
                 canOpenExternally = IntentUtils.canExternalRead(entry),
                 externalOpenFailed = externalOpenFailed,
+                entryName = entry.name,
+                onOpenExternally = {
+                    externalOpenFailed = !IntentUtils.openWith(context, entry)
+                },
+                onClose = onClose,
+            )
+        }
+        is VideoCompatibilityState.PlaybackFailed -> {
+            VideoPlaybackFailureCard(
+                title = stringResource(
+                    if (compatibility.isFileReadFailure) R.string.cannot_read else R.string.cannot_play,
+                    entry.name,
+                ),
+                detail = "Media3 error ${compatibility.code}",
+                canOpenExternally = IntentUtils.canExternalRead(entry),
+                externalOpenFailed = externalOpenFailed,
+                entryName = entry.name,
                 onOpenExternally = {
                     externalOpenFailed = !IntentUtils.openWith(context, entry)
                 },
@@ -104,9 +133,10 @@ internal fun VideoCompatibilityGuard(
 }
 
 @Composable
-private fun UnsupportedVideoCard(
-    entry: XEntry,
-    codec: String?,
+private fun VideoPlaybackFailureCard(
+    title: String,
+    detail: String?,
+    entryName: String,
     canOpenExternally: Boolean,
     externalOpenFailed: Boolean,
     onOpenExternally: () -> Unit,
@@ -123,13 +153,13 @@ private fun UnsupportedVideoCard(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    stringResource(R.string.cannot_play, entry.name),
+                    title,
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                 )
-                codec?.let {
+                detail?.let {
                     Text(
-                        stringResource(R.string.file_type, it),
+                        it,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
@@ -137,7 +167,7 @@ private fun UnsupportedVideoCard(
                 }
                 if (externalOpenFailed) {
                     Text(
-                        stringResource(R.string.no_app_can_open, entry.name),
+                        stringResource(R.string.no_app_can_open, entryName),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         textAlign = TextAlign.Center,
@@ -193,10 +223,20 @@ private fun codecLabelForMime(mime: String): String = when (mime.lowercase()) {
     else -> mime
 }
 
-private fun PlaybackException.isVideoDecoderFailure(): Boolean = errorCode in setOf(
+internal enum class VideoPlaybackFailure { DECODER, FILE_IO, OTHER }
+
+/** Do not mislabel removable-storage I/O failures as unsupported video codecs. */
+internal fun classifyVideoPlaybackFailure(error: PlaybackException): VideoPlaybackFailure = when (error.errorCode) {
     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
     PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
     PlaybackException.ERROR_CODE_DECODING_FAILED,
     PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-)
+    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> VideoPlaybackFailure.DECODER
+
+    PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+    PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
+    PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE -> VideoPlaybackFailure.FILE_IO
+
+    else -> VideoPlaybackFailure.OTHER
+}
