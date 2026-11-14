@@ -37,8 +37,7 @@ private sealed interface VideoCompatibilityState {
     data object Checking : VideoCompatibilityState
     data object Supported : VideoCompatibilityState
     data class Unsupported(val codec: String?) : VideoCompatibilityState
-    data class ReadFailed(val code: Int) : VideoCompatibilityState
-    data class PlaybackFailed(val code: Int) : VideoCompatibilityState
+    data class PlaybackFailed(val code: Int, val isFileReadFailure: Boolean) : VideoCompatibilityState
 }
 
 /**
@@ -83,8 +82,14 @@ internal fun VideoCompatibilityGuard(
                         val codec = player.videoFormat?.sampleMimeType?.let(::codecLabelForMime)
                         VideoCompatibilityState.Unsupported(codec)
                     }
-                    VideoPlaybackFailure.FILE_IO -> VideoCompatibilityState.ReadFailed(error.errorCode)
-                    VideoPlaybackFailure.OTHER -> VideoCompatibilityState.PlaybackFailed(error.errorCode)
+                    VideoPlaybackFailure.FILE_IO -> VideoCompatibilityState.PlaybackFailed(
+                        error.errorCode,
+                        isFileReadFailure = true,
+                    )
+                    VideoPlaybackFailure.OTHER -> VideoCompatibilityState.PlaybackFailed(
+                        error.errorCode,
+                        isFileReadFailure = false,
+                    )
                 }
             }
         }
@@ -108,19 +113,13 @@ internal fun VideoCompatibilityGuard(
                 onClose = onClose,
             )
         }
-        is VideoCompatibilityState.ReadFailed, is VideoCompatibilityState.PlaybackFailed -> {
-            val readFailed = compatibility is VideoCompatibilityState.ReadFailed
-            val code = when (compatibility) {
-                is VideoCompatibilityState.ReadFailed -> compatibility.code
-                is VideoCompatibilityState.PlaybackFailed -> compatibility.code
-                else -> error("Unexpected playback state")
-            }
+        is VideoCompatibilityState.PlaybackFailed -> {
             VideoPlaybackFailureCard(
                 title = stringResource(
-                    if (readFailed) R.string.cannot_read else R.string.cannot_play,
+                    if (compatibility.isFileReadFailure) R.string.cannot_read else R.string.cannot_play,
                     entry.name,
                 ),
-                detail = "Media3 error $code",
+                detail = "Media3 error ${compatibility.code}",
                 canOpenExternally = IntentUtils.canExternalRead(entry),
                 externalOpenFailed = externalOpenFailed,
                 entryName = entry.name,
