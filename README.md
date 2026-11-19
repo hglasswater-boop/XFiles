@@ -124,9 +124,9 @@ XFiles is an Android phone app (package ID: `app.local1st.files`).
 
 Grab signed builds from [**GitHub Releases**](https://github.com/hglasswater-boop/XFiles/releases).
 
-For the current stable line, `v1.4.11-smb`:
+For the current stable line, `v1.4.12-smb`:
 
-- `XFiles-1.4.11-smb.apk` is the normal mobile edition.
+- `XFiles-1.4.12-smb.apk` is the normal mobile edition.
 - The release workflow also builds a mobile AAB as a CI artifact.
 
 The built-in phone update checker compares the latest stable signed release with the rolling signed `debug-latest` builds, offers the newest installable `versionCode`, and prefers stable when both builds are equally new. Download and installation still require your confirmation; no downgrade is attempted. Existing versions which only know `debug-latest` can acquire this updated checker from their next debug feed update. The release workflow publishes versioned stable packages and a Mobile AAB; Nightly remains retired. `diagnose/*` branches may publish a separate `diagnostic-latest` package.
