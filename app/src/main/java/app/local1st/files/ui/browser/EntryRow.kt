@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CastConnected
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -71,6 +72,7 @@ import app.local1st.files.core.prefs.BrowserDisplayConfig
 import app.local1st.files.core.prefs.BrowserDisplaySettings
 import app.local1st.files.core.prefs.FilenameDisplayMode
 import app.local1st.files.core.prefs.FolderSizeSettings
+import app.local1st.files.core.prefs.ThumbnailSize
 import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.thumb.RemoteFile
 import app.local1st.files.core.thumb.RemoteVideoThumb
@@ -98,6 +100,7 @@ fun EntryRow(
     focused: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onDetails: () -> Unit,
     onToggleSelect: () -> Unit,
     enabled: Boolean = true,
     richContent: Boolean = true,
@@ -216,6 +219,8 @@ fun EntryRow(
                 EntryThumbnail(
                     entry = entry,
                     display = display,
+                    enabled = enabled,
+                    onDetails = onDetails,
                     onOpenAt = { positionMs ->
                         VideoResumeStore.requestStart(entry.id, positionMs)
                         onClick()
@@ -531,24 +536,23 @@ private fun StartupEntryRow(
  * Thumbnail with a vector-icon fallback: the icon shows until the image actually arrives
  * (video frame extraction can take seconds on a cold cache) and stays if loading fails,
  * so the slot is never blank. Videos additionally get a small play badge and their duration
- * overlaid at the lower-right corner. Tapping the thumbnail itself opens an on-demand storyboard;
+ * overlaid at the lower-right corner. Large video thumbnails also have a top-left info
+ * shortcut for file details. Tapping elsewhere on the thumbnail opens an on-demand storyboard;
  * tapping the rest of the row keeps the normal open/play behavior.
  */
 @Composable
 private fun EntryThumbnail(
     entry: XEntry,
     display: BrowserDisplayConfig,
+    enabled: Boolean,
+    onDetails: () -> Unit,
     onOpenAt: (Long) -> Unit,
 ) {
     val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
     var loaded by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
     var showStoryboard by remember(entry.id, entry.mtime, entry.size) { mutableStateOf(false) }
     var thumbnailGeneration by remember(entry.id, entry.mtime, entry.size) { mutableIntStateOf(0) }
-    val previewDescription = if (isVideo) {
-        "${entry.name} · ${stringResource(R.string.details)}"
-    } else {
-        ""
-    }
+    val previewDescription = entry.name
     val videoMetadata by produceState<VideoMetadata?>(
         initialValue = null,
         entry.id,
@@ -612,6 +616,13 @@ private fun EntryThumbnail(
                 .height(height)
                 .clip(RoundedCornerShape(8.dp)),
         )
+        if (shouldShowVideoThumbnailDetails(isVideo, display.thumbnailSize, enabled)) {
+            VideoThumbnailDetailsButton(
+                description = "${stringResource(R.string.details)}: ${entry.name}",
+                onClick = onDetails,
+                modifier = Modifier.align(Alignment.TopStart).padding(3.dp),
+            )
+        }
         if (isVideo && loaded) {
             Box(
                 Modifier
@@ -659,6 +670,37 @@ private fun EntryThumbnail(
                 loaded = false
                 thumbnailGeneration += 1
             },
+        )
+    }
+}
+
+internal fun shouldShowVideoThumbnailDetails(
+    isVideo: Boolean,
+    thumbnailSize: ThumbnailSize,
+    enabled: Boolean,
+): Boolean = isVideo && enabled &&
+    thumbnailSize.widthDp >= ThumbnailSize.LARGE.widthDp
+
+@Composable
+internal fun VideoThumbnailDetailsButton(
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.60f))
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Outlined.Info,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(22.dp),
         )
     }
 }

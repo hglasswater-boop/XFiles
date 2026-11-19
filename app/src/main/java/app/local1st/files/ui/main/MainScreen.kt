@@ -184,6 +184,11 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                     vm.dialog.value = DialogRequest.EntryMenu(entry)
                                 }
                             },
+                            onEntryDetails = { entry ->
+                                if (pendingTransfer == null) {
+                                    vm.dialog.value = DialogRequest.Details(entry)
+                                }
+                            },
                             onInitialLayoutReady = { version ->
                                 initiallyLaidOutPanes = initiallyLaidOutPanes + index
                                 vm.onPaneInitialLayoutReady(index, version)
@@ -237,6 +242,11 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         onEntryMenu = { entry ->
                             if (pendingTransfer == null) {
                                 vm.dialog.value = DialogRequest.EntryMenu(entry)
+                            }
+                        },
+                        onEntryDetails = { entry ->
+                            if (pendingTransfer == null) {
+                                vm.dialog.value = DialogRequest.Details(entry)
                             }
                         },
                         onInitialLayoutReady = { version ->
