@@ -19,6 +19,14 @@ class TreeIndentWidthTest {
     }
 
     @Test
+    fun thumbnailLeafReclaimsUnusedChevronSpace() {
+        // The regular slot includes the 12dp chevron and its density-dependent lead pixel.
+        val regularSlot = 13.dp
+        assertEquals(4.dp, leafLeadingSlotWidth(wantsThumbnail = true, regularSlotWidth = regularSlot))
+        assertEquals(regularSlot, leafLeadingSlotWidth(wantsThumbnail = false, regularSlotWidth = regularSlot))
+    }
+
+    @Test
     fun chevronKeepsOriginalTwelveDpCanvas() {
         assertEquals(12.dp, TreeChevronWidth)
     }
