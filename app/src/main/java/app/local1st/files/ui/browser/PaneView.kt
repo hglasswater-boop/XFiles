@@ -106,6 +106,7 @@ fun PaneView(
     onActivate: () -> Unit,
     onOpenEntry: (XEntry) -> Unit,
     onEntryMenu: (XEntry) -> Unit,
+    onEntryDetails: (XEntry) -> Unit,
     onInitialLayoutReady: (treeVersion: Long) -> Unit,
     breadcrumbAlignment: Alignment = Alignment.TopStart,
     headerStartPadding: Dp = 6.dp,
@@ -516,6 +517,10 @@ fun PaneView(
                                         onActivate()
                                         if (addSmbServer) showAddSmbServer = true
                                         else onEntryMenu(node.entry)
+                                    },
+                                    onDetails = {
+                                        onActivate()
+                                        onEntryDetails(node.entry)
                                     },
                                     onToggleSelect = {
                                         onActivate()

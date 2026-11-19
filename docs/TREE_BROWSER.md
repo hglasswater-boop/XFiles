@@ -24,6 +24,15 @@ The count shown for a directory must describe the same filesystem contents as th
 
 This keeps tree counts fresh without adding recursive scans or broad refreshes to normal navigation.
 
+## Video thumbnail information shortcut (Issue #290)
+
+- The regular tree list keeps its existing behavior: tapping a video thumbnail opens its storyboard, tapping the rest of the row opens the file, and long-press opens the entry menu.
+- For videos with a **LARGE (80 × 56 dp)** or **EXTRA_LARGE (104 × 72 dp)** thumbnail, show a small circular `Info` button in the thumbnail's **top-left**. Its action opens the existing `DialogRequest.Details(entry)` dialog with size, media metadata, and any embedded comment. This must not start playback or open the storyboard.
+- The bottom-right remains reserved for duration and the center for the play glyph. The overlay must not change list geometry.
+- SMALL (36 × 36 dp) and MEDIUM (56 × 42 dp) lack space for a separate reliable touch target; they retain details via the existing long-press menu. Non-video files and the lightweight startup row do not show this shortcut.
+- Both local files and SMB entries use the same callback. Respect read-only/snapshot state and any pending destination-selection workflow, and provide an accessible content description for the action.
+- The test contract covers the video/size/snapshot visibility policy and verifies via UI interaction that tapping the info overlay invokes details without invoking the thumbnail storyboard or row open action.
+
 ## Compact tree indentation (Issue #292)
 
 - The tree's visible hierarchy guide reserves **8 dp per visible level** rather than 12 dp. The maximum visible indent remains governed by the existing browser setting (0–4 levels). At four levels the guide occupies 32 dp, down from 48 dp.
