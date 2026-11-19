@@ -37,6 +37,21 @@ This keeps tree counts fresh without adding recursive scans or broad refreshes t
 
 - The tree's visible hierarchy guide reserves **8 dp per visible level** rather than 12 dp. The maximum visible indent remains governed by the existing browser setting (0–4 levels). At four levels the guide occupies 32 dp, down from 48 dp.
 - Both the lightweight startup rows and normal rows use the **same** indent calculation so thumbnail and filename positions do not jump as the list finishes loading. Deep hierarchy still compresses to the most recent visible levels, without changing the breadcrumb's full path.
-- The expand chevron keeps its former **12 dp canvas width** plus its existing leading 1 physical pixel; its leaf-placeholder width is identical. Reducing the guide indentation must not shrink the arrow glyph or alter row tap, long-press, selection, or expanded/collapsed behavior.
+- The expand chevron keeps its former **12 dp canvas width** plus its existing leading 1 physical pixel; its ordinary **non-thumbnail** leaf-placeholder width is identical. Thumbnail leaves use the narrower 4 dp slot documented below (Issue #297). Reducing the guide indentation must not shrink the arrow glyph or alter row tap, long-press, selection, or expanded/collapsed behavior.
 - Guide elbows, vertical continuation lines, and branch ends remain inside the reduced slots. Thumbnail, selection-control, and row-height dimensions do not change.
 - Regression checks cover 0, 1, 2 and 4 visible indent levels and the fixed chevron/placeholder width. Visual verification on an actual device remains a separate completion gate.
+
+## Thumbnail-to-tree gap (Issue #297)
+
+- A video or image **thumbnail leaf row** has no expand chevron; the empty space between the last tree guide and the thumbnail is **4 dp**, rather than reserving the container's full 12 dp chevron width plus its existing lead pixel.
+- Keep the **8 dp per visible tree level** guide geometry unchanged, and leave the container chevron at **12 dp**. Folder rows and non-thumbnail file rows keep their existing leading slot; this change targets wasted space in thumbnail rows only.
+- The regular row and lightweight startup row must apply the same thumbnail-leaf gap, so swapping between row modes cannot shift the thumbnail horizontally. Existing thumbnail sizes, filenames, details icon, playback and row hit targets are unchanged; Issue #299 separately moves the selection circle next to thumbnail leaves.
+- Regression coverage asserts the 4 dp thumbnail-leaf gap remains narrower than the existing 12 dp chevron slot; on-device visual inspection verifies the reduced spacing and retained tree connectors.
+
+## Selection circle next to thumbnail (Issue #299)
+
+- For selectable **thumbnail leaf rows**, render in the order **tree guide → thumbnail → selection circle → filename/details**. The visible 20 dp circle starts **2 dp** after the thumbnail right edge; the selection control reserves **24 dp** horizontally (20 dp circle + **2 dp on both the left and the right**) instead of 36 dp, never overlaps the thumbnail, and triggers only selection.
+- With **no thumbnail**, keep the existing layout: file/folder icon → filename/details → right-aligned selection circle. Containers, ineligible rows, cast indicators and loading state keep their existing behavior.
+- Both regular tree rows and lightweight startup rows must use the same thumbnail-adjacent 24 dp control width, so switching modes does not shift the filename or selection button horizontally. Startup rows do not add gesture handling.
+- Selection-circles remain keyboard/accessibility-addressable when interactive; a selection tap must not start media playback or open the storyboard. Keep the full-width row tap and the thumbnail's own storyboard action.
+- UI regression tests measure the circle glyph's 2 dp left offset, 2 dp right margin and 24 dp layout/tap slot, test selection-only interaction, and verify that non-thumbnail rows retain their centered circle in the original 36 dp slot. Compose layout rounds to physical pixels; coordinate assertions allow up to 0.5 dp rounding error, while functional selection and tap isolation remain exact. Physical-device verification remains separate.

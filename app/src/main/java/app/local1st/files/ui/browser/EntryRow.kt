@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,6 +61,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.local1st.files.R
@@ -93,8 +95,18 @@ private val IndentWidth = 8.dp
 internal val TreeChevronWidth = 12.dp
 
 internal fun treeIndentWidth(visibleDepth: Int) = IndentWidth * visibleDepth.coerceAtLeast(0)
+
+// Leaf thumbnails have no expand arrow; keep a small gap so tree elbows stay visible.
+internal fun leafLeadingSlotWidth(wantsThumbnail: Boolean, regularSlotWidth: Dp): Dp =
+    if (wantsThumbnail) 4.dp else regularSlotWidth
 private val BaseRowHeight = 48.dp
 private val SelectionWidth = 36.dp
+
+internal fun selectionControlWidth(adjacentToThumbnail: Boolean) =
+    if (adjacentToThumbnail) 24.dp else SelectionWidth
+
+internal fun selectionFollowsThumbnail(wantsThumbnail: Boolean, selectable: Boolean): Boolean =
+    wantsThumbnail && selectable
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -214,11 +226,14 @@ fun EntryRow(
                 animate = true,
             )
         } else {
-            Spacer(Modifier.width(expandSlotWidth()))
+            Spacer(Modifier.width(leafLeadingSlotWidth(wantsThumbnail, expandSlotWidth())))
         }
 
-        // Icon or thumbnail (selection is the trailing control, to avoid mis-taps here).
-        Box(Modifier.padding(end = 6.dp), contentAlignment = Alignment.Center) {
+        // Thumbnail selection is positioned immediately after the thumbnail without a spacer.
+        Box(
+            Modifier.padding(end = if (selectionFollowsThumbnail(wantsThumbnail, selectable)) 0.dp else 6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             if (wantsThumbnail) {
                 EntryThumbnail(
                     entry = entry,
@@ -239,6 +254,16 @@ fun EntryRow(
                     expanded = node.expanded,
                 )
             }
+        }
+
+        if (selectionFollowsThumbnail(wantsThumbnail, selectable)) {
+            BrowserSelectionButton(
+                selected = selected,
+                enabled = enabled,
+                adjacentToThumbnail = true,
+                rowMinHeight = rowMinHeight,
+                onToggleSelect = onToggleSelect,
+            )
         }
 
         val nameMaxLines = when (display.filenameMode) {
@@ -339,26 +364,57 @@ fun EntryRow(
             LoadingIndicator(modifier = Modifier.size(26.dp))
         }
 
-        if (selectable) {
-            val icon = if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked
-            val description = stringResource(if (selected) R.string.deselect else R.string.select)
-            val tint = if (selected) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.outlineVariant
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .width(SelectionWidth)
-                    .heightIn(min = rowMinHeight)
-                    .clickable(enabled = enabled, onClick = onToggleSelect),
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = description,
-                    tint = tint,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        if (selectable && !wantsThumbnail) {
+            BrowserSelectionButton(
+                selected = selected,
+                enabled = enabled,
+                adjacentToThumbnail = false,
+                rowMinHeight = rowMinHeight,
+                onToggleSelect = onToggleSelect,
+            )
         }
+    }
+}
+
+@Composable
+internal fun BrowserSelectionButton(
+    selected: Boolean,
+    enabled: Boolean,
+    adjacentToThumbnail: Boolean,
+    rowMinHeight: Dp,
+    onToggleSelect: (() -> Unit)?,
+) {
+    val icon = if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked
+    val tint = if (selected) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.outlineVariant
+    val description = if (onToggleSelect != null) {
+        stringResource(if (selected) R.string.deselect else R.string.select)
+    } else {
+        null
+    }
+    Box(
+        modifier = Modifier
+            .width(selectionControlWidth(adjacentToThumbnail))
+            .heightIn(min = rowMinHeight)
+            .then(
+                if (onToggleSelect != null) {
+                    Modifier.clickable(enabled = enabled, onClick = onToggleSelect)
+                } else {
+                    Modifier
+                },
+            )
+            .testTag("browser-selection-target"),
+        contentAlignment = if (adjacentToThumbnail) Alignment.CenterStart else Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = tint,
+            modifier = Modifier
+                .offset(x = if (adjacentToThumbnail) 2.dp else 0.dp)
+                .size(20.dp)
+                .testTag("browser-selection-glyph"),
+        )
     }
 }
 
@@ -452,12 +508,12 @@ private fun StartupEntryRow(
                 animate = false,
             )
         } else {
-            Spacer(Modifier.width(expandSlotWidth()))
+            Spacer(Modifier.width(leafLeadingSlotWidth(wantsThumbnail, expandSlotWidth())))
         }
         Box(
             modifier = if (wantsThumbnail) {
                 Modifier
-                    .padding(end = 6.dp)
+                    .padding(end = if (selectionFollowsThumbnail(wantsThumbnail, selectable)) 0.dp else 6.dp)
                     .width(display.thumbnailSize.widthDp.dp)
                     .height(display.thumbnailSize.heightDp.dp)
             } else {
@@ -473,6 +529,16 @@ private fun StartupEntryRow(
                 modifier = Modifier.size(if (isVolume) 28.dp else 24.dp),
             )
         }
+        if (selectionFollowsThumbnail(wantsThumbnail, selectable)) {
+            BrowserSelectionButton(
+                selected = selected,
+                enabled = enabled,
+                adjacentToThumbnail = true,
+                rowMinHeight = rowMinHeight,
+                onToggleSelect = null,
+            )
+        }
+
         val nameMaxLines = when (display.filenameMode) {
             FilenameDisplayMode.SINGLE_LINE -> 1
             FilenameDisplayMode.TWO_LINES -> 2
@@ -517,21 +583,14 @@ private fun StartupEntryRow(
                 }
             }
         }
-        if (selectable) {
-            Box(
-                Modifier
-                    .width(SelectionWidth)
-                    .heightIn(min = rowMinHeight),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                    contentDescription = null,
-                    tint = if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        if (selectable && !wantsThumbnail) {
+            BrowserSelectionButton(
+                selected = selected,
+                enabled = enabled,
+                adjacentToThumbnail = false,
+                rowMinHeight = rowMinHeight,
+                onToggleSelect = null,
+            )
         }
     }
 }
