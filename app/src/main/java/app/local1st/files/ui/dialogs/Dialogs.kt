@@ -157,7 +157,7 @@ fun MainDialogs(vm: MainViewModel) {
             ) {
                 if (isVideo) value = VideoMetadataReader.read(req.entry)
             }
-            val uploaderComment by produceState<String?>(
+            val fileComment by produceState<String?>(
                 initialValue = null,
                 req.entry.id,
                 req.entry.mtime,
@@ -222,9 +222,8 @@ fun MainDialogs(vm: MainViewModel) {
                                     )
                                 }
                             }
-                            uploaderComment?.let { comment ->
-                                Text("投稿者コメント")
-                                Text(comment)
+                            fileComment?.let { comment ->
+                                Text("コメント: $comment")
                             }
                         }
                     }
