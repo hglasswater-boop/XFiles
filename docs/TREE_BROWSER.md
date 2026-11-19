@@ -40,3 +40,10 @@ This keeps tree counts fresh without adding recursive scans or broad refreshes t
 - The expand chevron keeps its former **12 dp canvas width** plus its existing leading 1 physical pixel; its leaf-placeholder width is identical. Reducing the guide indentation must not shrink the arrow glyph or alter row tap, long-press, selection, or expanded/collapsed behavior.
 - Guide elbows, vertical continuation lines, and branch ends remain inside the reduced slots. Thumbnail, selection-control, and row-height dimensions do not change.
 - Regression checks cover 0, 1, 2 and 4 visible indent levels and the fixed chevron/placeholder width. Visual verification on an actual device remains a separate completion gate.
+
+## Thumbnail-to-tree gap (Issue #297)
+
+- A video or image **thumbnail leaf row** has no expand chevron; the empty space between the last tree guide and the thumbnail is **4 dp**, rather than reserving the container's full 12 dp chevron width plus its existing lead pixel.
+- Keep the **8 dp per visible tree level** guide geometry unchanged, and leave the container chevron at **12 dp**. Folder rows and non-thumbnail file rows keep their existing leading slot; this change targets wasted space in thumbnail rows only.
+- The regular row and lightweight startup row must apply the same thumbnail-leaf gap, so swapping between row modes cannot shift the thumbnail horizontally. Existing thumbnail sizes, filenames, details icon, playback, selection, and row hit targets are unchanged.
+- Regression coverage asserts the 4 dp thumbnail-leaf gap remains narrower than the existing 12 dp chevron slot; on-device visual inspection verifies the reduced spacing and retained tree connectors.
