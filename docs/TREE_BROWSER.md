@@ -45,5 +45,13 @@ This keeps tree counts fresh without adding recursive scans or broad refreshes t
 
 - A video or image **thumbnail leaf row** has no expand chevron; the empty space between the last tree guide and the thumbnail is **4 dp**, rather than reserving the container's full 12 dp chevron width plus its existing lead pixel.
 - Keep the **8 dp per visible tree level** guide geometry unchanged, and leave the container chevron at **12 dp**. Folder rows and non-thumbnail file rows keep their existing leading slot; this change targets wasted space in thumbnail rows only.
-- The regular row and lightweight startup row must apply the same thumbnail-leaf gap, so swapping between row modes cannot shift the thumbnail horizontally. Existing thumbnail sizes, filenames, details icon, playback, selection, and row hit targets are unchanged.
+- The regular row and lightweight startup row must apply the same thumbnail-leaf gap, so swapping between row modes cannot shift the thumbnail horizontally. Existing thumbnail sizes, filenames, details icon, playback and row hit targets are unchanged; Issue #299 separately moves the selection circle next to thumbnail leaves.
 - Regression coverage asserts the 4 dp thumbnail-leaf gap remains narrower than the existing 12 dp chevron slot; on-device visual inspection verifies the reduced spacing and retained tree connectors.
+
+## Selection circle next to thumbnail (Issue #299)
+
+- For selectable **thumbnail leaf rows**, render in the order **tree guide → thumbnail → selection circle → filename/details**. The visible 20 dp circle starts **2 dp** after the thumbnail right edge; the selection hit target still reserves **36 dp** horizontally, never overlays the thumbnail and triggers only selection.
+- With **no thumbnail**, keep the existing layout: file/folder icon → filename/details → right-aligned selection circle. Containers, ineligible rows, cast indicators and loading state keep their existing behavior.
+- Both regular tree rows and lightweight startup rows must use the same thumbnail-adjacent control position and 36 dp width, so switching modes does not shift the filename or selection button horizontally. Startup rows do not add gesture handling.
+- Selection-circles remain keyboard/accessibility-addressable when interactive; a selection tap must not start media playback or open the storyboard. Keep the full-width row tap and the thumbnail's own storyboard action.
+- UI regression tests measure the circle glyph's 2 dp offset and 36 dp hit target, test selection-only interaction, and verify the non-thumbnail centered circle. Physical-device verification remains separate.
