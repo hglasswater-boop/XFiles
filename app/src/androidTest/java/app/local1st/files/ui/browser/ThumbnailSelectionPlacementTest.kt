@@ -43,9 +43,10 @@ class ThumbnailSelectionPlacementTest {
         ).getUnclippedBoundsInRoot()
 
         assertEquals(thumbnail.right, target.left)
-        assertEquals(36.dp, target.right - target.left)
+        assertEquals(24.dp, target.right - target.left)
         assertEquals(20.dp, circle.right - circle.left)
         assertEquals(2.dp, circle.left - thumbnail.right)
+        assertEquals(2.dp, target.right - circle.right)
 
         compose.onNodeWithTag("browser-selection-target").performClick()
         compose.runOnIdle {
