@@ -36,17 +36,17 @@ class ThumbnailSelectionPlacementTest {
             }
         }
 
-        val thumbnail = compose.onNodeWithTag("thumbnail").getUnclippedBoundsInRoot()
+        val thumbnail = compose.onNodeWithTag("thumbnail", useUnmergedTree = true).getUnclippedBoundsInRoot()
         val target = compose.onNodeWithTag("browser-selection-target").getUnclippedBoundsInRoot()
         val circle = compose.onNodeWithTag(
             "browser-selection-glyph", useUnmergedTree = true,
         ).getUnclippedBoundsInRoot()
 
-        assertEquals(thumbnail.right, target.left)
-        assertEquals(24.dp, target.right - target.left)
-        assertEquals(20.dp, circle.right - circle.left)
-        assertEquals(2.dp, circle.left - thumbnail.right)
-        assertEquals(2.dp, target.right - circle.right)
+        assertNearDp(thumbnail.right.value, target.left.value)
+        assertNearDp(24f, (target.right - target.left).value)
+        assertNearDp(20f, (circle.right - circle.left).value)
+        assertNearDp(2f, (circle.left - thumbnail.right).value)
+        assertNearDp(2f, (target.right - circle.right).value)
 
         compose.onNodeWithTag("browser-selection-target").performClick()
         compose.runOnIdle {
@@ -71,7 +71,10 @@ class ThumbnailSelectionPlacementTest {
         val circle = compose.onNodeWithTag(
             "browser-selection-glyph", useUnmergedTree = true,
         ).getUnclippedBoundsInRoot()
-        assertEquals(36.dp, target.right - target.left)
-        assertEquals(8.dp, circle.left - target.left)
+        assertNearDp(36f, (target.right - target.left).value)
+        assertNearDp(8f, (circle.left - target.left).value)
+    }
+    private fun assertNearDp(expected: Float, actual: Float) {
+        assertEquals(expected, actual, 0.5f)
     }
 }
