@@ -38,8 +38,9 @@ class Mp4CommentParserTest {
         assertEquals("投稿者です\nよろしく", extract(file(comment = "投稿者です\nよろしく", description = "説明")))
     }
 
-    @Test fun descriptionIsOnlyFallback() {
-        assertEquals("説明", extract(file(description = "説明")))
+    @Test fun onlyTheGenericCommentTagCountsAsAComment() {
+        assertEquals("ユーザー設定メモ", extract(file(comment = "ユーザー設定メモ")))
+        assertNull(extract(file(description = "映像の説明文")))
         assertNull(extract(file()))
     }
 
