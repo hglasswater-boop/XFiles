@@ -23,3 +23,11 @@ The count shown for a directory must describe the same filesystem contents as th
 5. The same rules apply to local and SMB directories. SMB connection-root rows remain excluded from direct child counts because they are connection/routing nodes rather than ordinary directory listings.
 
 This keeps tree counts fresh without adding recursive scans or broad refreshes to normal navigation.
+
+## Compact tree indentation (Issue #292)
+
+- The tree's visible hierarchy guide reserves **8 dp per visible level** rather than 12 dp. The maximum visible indent remains governed by the existing browser setting (0–4 levels). At four levels the guide occupies 32 dp, down from 48 dp.
+- Both the lightweight startup rows and normal rows use the **same** indent calculation so thumbnail and filename positions do not jump as the list finishes loading. Deep hierarchy still compresses to the most recent visible levels, without changing the breadcrumb's full path.
+- The expand chevron keeps its former **12 dp canvas width** plus its existing leading 1 physical pixel; its leaf-placeholder width is identical. Reducing the guide indentation must not shrink the arrow glyph or alter row tap, long-press, selection, or expanded/collapsed behavior.
+- Guide elbows, vertical continuation lines, and branch ends remain inside the reduced slots. Thumbnail, selection-control, and row-height dimensions do not change.
+- Regression checks cover 0, 1, 2 and 4 visible indent levels and the fixed chevron/placeholder width. Visual verification on an actual device remains a separate completion gate.
