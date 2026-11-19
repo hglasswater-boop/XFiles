@@ -20,7 +20,6 @@ internal object Mp4CommentParser {
     fun parse(length: Long, read: (Long, Int) -> ByteArray?): String? {
         if (length < 8) return null
         var comment: String? = null
-        var description: String? = null
 
         fun uint32(bytes: ByteArray, offset: Int): Long =
             ((bytes[offset].toLong() and 0xff) shl 24) or
@@ -77,9 +76,6 @@ internal object Mp4CommentParser {
                     parent == "ilst" && type == "©cmt" -> {
                         if (comment == null) comment = tagText(payload, boxEnd)
                     }
-                    parent == "ilst" && type == "©des" -> {
-                        if (description == null) description = tagText(payload, boxEnd)
-                    }
                     type == "moov" && parent == "root" ||
                         type == "udta" && parent == "moov" ||
                         type == "ilst" && parent == "meta" -> recurse(payload, boxEnd, type, depth + 1)
@@ -94,7 +90,7 @@ internal object Mp4CommentParser {
         lateinit var visit: (Long, Long, String, Int) -> Unit
         visit = { start, end, parent, depth -> walk(start, end, parent, depth, visit) }
         visit(0, length, "root", 0)
-        return comment ?: description
+        return comment
     }
 }
 
