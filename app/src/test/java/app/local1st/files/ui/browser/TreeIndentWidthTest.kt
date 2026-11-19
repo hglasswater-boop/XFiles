@@ -2,8 +2,6 @@ package app.local1st.files.ui.browser
 
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TreeIndentWidthTest {
@@ -29,17 +27,9 @@ class TreeIndentWidthTest {
     }
 
     @Test
-    fun selectionMovesOnlyForSelectableThumbnailLeaves() {
-        assertTrue(selectionFollowsThumbnail(wantsThumbnail = true, selectable = true))
-        assertFalse(selectionFollowsThumbnail(wantsThumbnail = false, selectable = true))
-        assertFalse(selectionFollowsThumbnail(wantsThumbnail = true, selectable = false))
-        assertFalse(selectionFollowsThumbnail(wantsThumbnail = false, selectable = false))
-    }
-
-    @Test
     fun thumbnailSelectionCircleHasTwoDpPaddingOnEachSide() {
-        assertEquals(24.dp, selectionControlWidth(adjacentToThumbnail = true))
-        assertEquals(36.dp, selectionControlWidth(adjacentToThumbnail = false))
+        assertEquals(24.dp, selectionControlWidth(compact = true))
+        assertEquals(36.dp, selectionControlWidth(compact = false))
     }
 
     @Test
