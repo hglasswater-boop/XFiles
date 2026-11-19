@@ -13,7 +13,6 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
@@ -78,8 +77,8 @@ class VideoThumbnailDetailsShortcutTest {
 
         val buttonBounds = compose.onNodeWithContentDescription("動画の詳細情報")
             .getUnclippedBoundsInRoot()
-        assertEquals(40.dp, buttonBounds.width)
-        assertEquals(40.dp, buttonBounds.height)
+        assertEquals(40.dp, buttonBounds.right - buttonBounds.left)
+        assertEquals(40.dp, buttonBounds.bottom - buttonBounds.top)
 
         // A pixel inside the hit target, but away from the top-left glyph:
         // transparent touch surface must show the thumbnail rather than a dark disk.
