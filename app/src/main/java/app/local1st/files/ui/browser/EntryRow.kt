@@ -60,6 +60,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.local1st.files.R
@@ -93,6 +94,10 @@ private val IndentWidth = 8.dp
 internal val TreeChevronWidth = 12.dp
 
 internal fun treeIndentWidth(visibleDepth: Int) = IndentWidth * visibleDepth.coerceAtLeast(0)
+
+// Leaf thumbnails have no expand arrow; keep a small gap so tree elbows stay visible.
+internal fun leafLeadingSlotWidth(wantsThumbnail: Boolean, regularSlotWidth: Dp): Dp =
+    if (wantsThumbnail) 4.dp else regularSlotWidth
 private val BaseRowHeight = 48.dp
 private val SelectionWidth = 36.dp
 
@@ -214,7 +219,7 @@ fun EntryRow(
                 animate = true,
             )
         } else {
-            Spacer(Modifier.width(expandSlotWidth()))
+            Spacer(Modifier.width(leafLeadingSlotWidth(wantsThumbnail, expandSlotWidth())))
         }
 
         // Icon or thumbnail (selection is the trailing control, to avoid mis-taps here).
@@ -452,7 +457,7 @@ private fun StartupEntryRow(
                 animate = false,
             )
         } else {
-            Spacer(Modifier.width(expandSlotWidth()))
+            Spacer(Modifier.width(leafLeadingSlotWidth(wantsThumbnail, expandSlotWidth())))
         }
         Box(
             modifier = if (wantsThumbnail) {
