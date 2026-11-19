@@ -57,6 +57,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -623,7 +624,7 @@ private fun EntryThumbnail(
             VideoThumbnailDetailsButton(
                 description = "${stringResource(R.string.details)}: ${entry.name}",
                 onClick = onDetails,
-                modifier = Modifier.align(Alignment.TopStart).padding(3.dp),
+                modifier = Modifier.align(Alignment.TopStart),
             )
         }
         if (isVideo && loaded) {
@@ -693,17 +694,18 @@ internal fun VideoThumbnailDetailsButton(
     Box(
         modifier = modifier
             .size(40.dp)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.60f))
             .clickable(onClick = onClick)
             .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.TopStart,
     ) {
         Icon(
             Icons.Outlined.Info,
             contentDescription = null,
             tint = Color.White,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier
+                .padding(start = 2.dp, top = 2.dp)
+                .size(22.dp)
+                .testTag("video-info-glyph"),
         )
     }
 }
