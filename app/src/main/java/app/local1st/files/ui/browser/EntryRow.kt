@@ -86,7 +86,10 @@ import java.io.File
 
 // One visible tree level. Deeper paths are visually compressed according to the display setting;
 // the breadcrumb still carries the full path, so the list does not need unlimited indentation.
-private val IndentWidth = 12.dp
+private val IndentWidth = 8.dp
+internal val TreeChevronWidth = 12.dp
+
+internal fun treeIndentWidth(visibleDepth: Int) = IndentWidth * visibleDepth.coerceAtLeast(0)
 private val BaseRowHeight = 48.dp
 private val SelectionWidth = 36.dp
 
@@ -195,7 +198,7 @@ fun EntryRow(
                 onLongClick = onLongClick,
             ),
     ) {
-        if (displayDepth > 0) Spacer(Modifier.width(IndentWidth * displayDepth))
+        if (displayDepth > 0) Spacer(Modifier.width(treeIndentWidth(displayDepth)))
 
         // Expand chevron for containers, aligned space for leaves.
         if (entry.isContainer) {
@@ -354,7 +357,7 @@ fun EntryRow(
 }
 
 @Composable
-private fun expandSlotWidth() = IndentWidth + with(LocalDensity.current) { 1.toDp() }
+private fun expandSlotWidth() = TreeChevronWidth + with(LocalDensity.current) { 1.toDp() }
 
 @Composable
 private fun ExpandChevron(
@@ -370,7 +373,7 @@ private fun ExpandChevron(
     Canvas(
         Modifier
             .padding(start = lead)
-            .size(IndentWidth)
+            .size(TreeChevronWidth)
             .rotate(rotation)
             .semantics {
                 if (label != null) {
@@ -435,7 +438,7 @@ private fun StartupEntryRow(
             .background(background)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
-        if (displayDepth > 0) Spacer(Modifier.width(IndentWidth * displayDepth))
+        if (displayDepth > 0) Spacer(Modifier.width(treeIndentWidth(displayDepth)))
         if (entry.isContainer) {
             ExpandChevron(
                 expanded = node.expanded,
