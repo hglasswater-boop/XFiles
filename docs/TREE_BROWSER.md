@@ -50,8 +50,8 @@ This keeps tree counts fresh without adding recursive scans or broad refreshes t
 
 ## Selection circle next to thumbnail (Issue #299)
 
-- For selectable **thumbnail leaf rows**, render in the order **tree guide → thumbnail → selection circle → filename/details**. The visible 20 dp circle starts **2 dp** after the thumbnail right edge; the selection hit target still reserves **36 dp** horizontally, never overlays the thumbnail and triggers only selection.
+- For selectable **thumbnail leaf rows**, render in the order **tree guide → thumbnail → selection circle → filename/details**. The visible 20 dp circle starts **2 dp** after the thumbnail right edge; the selection control reserves **24 dp** horizontally (20 dp circle + **2 dp on both the left and the right**) instead of 36 dp, never overlaps the thumbnail, and triggers only selection.
 - With **no thumbnail**, keep the existing layout: file/folder icon → filename/details → right-aligned selection circle. Containers, ineligible rows, cast indicators and loading state keep their existing behavior.
-- Both regular tree rows and lightweight startup rows must use the same thumbnail-adjacent control position and 36 dp width, so switching modes does not shift the filename or selection button horizontally. Startup rows do not add gesture handling.
+- Both regular tree rows and lightweight startup rows must use the same thumbnail-adjacent 24 dp control width, so switching modes does not shift the filename or selection button horizontally. Startup rows do not add gesture handling.
 - Selection-circles remain keyboard/accessibility-addressable when interactive; a selection tap must not start media playback or open the storyboard. Keep the full-width row tap and the thumbnail's own storyboard action.
-- UI regression tests measure the circle glyph's 2 dp offset and 36 dp hit target, test selection-only interaction, and verify the non-thumbnail centered circle. Physical-device verification remains separate.
+- UI regression tests measure the circle glyph's 2 dp left offset, 2 dp right margin and 24 dp layout/tap slot, test selection-only interaction, and verify that non-thumbnail rows retain their centered circle in the original 36 dp slot. Physical-device verification remains separate.
