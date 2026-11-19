@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -102,11 +101,8 @@ internal fun leafLeadingSlotWidth(wantsThumbnail: Boolean, regularSlotWidth: Dp)
 private val BaseRowHeight = 48.dp
 private val SelectionWidth = 36.dp
 
-internal fun selectionControlWidth(adjacentToThumbnail: Boolean) =
-    if (adjacentToThumbnail) 24.dp else SelectionWidth
-
-internal fun selectionFollowsThumbnail(wantsThumbnail: Boolean, selectable: Boolean): Boolean =
-    wantsThumbnail && selectable
+internal fun selectionControlWidth(compact: Boolean) =
+    if (compact) 24.dp else SelectionWidth
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -229,11 +225,7 @@ fun EntryRow(
             Spacer(Modifier.width(leafLeadingSlotWidth(wantsThumbnail, expandSlotWidth())))
         }
 
-        // Thumbnail selection is positioned immediately after the thumbnail without a spacer.
-        Box(
-            Modifier.padding(end = if (selectionFollowsThumbnail(wantsThumbnail, selectable)) 0.dp else 6.dp),
-            contentAlignment = Alignment.Center,
-        ) {
+        Box(Modifier.padding(end = 6.dp), contentAlignment = Alignment.Center) {
             if (wantsThumbnail) {
                 EntryThumbnail(
                     entry = entry,
@@ -254,16 +246,6 @@ fun EntryRow(
                     expanded = node.expanded,
                 )
             }
-        }
-
-        if (selectionFollowsThumbnail(wantsThumbnail, selectable)) {
-            BrowserSelectionButton(
-                selected = selected,
-                enabled = enabled,
-                adjacentToThumbnail = true,
-                rowMinHeight = rowMinHeight,
-                onToggleSelect = onToggleSelect,
-            )
         }
 
         val nameMaxLines = when (display.filenameMode) {
@@ -364,11 +346,11 @@ fun EntryRow(
             LoadingIndicator(modifier = Modifier.size(26.dp))
         }
 
-        if (selectable && !wantsThumbnail) {
+        if (selectable) {
             BrowserSelectionButton(
                 selected = selected,
                 enabled = enabled,
-                adjacentToThumbnail = false,
+                compact = wantsThumbnail,
                 rowMinHeight = rowMinHeight,
                 onToggleSelect = onToggleSelect,
             )
@@ -380,7 +362,7 @@ fun EntryRow(
 internal fun BrowserSelectionButton(
     selected: Boolean,
     enabled: Boolean,
-    adjacentToThumbnail: Boolean,
+    compact: Boolean,
     rowMinHeight: Dp,
     onToggleSelect: (() -> Unit)?,
 ) {
@@ -394,7 +376,7 @@ internal fun BrowserSelectionButton(
     }
     Box(
         modifier = Modifier
-            .width(selectionControlWidth(adjacentToThumbnail))
+            .width(selectionControlWidth(compact))
             .heightIn(min = rowMinHeight)
             .then(
                 if (onToggleSelect != null) {
@@ -404,14 +386,13 @@ internal fun BrowserSelectionButton(
                 },
             )
             .testTag("browser-selection-target"),
-        contentAlignment = if (adjacentToThumbnail) Alignment.CenterStart else Alignment.Center,
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon,
             contentDescription = description,
             tint = tint,
             modifier = Modifier
-                .offset(x = if (adjacentToThumbnail) 2.dp else 0.dp)
                 .size(20.dp)
                 .testTag("browser-selection-glyph"),
         )
@@ -513,7 +494,7 @@ private fun StartupEntryRow(
         Box(
             modifier = if (wantsThumbnail) {
                 Modifier
-                    .padding(end = if (selectionFollowsThumbnail(wantsThumbnail, selectable)) 0.dp else 6.dp)
+                    .padding(end = 6.dp)
                     .width(display.thumbnailSize.widthDp.dp)
                     .height(display.thumbnailSize.heightDp.dp)
             } else {
@@ -529,16 +510,6 @@ private fun StartupEntryRow(
                 modifier = Modifier.size(if (isVolume) 28.dp else 24.dp),
             )
         }
-        if (selectionFollowsThumbnail(wantsThumbnail, selectable)) {
-            BrowserSelectionButton(
-                selected = selected,
-                enabled = enabled,
-                adjacentToThumbnail = true,
-                rowMinHeight = rowMinHeight,
-                onToggleSelect = null,
-            )
-        }
-
         val nameMaxLines = when (display.filenameMode) {
             FilenameDisplayMode.SINGLE_LINE -> 1
             FilenameDisplayMode.TWO_LINES -> 2
@@ -583,11 +554,11 @@ private fun StartupEntryRow(
                 }
             }
         }
-        if (selectable && !wantsThumbnail) {
+        if (selectable) {
             BrowserSelectionButton(
                 selected = selected,
                 enabled = enabled,
-                adjacentToThumbnail = false,
+                compact = wantsThumbnail,
                 rowMinHeight = rowMinHeight,
                 onToggleSelect = null,
             )
