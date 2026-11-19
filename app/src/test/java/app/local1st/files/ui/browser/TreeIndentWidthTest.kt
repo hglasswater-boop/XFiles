@@ -37,6 +37,12 @@ class TreeIndentWidthTest {
     }
 
     @Test
+    fun thumbnailSelectionCircleHasTwoDpPaddingOnEachSide() {
+        assertEquals(24.dp, selectionControlWidth(adjacentToThumbnail = true))
+        assertEquals(36.dp, selectionControlWidth(adjacentToThumbnail = false))
+    }
+
+    @Test
     fun chevronKeepsOriginalTwelveDpCanvas() {
         assertEquals(12.dp, TreeChevronWidth)
     }
