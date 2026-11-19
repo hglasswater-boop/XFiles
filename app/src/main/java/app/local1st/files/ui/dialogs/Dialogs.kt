@@ -40,6 +40,7 @@ import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.SmbTreeFileSystem
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.media.VideoMetadata
+import app.local1st.files.core.media.VideoCommentReader
 import app.local1st.files.core.media.VideoMetadataReader
 import app.local1st.files.core.media.formatVideoBitrate
 import app.local1st.files.core.media.formatVideoDuration
@@ -156,6 +157,14 @@ fun MainDialogs(vm: MainViewModel) {
             ) {
                 if (isVideo) value = VideoMetadataReader.read(req.entry)
             }
+            val fileComment by produceState<String?>(
+                initialValue = null,
+                req.entry.id,
+                req.entry.mtime,
+                req.entry.size,
+            ) {
+                if (isVideo) value = VideoCommentReader.read(req.entry)
+            }
             AlertDialog(
                 onDismissRequest = dismiss,
                 title = {
@@ -165,7 +174,7 @@ fun MainDialogs(vm: MainViewModel) {
                 },
                 text = {
                     SelectionContainer {
-                        Column {
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                             val displayLocation = when (req.entry.scheme) {
                                 XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
                                 else -> req.entry.path
@@ -212,6 +221,9 @@ fun MainDialogs(vm: MainViewModel) {
                                         ),
                                     )
                                 }
+                            }
+                            fileComment?.let { comment ->
+                                Text("コメント: $comment")
                             }
                         }
                     }
