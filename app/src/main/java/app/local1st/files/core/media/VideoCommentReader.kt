@@ -1,6 +1,5 @@
 package app.local1st.files.core.media
 
-import android.net.Uri
 import app.local1st.files.core.fs.SmbRandomAccessFile
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
@@ -40,7 +39,8 @@ internal object Mp4CommentParser {
                     if (count <= 0 || count > MAX_TAG_BYTES) return null
                     val payload = read(pos + 16, count.toInt())
                         ?.takeIf { it.size == count.toInt() } ?: return null
-                    return String(payload, Charsets.UTF_8).trim().takeIf { it.isNotBlank() }
+                    return String(payload, Charsets.UTF_8).trim()
+                        .replace('\u2028', '\n').takeIf { it.isNotBlank() }
                 }
                 pos += size
             }
@@ -100,8 +100,7 @@ internal object Mp4CommentParser {
 
 object VideoCommentReader {
     suspend fun read(entry: XEntry): String? = withContext(Dispatchers.IO) {
-        if (entry.isDir || !entry.name.substringAfterLast('.', "").lowercase()
-                .let { it == "mp4" || it == "m4v" || it == "mov" }) {
+        if (entry.isDir || entry.extension !in setOf("mp4", "m4v", "mov")) {
             return@withContext null
         }
         runCatching {
