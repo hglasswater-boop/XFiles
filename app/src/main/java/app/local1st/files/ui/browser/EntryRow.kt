@@ -102,6 +102,9 @@ internal fun leafLeadingSlotWidth(wantsThumbnail: Boolean, regularSlotWidth: Dp)
 private val BaseRowHeight = 48.dp
 private val SelectionWidth = 36.dp
 
+internal fun selectionControlWidth(adjacentToThumbnail: Boolean) =
+    if (adjacentToThumbnail) 24.dp else SelectionWidth
+
 internal fun selectionFollowsThumbnail(wantsThumbnail: Boolean, selectable: Boolean): Boolean =
     wantsThumbnail && selectable
 
@@ -391,7 +394,7 @@ internal fun BrowserSelectionButton(
     }
     Box(
         modifier = Modifier
-            .width(SelectionWidth)
+            .width(selectionControlWidth(adjacentToThumbnail))
             .heightIn(min = rowMinHeight)
             .then(
                 if (onToggleSelect != null) {
