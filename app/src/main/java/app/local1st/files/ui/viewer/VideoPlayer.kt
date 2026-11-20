@@ -41,8 +41,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Forward5
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Replay5
@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,6 +109,42 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
+/** Back returns from the video viewer to the browser, not merely hides its controls. */
+@Composable
+internal fun PlayerVideoBackButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.testTag("player-video-back")) {
+        Icon(
+            Icons.Outlined.ChevronLeft,
+            contentDescription = stringResource(R.string.back),
+            tint = Color.White,
+        )
+    }
+}
+
+@Composable
+internal fun PlayerVideoTitle(name: String, modifier: Modifier = Modifier) {
+    Text(
+        text = name,
+        style = MaterialTheme.typography.titleSmall,
+        color = Color.White,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.testTag("player-video-title"),
+    )
+}
+
+/** Same unobstructed white Info icon in local and Chromecast video toolbars. */
+@Composable
+internal fun PlayerVideoInfoButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.testTag("player-video-info")) {
+        Icon(
+            Icons.Outlined.Info,
+            contentDescription = stringResource(R.string.details),
+            tint = Color.White,
+        )
+    }
+}
+
 /**
  * Video chrome replacing PlayerView's stock controller with compact bottom controls.
  * Tapping the time display switches it to a frame counter, and in frame mode every seek
@@ -125,6 +162,7 @@ fun VideoPlayerScreen(
     hasPrevious: Boolean,
     hasNext: Boolean,
     onClose: () -> Unit,
+    onDetails: () -> Unit,
     videoBottomInset: Dp = 0.dp,
     keepControlsVisible: Boolean = false,
     topBarActions: @Composable () -> Unit = {},
@@ -515,18 +553,10 @@ fun VideoPlayerScreen(
                     )
                     .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
             ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
-                }
-                Text(
-                    entry.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                PlayerVideoBackButton(onClick = onClose)
+                PlayerVideoTitle(name = entry.name, modifier = Modifier.weight(1f))
                 topBarActions()
+                PlayerVideoInfoButton(onClick = onDetails)
                 Box {
                         IconButton(onClick = { showPlayerSettings = true }) {
                             Icon(
