@@ -281,7 +281,7 @@ fun PaneView(
                         headerOverlay = headerOverlay,
                         onCrumbClick = { id ->
                             onActivate()
-                            controller.revealPath(id)
+                            controller.revealBreadcrumb(id)
                         },
                         onCrumbLongClick = { id, name ->
                             onActivate()
@@ -582,7 +582,7 @@ fun PaneView(
                     headerOverlay = headerOverlay,
                     onCrumbClick = { id ->
                         onActivate()
-                        controller.revealPath(id)
+                        controller.revealBreadcrumb(id)
                     },
                     onCrumbLongClick = { id, name ->
                         onActivate()

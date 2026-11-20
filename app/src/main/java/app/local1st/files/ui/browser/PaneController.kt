@@ -223,6 +223,23 @@ private fun ancestorDistance(
 }
 
 /**
+ * Returning to a parent breadcrumb closes every expanded directory strictly below that ancestor,
+ * but leaves unrelated branches and same-level crumb clicks alone.
+ */
+internal fun collapseExpandedBelowBreadcrumb(
+    expandedIds: Set<String>,
+    breadcrumbId: String,
+    previouslyFocusedId: String?,
+    visualParents: Map<String, String> = emptyMap(),
+): Set<String> {
+    val distance = previouslyFocusedId?.let { ancestorDistance(breadcrumbId, it, visualParents) }
+    if (distance == null || distance == 0) return expandedIds
+    return expandedIds.filterTo(LinkedHashSet()) { id ->
+        id == breadcrumbId || ancestorDistance(breadcrumbId, id, visualParents) == null
+    }
+}
+
+/**
  * Reconciles an existing tree when accordion navigation is enabled. The branch nearest the current
  * focus wins in each sibling group; unrelated hidden groups use a stable id order.
  */
@@ -1019,6 +1036,42 @@ class PaneController(
         scope.launch {
             revealPathNow(id)
             scrollRequests.trySend(ScrollRequest(id, animate))
+        }
+    }
+
+    /**
+     * Breadcrumb-only upward navigation. Preserve the chosen folder and other tree branches,
+     * but fold all lower expanded folders from the path we are leaving.
+     */
+    fun revealBreadcrumb(id: String) {
+        finishStartupRestoreForInteraction()
+        scope.launch {
+            val before = tree.value
+            if (pathInsidePaneRoots(id, before.roots.mapTo(HashSet()) { it.id }) == null) {
+                return@launch
+            }
+            val previouslyFocusedId = focusedDirId.value
+            val visualParents = visualParentsOf(before.children)
+            val navigatingUp = previouslyFocusedId?.let {
+                ancestorDistance(id, it, visualParents)?.let { distance -> distance > 0 }
+            } == true
+
+            revealPathNow(id)
+            if (navigatingUp) {
+                val current = tree.value
+                val updated = collapseExpandedBelowBreadcrumb(
+                    expandedIds = current.expanded + id,
+                    breadcrumbId = id,
+                    previouslyFocusedId = previouslyFocusedId,
+                    visualParents = visualParentsOf(current.children),
+                )
+                tree.update { it.copy(expanded = updated) }
+                sessionExpanded.value = updated
+                if (current.children[id] == null) {
+                    findEntry(id)?.takeIf { it.isContainer }?.let { loadNow(it) }
+                }
+            }
+            scrollRequests.trySend(ScrollRequest(id, animate = true))
         }
     }
 
