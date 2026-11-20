@@ -55,3 +55,11 @@ This keeps tree counts fresh without adding recursive scans or broad refreshes t
 - Keep the existing 6 dp trailing gap from thumbnail to filename. Keep the 4 dp guide-to-thumbnail space from Issue #297, the thumbnail's playback/storyboard action and top-left white info glyph.
 - Regular and lightweight startup rows follow identical layout order and widths, so content stays aligned between render phases. Startup rows still have no selection click handler.
 - A selection click must only select, never open or play a file. UI tests check **trailing-edge position**, exact slot size within physical-pixel rounding tolerance, centered circle and nested click isolation. Physical-device confirmation is still required.
+
+## Breadcrumb parent navigation closes child expansions (Issue #305)
+
+- Clicking an **ancestor** in a pane's breadcrumb (e.g. browsing `A/B/C` then selecting `A`) focuses that ancestor and **collapses every previously expanded descendant** below it, so `B` and `C` are closed. The chosen ancestor remains expanded (showing its immediate children) and its ancestor chain remains reachable.
+- Keep expansions on unrelated branches unchanged. Use the existing visual-parent map for virtual Apps/archives when available, with `XId.parent` for filesystem/SMB URI ancestry. Apply the same behavior in both panes, including while the startup loading UI is shown.
+- Clicking the **currently focused breadcrumb** does not clear its descendants; the existing reveal/scroll behavior remains. Non-breadcrumb `revealPath`, expansion toggles, search results and selection actions are unchanged.
+- Update the live tree's expanded set and the persisted session-expanded set together. Do not clear cached child listings, selection, or sort preferences; this is a visibility/expansion change only.
+- JVM regression tests cover normal nested paths, unrelated branch retention, same-level taps, virtual visual parents and non-ancestor navigation. CI checks and actual device verification cover local and SMB breadcrumbs in both panes.
