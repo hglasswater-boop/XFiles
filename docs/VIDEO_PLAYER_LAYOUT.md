@@ -148,3 +148,11 @@ The existing Android unit tests, release lint and Android emulator instrumentati
 remain required. Physical-device validation must also check local and SMB playback,
 pause/seek controls, fine-preview open/close, cutouts/navigation modes, and PiP transitions.
 Geometry tests do not establish actual device playback behavior.
+
+## Video information in the player (Issue #302)
+
+- In the local video player, display a **white, background-free Info icon** in the controls-visible top toolbar **immediately left of the Settings gear**, after the existing landscape storyboard toggle and Cast action. Keep the filename in the flexible center area, and preserve the close, Cast, storyboard and settings controls. The icon uses a standard accessible IconButton tap area and opens details without seeking or pausing playback.
+- The icon is present in portrait and landscape, but follows the existing toolbar visibility (auto-hides with controls), and is **not** shown in Picture-in-Picture. Cast playback's full-screen toolbar also shows the Info icon **immediately left of the Cast route button**.
+- Both toolbar buttons open the **same file details UI as the browser**, including name, full path, file size, modified date, media format/resolution, frame rate, duration, codec, bitrate and embedded comment when available. Reuse the existing media metadata/comment readers; do not duplicate their implementation or change the browser dialog.
+- The detail dialog belongs to the viewer destination itself: browser-only MainDialogs is not composed while the viewer is open. It targets the **currently playing** playlist item, not the original opening item, and is dismissed when the current item changes. Dismissing it does not close the player or change local/Cast playback state.
+- Verify the Info button's click handler, accessibility description, white appearance and tap isolation, and the existing dialog's rendering for a representative file. Unit, lint, APK and Android emulator CI are required; physical-device playback checks remain separate.
