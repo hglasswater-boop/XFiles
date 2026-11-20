@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Forward10
 import androidx.compose.material.icons.outlined.Pause
@@ -81,6 +80,7 @@ internal fun CastRemoteControls(
     autoAdvanceMode: CastAutoAdvanceMode,
     onAutoAdvanceModeChange: (CastAutoAdvanceMode) -> Unit,
     onClose: () -> Unit,
+    onDetails: () -> Unit,
 ) {
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -280,15 +280,14 @@ internal fun CastRemoteControls(
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            IconButton(onClick = onClose) {
-                Icon(Icons.Outlined.Close, contentDescription = "Close", tint = Color.White)
-            }
+            PlayerVideoBackButton(onClick = onClose)
             Text(
                 "Chromecast",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
+            PlayerVideoInfoButton(onClick = onDetails)
             CompositionLocalProvider(LocalContentColor provides Color.White) {
                 MediaRouteButton()
             }
@@ -336,7 +335,7 @@ internal fun CastRemoteControls(
                 entry.name,
                 color = Color.White,
                 style = MaterialTheme.typography.titleLarge,
-                maxLines = if (isLandscape) 1 else 2,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
