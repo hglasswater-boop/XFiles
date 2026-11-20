@@ -18,6 +18,83 @@ import org.junit.Test
 class PaneExpansionPolicyTest {
 
     @Test
+    fun breadcrumbToAncestorCollapsesAllExpandedDescendants() {
+        val expanded = setOf(
+            "file:///root", "file:///root/a", "file:///root/a/b",
+            "file:///root/a/b/c", "file:///root/a/other",
+        )
+        val result = collapseExpandedBelowBreadcrumb(
+            expandedIds = expanded,
+            breadcrumbId = "file:///root/a",
+            previouslyFocusedId = "file:///root/a/b/c",
+        )
+        assertEquals(setOf("file:///root", "file:///root/a"), result)
+    }
+
+    @Test
+    fun breadcrumbReturnPreservesExpandedUnrelatedBranches() {
+        val expanded = setOf(
+            "smb://nas/share", "smb://nas/share/a", "smb://nas/share/a/b",
+            "smb://nas/share/other", "smb://nas/share/other/open",
+        )
+        assertEquals(
+            setOf("smb://nas/share", "smb://nas/share/a",
+                "smb://nas/share/other", "smb://nas/share/other/open"),
+            collapseExpandedBelowBreadcrumb(
+                expandedIds = expanded,
+                breadcrumbId = "smb://nas/share/a",
+                previouslyFocusedId = "smb://nas/share/a/b",
+            ),
+        )
+    }
+
+    @Test
+    fun breadcrumbAtCurrentLevelDoesNotCollapseChildren() {
+        val expanded = setOf("file:///root", "file:///root/a", "file:///root/a/b")
+        assertEquals(
+            expanded,
+            collapseExpandedBelowBreadcrumb(
+                expandedIds = expanded,
+                breadcrumbId = "file:///root/a",
+                previouslyFocusedId = "file:///root/a",
+            ),
+        )
+    }
+
+    @Test
+    fun breadcrumbOutsideFocusedAncestorPathLeavesExpansionUntouched() {
+        val expanded = setOf("file:///root", "file:///root/a", "file:///root/b")
+        assertEquals(
+            expanded,
+            collapseExpandedBelowBreadcrumb(
+                expandedIds = expanded,
+                breadcrumbId = "file:///root/b",
+                previouslyFocusedId = "file:///root/a",
+            ),
+        )
+    }
+
+    @Test
+    fun breadcrumbCollapsesAppsVisualChildrenWithNonHierarchicalIds() {
+        val apps = "apps://"
+        val userGroup = "apps://@user"
+        val appId = "apps://com.example.alpha"
+        val componentId = "$appId/@components"
+        val expanded = setOf(apps, userGroup, appId, componentId, "apps://@system")
+        val visual = mapOf(appId to userGroup)
+
+        assertEquals(
+            setOf(apps, userGroup, "apps://@system"),
+            collapseExpandedBelowBreadcrumb(
+                expandedIds = expanded,
+                breadcrumbId = userGroup,
+                previouslyFocusedId = componentId,
+                visualParents = visual,
+            ),
+        )
+    }
+
+    @Test
     fun openingFolderCollapsesOnlyItsSiblings() {
         val updated = expandWithCollapsedSiblings(
             expandedIds = setOf(
