@@ -112,7 +112,7 @@ import kotlinx.coroutines.withContext
 /** Back returns from the video viewer to the browser, not merely hides its controls. */
 @Composable
 internal fun PlayerVideoBackButton(onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.testTag("player-video-back")) {
+    IconButton(onClick = onClick, modifier = Modifier.size(48.dp).testTag("player-video-back")) {
         Icon(
             Icons.Outlined.ChevronLeft,
             contentDescription = stringResource(R.string.back),
@@ -136,7 +136,7 @@ internal fun PlayerVideoTitle(name: String, modifier: Modifier = Modifier) {
 /** Same unobstructed white Info icon in local and Chromecast video toolbars. */
 @Composable
 internal fun PlayerVideoInfoButton(onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.testTag("player-video-info")) {
+    IconButton(onClick = onClick, modifier = Modifier.size(48.dp).testTag("player-video-info")) {
         Icon(
             Icons.Outlined.Info,
             contentDescription = stringResource(R.string.details),
