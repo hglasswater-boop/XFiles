@@ -85,6 +85,7 @@ import app.local1st.files.core.prefs.VideoResumeStore
 import app.local1st.files.core.util.FileCategory
 import app.local1st.files.core.util.FileTypes
 import app.local1st.files.ui.components.TooltipIconButton
+import app.local1st.files.ui.dialogs.FileDetailsDialog
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.delay
@@ -261,6 +262,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
 
     val currentEntry = playable[currentIndex.coerceIn(0, playable.lastIndex)]
     val isVideo = isVideoEntry(currentEntry)
+    var detailsOpen by remember(currentEntry.id) { mutableStateOf(false) }
 
     if (isVideo) {
         if (remotePlayback) {
@@ -273,6 +275,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                 autoAdvanceMode = autoAdvanceMode,
                 onAutoAdvanceModeChange = CastPlaybackSessionManager::setAutoAdvanceMode,
                 onClose = onClose,
+                onDetails = { detailsOpen = true },
             )
         } else {
             val playerOrientation = LocalConfiguration.current.orientation
@@ -361,6 +364,7 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
                             hasPrevious = hasPrevious,
                             hasNext = hasNext,
                             onClose = onClose,
+                            onDetails = { detailsOpen = true },
                             videoBottomInset = videoBottomInset,
                             topBarActions = {
                                 if (
@@ -414,6 +418,10 @@ fun MediaViewer(entry: XEntry, playlist: List<XEntry>, onClose: () -> Unit) {
             hasNext = hasNext,
             onClose = onClose,
         )
+    }
+
+    if (detailsOpen && isVideo) {
+        FileDetailsDialog(entry = currentEntry, onDismiss = { detailsOpen = false })
     }
 }
 
