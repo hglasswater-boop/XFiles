@@ -81,7 +81,11 @@ class PlayerVideoInfoShortcutTest {
                 }
             }
         }
-        compose.onNodeWithTag("player-video-back").performClick()
+        val back = compose.onNodeWithTag("player-video-back")
+        val bounds = back.getUnclippedBoundsInRoot()
+        assertEquals(48.dp, bounds.right - bounds.left)
+        assertEquals(48.dp, bounds.bottom - bounds.top)
+        back.performClick()
         compose.runOnIdle {
             assertEquals(1, backClicks)
             assertEquals(0, videoTaps)
