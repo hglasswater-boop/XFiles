@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.R
 import app.local1st.files.core.fs.EntryKind
 import app.local1st.files.core.fs.SmbTreeFileSystem
+import app.local1st.files.core.fs.XEntry
 import app.local1st.files.core.fs.XId
 import app.local1st.files.core.media.VideoMetadata
 import app.local1st.files.core.media.VideoCommentReader
@@ -147,92 +148,7 @@ fun MainDialogs(vm: MainViewModel) {
             onConfirm = { vm.performCompress(req.sources, req.destDir, it) },
         )
 
-        is DialogRequest.Details -> {
-            val isVideo = FileTypes.categoryOf(req.entry.name, req.entry.mime) == FileCategory.VIDEO
-            val videoMetadata by produceState<VideoMetadata?>(
-                initialValue = null,
-                req.entry.id,
-                req.entry.mtime,
-                req.entry.size,
-            ) {
-                if (isVideo) value = VideoMetadataReader.read(req.entry)
-            }
-            val fileComment by produceState<String?>(
-                initialValue = null,
-                req.entry.id,
-                req.entry.mtime,
-                req.entry.size,
-            ) {
-                if (isVideo) value = VideoCommentReader.read(req.entry)
-            }
-            AlertDialog(
-                onDismissRequest = dismiss,
-                title = {
-                    SelectionContainer {
-                        Text(req.entry.name)
-                    }
-                },
-                text = {
-                    SelectionContainer {
-                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                            val displayLocation = when (req.entry.scheme) {
-                                XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(req.entry.id)
-                                else -> req.entry.path
-                            }
-                            Text(stringResource(R.string.location, displayLocation))
-                            if (!req.entry.isDir) {
-                                Text(stringResource(R.string.size, Format.bytes(req.entry.size)))
-                            }
-                            Text(stringResource(R.string.modified, Format.dateTime(req.entry.mtime)))
-                            req.entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
-                            videoMetadata?.let { metadata ->
-                                if (metadata.width != null && metadata.height != null) {
-                                    Text(
-                                        stringResource(
-                                            R.string.video_resolution,
-                                            "${metadata.width} × ${metadata.height}",
-                                        ),
-                                    )
-                                }
-                                metadata.frameRate?.let {
-                                    Text(
-                                        stringResource(
-                                            R.string.video_frame_rate,
-                                            formatVideoFrameRate(it),
-                                        ),
-                                    )
-                                }
-                                metadata.durationMs?.let {
-                                    Text(
-                                        stringResource(
-                                            R.string.video_duration,
-                                            formatVideoDuration(it),
-                                        ),
-                                    )
-                                }
-                                metadata.codec?.let {
-                                    Text(stringResource(R.string.video_codec, it))
-                                }
-                                metadata.bitrate?.let {
-                                    Text(
-                                        stringResource(
-                                            R.string.video_bitrate,
-                                            formatVideoBitrate(it),
-                                        ),
-                                    )
-                                }
-                            }
-                            fileComment?.let { comment ->
-                                Text("コメント: $comment")
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = dismiss) { Text(stringResource(R.string.close)) }
-                },
-            )
-        }
+        is DialogRequest.Details -> FileDetailsDialog(req.entry, dismiss)
 
         is DialogRequest.FolderSort -> FolderSortDialog(req.folder, dismiss)
 
@@ -714,4 +630,93 @@ private fun MenuItem(
             )
         }
     }
+}
+
+/** Shared file details UI for the browser and an active video viewer. */
+@Composable
+fun FileDetailsDialog(entry: XEntry, onDismiss: () -> Unit) {
+    val isVideo = FileTypes.categoryOf(entry.name, entry.mime) == FileCategory.VIDEO
+    val videoMetadata by produceState<VideoMetadata?>(
+        initialValue = null,
+        entry.id,
+        entry.mtime,
+        entry.size,
+    ) {
+        if (isVideo) value = VideoMetadataReader.read(entry)
+    }
+    val fileComment by produceState<String?>(
+        initialValue = null,
+        entry.id,
+        entry.mtime,
+        entry.size,
+    ) {
+        if (isVideo) value = VideoCommentReader.read(entry)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            SelectionContainer {
+                Text(entry.name)
+            }
+        },
+        text = {
+            SelectionContainer {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    val displayLocation = when (entry.scheme) {
+                        XId.SCHEME_SMB -> Graph.smbConnections.displayPathForId(entry.id)
+                        else -> entry.path
+                    }
+                    Text(stringResource(R.string.location, displayLocation))
+                    if (!entry.isDir) {
+                        Text(stringResource(R.string.size, Format.bytes(entry.size)))
+                    }
+                    Text(stringResource(R.string.modified, Format.dateTime(entry.mtime)))
+                    entry.mime?.let { Text(stringResource(R.string.file_type, it)) }
+                    videoMetadata?.let { metadata ->
+                        if (metadata.width != null && metadata.height != null) {
+                            Text(
+                                stringResource(
+                                    R.string.video_resolution,
+                                    "${metadata.width} × ${metadata.height}",
+                                ),
+                            )
+                        }
+                        metadata.frameRate?.let {
+                            Text(
+                                stringResource(
+                                    R.string.video_frame_rate,
+                                    formatVideoFrameRate(it),
+                                ),
+                            )
+                        }
+                        metadata.durationMs?.let {
+                            Text(
+                                stringResource(
+                                    R.string.video_duration,
+                                    formatVideoDuration(it),
+                                ),
+                            )
+                        }
+                        metadata.codec?.let {
+                            Text(stringResource(R.string.video_codec, it))
+                        }
+                        metadata.bitrate?.let {
+                            Text(
+                                stringResource(
+                                    R.string.video_bitrate,
+                                    formatVideoBitrate(it),
+                                ),
+                            )
+                        }
+                    }
+                    fileComment?.let { comment ->
+                        Text("コメント: $comment")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        },
+    )
 }
