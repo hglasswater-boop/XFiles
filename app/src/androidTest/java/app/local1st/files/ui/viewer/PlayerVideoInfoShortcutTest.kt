@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
@@ -11,6 +12,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -21,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import app.local1st.files.core.fs.XEntry
 import app.local1st.files.ui.dialogs.FileDetailsDialog
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -70,4 +74,40 @@ class PlayerVideoInfoShortcutTest {
         compose.onNodeWithText("video/mp4", substring = true).assertExists()
         compose.runOnIdle { assertEquals(0, dismissed) }
     }
+
+    @Test
+    fun leftChevronReturnsToFileListWithoutTriggeringVideoTap() {
+        var backClicks = 0
+        var videoTaps = 0
+        compose.setContent {
+            MaterialTheme {
+                Box(Modifier.clickable { videoTaps++ }) {
+                    PlayerVideoBackButton(onClick = { backClicks++ })
+                }
+            }
+        }
+        compose.onNodeWithTag("player-video-back").performClick()
+        compose.runOnIdle {
+            assertEquals(1, backClicks)
+            assertEquals(0, videoTaps)
+        }
+    }
+
+    @Test
+    fun longVideoFilenameWrapsToTwoLinesAtMost() {
+        compose.setContent {
+            MaterialTheme {
+                Box(Modifier.requiredWidth(136.dp)) {
+                    PlayerVideoTitle("2026-11-20 extremely long filename with Japanese 漢字 and extra words.mp4")
+                }
+            }
+        }
+        val results = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithTag("player-video-title").fetchSemanticsNode()
+            .config[SemanticsActions.GetTextLayoutResult].action?.invoke(results)
+        assertEquals(1, results.size)
+        assertEquals(2, results.single().lineCount)
+        assertTrue(results.single().hasVisualOverflow)
+    }
+
 }
